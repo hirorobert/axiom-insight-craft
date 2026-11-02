@@ -10,8 +10,8 @@
  *   token    POST https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer      (authorisation-code exchange and refresh; no query)
  *
  * Nothing else: no other report, no query/entity endpoint, no write method, no other host (look-alikes, userinfo, ports, plain
- * http, fragments, encoded or doubled path segments are all refused), no redirect following. Revocation on disconnect is NOT on
- * the list yet: its endpoint has not been verified against Intuit's documentation, and an unverified endpoint is not added.
+ * http, fragments, encoded or doubled path segments are all refused), no redirect following. Preferences GET and the exact
+ * OAuth revoke POST are allowed separately (Intuit OAuth documentation, Step 16, verified 2026-11-02).
  * Every call is abandoned after a fixed time (QBO_TIMEOUTS_MS), so a refresh can never outlast the refresh lease that protects it.
  *
  * Pure apart from the injected fetch; no credentials are read, stored or logged here.
@@ -25,6 +25,9 @@ export const QBO_API_HOSTS: Readonly<Record<QboEnvironment, string>> = Object.fr
 });
 export const QBO_TOKEN_HOST = "oauth.platform.intuit.com";
 export const QBO_TOKEN_PATH = "/oauth2/v1/tokens/bearer";
+const QBO_REVOKE_HOST = "developer.api.intuit.com";
+const QBO_REVOKE_PATH = "/v2/oauth2/tokens/revoke";
+export const QBO_REVOKE_URL = `https://${QBO_REVOKE_HOST}${QBO_REVOKE_PATH}`;
 
 /** The only reports the connector may read. TrialBalanceFR (France) is deliberately absent until a French sample is recorded. */
 export const QBO_ALLOWED_REPORTS: readonly string[] = Object.freeze(["TrialBalance"]);
@@ -36,7 +39,7 @@ const REPORT_QUERY: Readonly<Record<string, RegExp>> = Object.freeze({
   minorversion: /^\d{1,3}$/,
 });
 
-export type QboRequestKind = "report" | "token";
+export type QboRequestKind = "report" | "token" | "preferences" | "revoke";
 export type QboRequestVerdict = { ok: true; kind: QboRequestKind; environment: QboEnvironment | null } | { ok: false; reason: string };
 
 const no = (reason: string): QboRequestVerdict => ({ ok: false, reason });
@@ -53,6 +56,11 @@ export function classifyQboRequest(req: { method: string; url: string }): QboReq
   if (u.port !== "") return no("a port is not allowed");
   if (u.hash !== "") return no("a fragment is not allowed");
 
+  if (u.hostname === QBO_REVOKE_HOST) {
+    return req.method === "POST" && u.pathname === QBO_REVOKE_PATH && !u.search
+      ? { ok: true, kind: "revoke", environment: null } : no("only the fixed OAuth revocation POST is allowed");
+  }
+
   if (u.hostname === QBO_TOKEN_HOST) {
     if (req.method !== "POST") return no("the token endpoint is called with POST only");
     if (u.pathname !== QBO_TOKEN_PATH || u.search !== "") return no("only the token path, without a query, is allowed");
@@ -62,6 +70,12 @@ export function classifyQboRequest(req: { method: string; url: string }): QboReq
   const environment = (Object.keys(QBO_API_HOSTS) as QboEnvironment[]).find((e) => QBO_API_HOSTS[e] === u.hostname);
   if (!environment) return no(`the host "${u.hostname}" is not allowed`);
   if (req.method !== "GET") return no("QuickBooks data is read with GET only");
+  const preferences = /^\/v3\/company\/\d{1,20}\/preferences$/.test(u.pathname);
+  if (preferences) {
+    const entries = [...u.searchParams];
+    if (entries.length > 1 || entries.some(([k, v]) => k !== "minorversion" || !/^\d{1,3}$/.test(v))) return no("only minorversion is allowed for Preferences");
+    return { ok: true, kind: "preferences", environment };
+  }
   const m = /^\/v3\/company\/(\d{1,20})\/reports\/([A-Za-z]+)$/.exec(u.pathname);
   if (!m) return no("only /v3/company/<id>/reports/<report> is allowed");
   if (!QBO_ALLOWED_REPORTS.includes(m[2])) return no(`the report "${m[2]}" is not allowed`);
@@ -87,6 +101,12 @@ export class QboGuardRefusal extends Error {
 
 export const QBO_TOKEN_URL = `https://${QBO_TOKEN_HOST}${QBO_TOKEN_PATH}`;
 export const QBO_ACCOUNTING_SCOPE = "com.intuit.quickbooks.accounting";
+export function qboPreferencesUrl(environment: QboEnvironment, realmId: string, minorVersion: number): string {
+  const url = `https://${QBO_API_HOSTS[environment]}/v3/company/${realmId}/preferences?minorversion=${minorVersion}`;
+  const verdict = classifyQboRequest({ method: "GET", url });
+  if (!verdict.ok) throw new QboGuardRefusal(verdict.reason);
+  return url;
+}
 // The authorisation page is a BROWSER redirect target. The server never fetches it, so it is not on the request allow-list above.
 const QBO_AUTHORIZE_BASE = "https://appcenter.intuit.com/connect/oauth2";
 
@@ -99,7 +119,7 @@ export function qboAuthorizeUrl(a: { clientId: string; redirectUri: string; stat
   return `${QBO_AUTHORIZE_BASE}?${q.toString()}`;
 }
 
-/** The address of one Trial Balance report. Always both dates (a lone end date is ignored by QuickBooks). Refused unless the guard would allow it. */
+/** The address of one Trial Balance report. Always both dates (start_date is not proof of fiscal YTD alignment). Refused unless the guard would allow it. */
 export function qboReportUrl(a: { environment: QboEnvironment; realmId: string; startDate: string; endDate: string; accountingMethod?: "Accrual" | "Cash"; minorVersion?: number }): string {
   const q = new URLSearchParams({ start_date: a.startDate, end_date: a.endDate });
   if (a.accountingMethod) q.set("accounting_method", a.accountingMethod);
@@ -120,17 +140,36 @@ type FetchLike = (url: string, init: { method: string; headers?: Record<string, 
 
 /**
  * How long a call to Intuit may take, response body included, before it is abandoned (the caller sees a network failure). The token call is the one
- * that matters: it runs under the 90-second refresh lease (qboPull.REFRESH_LEASE_SECONDS), and must end well inside it so that the lease can never
+ * that matters: it runs under the 300-second full-import lease (qboPull.REFRESH_LEASE_SECONDS), and must end well inside it so that the lease can never
  * lapse while this import is still waiting for Intuit, which would let a second import present the same refresh token.
  */
-export const QBO_TIMEOUTS_MS: Readonly<Record<QboRequestKind, number>> = Object.freeze({ token: 30_000, report: 60_000 });
+export const QBO_TIMEOUTS_MS: Readonly<Record<QboRequestKind, number>> = Object.freeze({ token: 30_000, report: 60_000, preferences: 15_000, revoke: 15_000 });
 
 /** The only way the connector calls Intuit. Refuses before any network call; never follows a redirect; never waits longer than its timeout. */
 export function createGuardedQboFetch(fetchImpl: FetchLike, timeoutsMs: Readonly<Record<QboRequestKind, number>> = QBO_TIMEOUTS_MS) {
   return async function guardedQboFetch(req: GuardedRequest): Promise<Response> {
     const verdict = classifyQboRequest(req);
     if (!verdict.ok) throw new QboGuardRefusal(verdict.reason);
-    if (verdict.kind === "report" && req.body !== undefined) throw new QboGuardRefusal("a report request has no body");
-    return fetchImpl(req.url, { method: req.method, headers: req.headers, body: req.body, redirect: "error", signal: AbortSignal.timeout(timeoutsMs[verdict.kind]) });
+    if ((verdict.kind === "report" || verdict.kind === "preferences") && req.body !== undefined) throw new QboGuardRefusal("a report request has no body");
+    const controller = new AbortController();
+    const deadline = setTimeout(() => controller.abort(new DOMException("Request timed out", "TimeoutError")), timeoutsMs[verdict.kind]);
+    try {
+      const response = await fetchImpl(req.url, { method: req.method, headers: req.headers, body: req.body, redirect: "error", signal: controller.signal });
+      const reader = response.body?.getReader(); const chunks: Uint8Array[] = []; let size = 0;
+      if (reader) {
+        try {
+          while (true) {
+            const { done, value } = await reader.read(); if (done) break;
+            size += value.byteLength;
+            if (size > 5_000_000) { await reader.cancel(); return new Response(null, { status: 413 }); }
+            chunks.push(value);
+          }
+        } finally { reader.releaseLock(); }
+      }
+      const bytes = new Uint8Array(size); let offset = 0;
+      for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+      return new Response(response.status === 204 || response.status === 205 || response.status === 304 ? null : bytes, { status: response.status, headers: response.headers });
+    } finally { clearTimeout(deadline); }
+
   };
 }

@@ -27,7 +27,9 @@ export interface QboEnvConfig {
 export function readQboEnv(get: Get): QboEnvConfig {
   const upper = (e: QboEnvironment) => e.toUpperCase();
   const credentials = (e: QboEnvironment) => {
+    if (e === "production" && get("QBO_PRODUCTION_APPROVED") !== "true") return null;
     const id = get(`QBO_CLIENT_ID_${upper(e)}`), secret = get(`QBO_CLIENT_SECRET_${upper(e)}`);
+    if (e === "production" && (id?.trim() === get("QBO_CLIENT_ID_SANDBOX")?.trim() || secret?.trim() === get("QBO_CLIENT_SECRET_SANDBOX")?.trim())) return null;
     return present(id) && present(secret) ? { clientId: id.trim(), clientSecret: secret.trim() } : null;
   };
   const redirect = get("QBO_REDIRECT_URI");

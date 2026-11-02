@@ -56,6 +56,7 @@ import PaymentReturn from "@/pages/billing/PaymentReturn";
 import CommercialAdmin from "@/pages/commercial/CommercialAdmin";
 import AccessConsole from "@/pages/admin/AccessConsole";
 const QuickBooksSandbox = lazy(() => import("@/pages/admin/QuickBooksSandbox"));
+const QuickBooksDisconnect = lazy(() => import("@/pages/QuickBooksDisconnect"));
 import Pricing from "@/pages/Pricing";
 import Plans from "@/pages/Plans";
 import { serviceEnquiryRoutes } from "@/lib/serviceEnquiry/serviceEnquiryRoutes";
@@ -179,6 +180,7 @@ function AppRoutes() {
 
                 {/* ── Auth + utility ── */}
                 <Route path="/auth" element={<Auth />} />
+                <Route path="/quickbooks/disconnect" element={<Suspense fallback={<PagePending />}><QuickBooksDisconnect /></Suspense>} />
                 <Route path="/companies/new" element={<PageErrorBoundary pageName="Add company"><Suspense fallback={<PagePending />}><AddCompany /></Suspense></PageErrorBoundary>} />
                 <Route path="/pricing" element={<Pricing />} />
                 <Route path="/request-access" element={<Navigate to="/pricing" replace />} />

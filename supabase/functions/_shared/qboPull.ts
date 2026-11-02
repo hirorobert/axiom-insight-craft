@@ -8,12 +8,12 @@
  *   1 login  2 BOTH rights an import needs, before Intuit is touched: prepare_trial_balance (the connector's own) and manage_source_files (the upload
  *     steps', judged again for the person at reserve and register)  3 a live connection  4 open the stored refresh token
  *   5 take the refresh LEASE (a second simultaneous import is told "busy" here and never reaches Intuit; only this import's own lease id gives it back)
- *   6 refresh (Intuit; abandoned after 30 s, well inside the 90-second lease)
+ *   6 refresh (Intuit; abandoned after 30 s, well inside the bounded operation lease)
  *   7 ROTATE: the new refresh token is sealed and stored by compare-and-swap BEFORE the new access token is used; a lost race stops here. The swap is
  *     safe to retry, so a lost answer or a passing database fault is retried rather than throwing the newest token away.
  *     The one window no code can close: if the function dies after Intuit has issued the new token and before the swap is stored, the stored token
  *     may be one Intuit no longer accepts. The next import then gets invalid_grant and the connection asks for a reconnect; nothing is imported wrongly.
- *   8 fetch the report through the read-only guard  9 convert (qboTrialBalance: 25 reasons to refuse, never repaired)  10 check the report's own period
+ *   8 verify saved period against Preferences fiscal YTD, then fetch through the read-only guard  9 convert (qboTrialBalance: 25 reasons to refuse, never repaired)  10 check the report's own period
  *   11 hash the raw response, the canonical file and the normalised result  12 reserve the upload
  *   13 EVIDENCE FIRST: record the intent (the facts and the three fingerprints, keyed by the reservation). If this cannot be written, NOTHING is stored.
  *   14 store the file and register the upload as the person  15 link the intent to the upload the reservation created (idempotent, retried).
@@ -24,13 +24,14 @@
 import { parseQboTrialBalanceReport, toCanonicalCsv, type QboTbRefusalCode } from "./qboTrialBalance.ts";
 import { connectionBinding, type EnvelopeBinding } from "./qboTokenEnvelope.ts";
 import type { TokenResult } from "./qboTokenClient.ts";
+import { alignQboFiscalBasis, type QboSavedPeriod, type QboFiscalBasis } from "./qboFiscalBasis.ts";
 import type { QboEnvironment } from "./qboReadOnlyGuard.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_REPORT_CHARS = 5_000_000;
-/** Long enough for one refresh round trip (the token call is abandoned after QBO_TIMEOUTS_MS.token = 30 s), short enough that a crashed import never blocks the next for long. */
-export const REFRESH_LEASE_SECONDS = 90;
+/** Long enough for one refresh round trip (the token call is abandoned after QBO_TIMEOUTS_MS.token = 30 s), plus bounded fiscal/report reads, short enough that a crashed import never blocks the next for long. */
+export const REFRESH_LEASE_SECONDS = 300;
 
 export interface PullRequest {
   companyId: string; environment: QboEnvironment; realmId: string; startDate: string; endDate: string; periodYear: number;
@@ -65,12 +66,15 @@ export interface StoredConnection { id: string; status: "active" | "reconnect_ne
 /** The facts recorded BEFORE the file is stored, keyed by the upload reservation (the workspace comes from the reservation, never from here). */
 export interface ProvenanceRecord {
   reservationId: string; connectionId: string; actorUserId: string; realmId: string; environment: QboEnvironment; startDate: string; endDate: string;
-  accountingMethod: string | null; minorVersion: number | null; currency: string; accountCount: number; rawSha256: string; canonicalSha256: string; resultSha256: string;
+  fiscalBasis: QboFiscalBasis & { operationLeaseId: string }; periodId: string; accountingMethod: string | null; minorVersion: number | null; currency: string; accountCount: number; rawSha256: string; canonicalSha256: string; resultSha256: string;
 }
 export type CompletePullResult = "completed" | "already" | "not_registered" | "no_intent" | "no_reservation";
 
 export interface PullDeps {
   authenticate(): Promise<string | null>;
+  savedPeriod(userId: string, request: PullRequest): Promise<QboSavedPeriod | null>;
+  fetchPreferences(environment: QboEnvironment, realmId: string, accessToken: string): Promise<{ status: number; text: string }>;
+  connectionActive(connectionId: string): Promise<boolean>;
   /** workspace_authority_basis(user, company, 'prepare_trial_balance') is not null. */
   canPrepare(userId: string, companyId: string): Promise<boolean>;
   /** workspace_authority_basis(user, company, 'manage_source_files') is not null: the right the upload steps need. Both are required; neither implies the other. */
@@ -88,7 +92,7 @@ export interface PullDeps {
   refresh(environment: QboEnvironment, refreshToken: string): Promise<TokenResult>;
   sealRefreshToken(refreshToken: string, binding: EnvelopeBinding): Promise<string>;
   /** Compare-and-swap: true only if `expected` was still the stored envelope, or if `next` already is (a retry whose first answer was lost). Safe to retry. */
-  rotate(connectionId: string, expected: string, next: string, refreshExpiresAt: string, hardExpiresAt: string | null): Promise<boolean>;
+  rotate(connectionId: string, expected: string, next: string, refreshExpiresAt: string, hardExpiresAt: string | null, leaseId: string): Promise<boolean>;
   /** Deletes the token Intuit refused, and only that one: if another import has stored a newer token meanwhile, nothing changes. */
   markReconnectNeeded(connectionId: string, refusedEnvelope: string): Promise<void>;
   fetchReport(environment: QboEnvironment, realmId: string, accessToken: string, p: { startDate: string; endDate: string; accountingMethod?: "Accrual" | "Cash" }): Promise<{ status: number; text: string }>;
@@ -129,6 +133,9 @@ export async function runQboPull(deps: PullDeps, req: PullRequest): Promise<Pull
   // Both rights, before Intuit is touched: a person who could prepare but not upload must not cause a token refresh that can only end in a refusal.
   if (!(await deps.canPrepare(userId, req.companyId))) return fail(403, "forbidden");
   if (!(await deps.canManageSources(userId, req.companyId))) return fail(403, "forbidden");
+  const period = await deps.savedPeriod(userId, req);
+  if (!period || period.companyId !== req.companyId || period.year !== req.periodYear || period.id !== req.periodId
+      || period.start !== req.startDate || period.end !== req.endDate) return fail(422, "saved_period_mismatch");
   await deps.completePending?.().catch(() => undefined);
 
   const conn = await deps.findConnection(req.companyId, req.realmId, req.environment);
@@ -142,7 +149,6 @@ export async function runQboPull(deps: PullDeps, req: PullRequest): Promise<Pull
   // The lease comes BEFORE Intuit: two simultaneous imports can never present the same refresh token together. The second is told "busy" without any call.
   const leaseId = await deps.acquireRefreshLease(conn.id, presented);
   if (!leaseId) return fail(409, "busy");
-  let rotatedAway = false;   // a stored rotation has already cleared the lease; in every other case it is given back, by its own id
   let accessToken: string;
   try {
     const refreshed = await deps.refresh(req.environment, stored);
@@ -154,58 +160,71 @@ export async function runQboPull(deps: PullDeps, req: PullRequest): Promise<Pull
     // Intuit rolls the refresh token over: the newest one is stored BEFORE the new access token is used. A lost race (another pull rotated first) stops here.
     // The swap is retried: it is safe to retry, and Intuit may already have retired the token we presented, so the new one must not be dropped lightly.
     const next = await deps.sealRefreshToken(refreshed.tokens.refreshToken, binding);
-    const rotated = await attempt(() => deps.rotate(conn.id, presented, next, refreshed.tokens.refreshExpiresAt, refreshed.tokens.hardExpiresAt), pause);
+    const rotated = await attempt(() => deps.rotate(conn.id, presented, next, refreshed.tokens.refreshExpiresAt, refreshed.tokens.hardExpiresAt, leaseId), pause);
     if (!rotated.ok) return fail(500, "pull_failed");
     if (!rotated.value) return fail(409, "busy");
-    rotatedAway = true;
     accessToken = refreshed.tokens.accessToken;
-  } finally {
-    if (!rotatedAway) await deps.releaseRefreshLease(conn.id, leaseId).catch(() => undefined);
-  }
 
-  const res = await deps.fetchReport(req.environment, req.realmId, accessToken, { startDate: req.startDate, endDate: req.endDate, accountingMethod: req.accountingMethod });
-  if (res.status === 429) return fail(429, "rate_limited");
-  if (res.status >= 500) return fail(503, "quickbooks_unavailable");
-  if (res.status !== 200) return fail(502, "report_failed");
-  if (res.text.length > MAX_REPORT_CHARS) return fail(502, "report_too_large");
-  let json: unknown;
-  try { json = JSON.parse(res.text); } catch { return fail(502, "report_unreadable"); }
+    // All work remains inside the operation lease. SQL keeps it across rotation and fences registration.
+    const preferences = await deps.fetchPreferences(req.environment, req.realmId, accessToken);
+    if (preferences.status === 429 || preferences.status === 402) return fail(429, "rate_limited");
+    if (preferences.status !== 200) return fail(503, "fiscal_configuration_missing");
+    let preferencesJson: unknown;
+    try { preferencesJson = JSON.parse(preferences.text); } catch { return fail(422, "fiscal_configuration_missing"); }
+    const alignment = alignQboFiscalBasis(period, preferencesJson, await deps.sha256Hex(preferences.text));
+    if (!alignment.ok) return fail(422, alignment.outcome, { message: alignment.message });
+    const fiscalBasis = alignment.basis;
+    if (req.accountingMethod && req.accountingMethod !== fiscalBasis.accountingMethod) return fail(422, "accounting_basis_mismatch");
+    const res = await deps.fetchReport(req.environment, req.realmId, accessToken, { startDate: req.startDate, endDate: req.endDate, accountingMethod: fiscalBasis.accountingMethod });
+    if (res.status === 429 || res.status === 402) return fail(429, "rate_limited");
+    if (res.status === 413) return fail(502, "report_too_large");
+    if (res.status >= 500) return fail(503, "quickbooks_unavailable");
+    if (res.status !== 200) return fail(502, "report_failed");
+    if (res.text.length > MAX_REPORT_CHARS) return fail(502, "report_too_large");
+    let json: unknown;
+    try { json = JSON.parse(res.text); } catch { return fail(502, "report_unreadable"); }
 
-  const parsed = parseQboTrialBalanceReport(json);
-  if (!parsed.ok) return fail(422, "report_refused", { code: parsed.code, message: parsed.message });
-  const report = parsed.report;
-  if (report.startPeriod !== req.startDate || report.endPeriod !== req.endDate) {
-    return fail(422, "period_mismatch", { message: `QuickBooks returned ${report.startPeriod} to ${report.endPeriod}, not the ${req.startDate} to ${req.endDate} that was asked for.` });
-  }
+    const parsed = parseQboTrialBalanceReport(json);
+    if (!parsed.ok) return fail(422, "report_refused", { code: parsed.code, message: parsed.message });
+    const report = parsed.report;
+    if (report.currency !== period.currency) return fail(422, "currency_mismatch");
+    if (report.basis !== fiscalBasis.accountingMethod) return fail(422, "accounting_basis_mismatch");
+    if (report.startPeriod !== fiscalBasis.fiscalStart || report.endPeriod !== req.endDate) {
+      return fail(422, "period_mismatch", { message: `QuickBooks returned ${report.startPeriod} to ${report.endPeriod}, not the ${req.startDate} to ${req.endDate} that was asked for.` });
+    }
 
-  const csv = new TextEncoder().encode(toCanonicalCsv(report));
-  const [rawSha256, canonicalSha256, summary] = await Promise.all([deps.sha256Hex(res.text), deps.sha256Hex(csv), deps.summarise(csv, report.currency, req.periodYear)]);
+    const csv = new TextEncoder().encode(toCanonicalCsv(report));
+    const [rawSha256, canonicalSha256, summary] = await Promise.all([deps.sha256Hex(res.text), deps.sha256Hex(csv), deps.summarise(csv, report.currency, req.periodYear)]);
 
-  const fileName = `quickbooks-${req.environment === "sandbox" ? "sandbox-" : ""}${req.realmId}-${req.endDate}.csv`;
-  const reserved = await deps.reserve(req.companyId, fileName);
-  if (!reserved.ok) return reserved.reason === "forbidden" ? fail(403, "forbidden") : fail(500, "reserve_failed");
+    const fileName = `quickbooks-${req.environment === "sandbox" ? "sandbox-" : ""}${req.realmId}-${req.endDate}.csv`;
+    if (!(await deps.connectionActive(conn.id))) return fail(409, "disconnected");
+    const reserved = await deps.reserve(req.companyId, fileName);
+    if (!reserved.ok) return reserved.reason === "forbidden" ? fail(403, "forbidden") : fail(500, "reserve_failed");
 
-  // EVIDENCE FIRST. Nothing is stored or registered unless the facts of this report are already on record. If they cannot be written, the import stops here
-  // and says so: there is no upload, so there is nothing that lacks its evidence (the unused reservation expires and is swept by the existing sweeper).
-  const intent = await attempt(() => deps.recordIntent({
-    reservationId: reserved.reservationId, connectionId: conn.id, actorUserId: userId, realmId: req.realmId, environment: req.environment,
-    startDate: req.startDate, endDate: req.endDate, accountingMethod: req.accountingMethod ?? null, minorVersion: deps.minorVersion, currency: report.currency,
-    accountCount: summary.accountCount, rawSha256, canonicalSha256, resultSha256: summary.resultSha256,
-  }), pause);
-  if (!intent.ok) return fail(500, "provenance_failed");
+    // EVIDENCE FIRST. Nothing is stored or registered unless the facts of this report are already on record. If they cannot be written, the import stops here
+    // and says so: there is no upload, so there is nothing that lacks its evidence (the unused reservation expires and is swept by the existing sweeper).
+    const intent = await attempt(() => deps.recordIntent({
+      reservationId: reserved.reservationId, connectionId: conn.id, actorUserId: userId, realmId: req.realmId, environment: req.environment,
+      startDate: fiscalBasis.fiscalStart, endDate: fiscalBasis.asOf, fiscalBasis: { ...fiscalBasis, operationLeaseId: leaseId }, periodId: period.id,
+      accountingMethod: fiscalBasis.accountingMethod, minorVersion: deps.minorVersion, currency: report.currency,
+      accountCount: summary.accountCount, rawSha256, canonicalSha256, resultSha256: summary.resultSha256,
+    }), pause);
+    if (!intent.ok) return fail(500, "provenance_failed");
 
-  if (!(await deps.putObject(reserved.objectPath, csv))) return fail(500, "store_failed");
-  const registered = await deps.register(reserved.reservationId, csv.byteLength, req.periodYear, req.periodId, req.engagementId);
-  if ((registered.outcome !== "registered" && registered.outcome !== "already_registered") || !registered.uploadId) {
-    await deps.removeObject(reserved.objectPath).catch(() => undefined);
-    if (registered.outcome === "active_upload_exists") return fail(409, "active_upload_exists");
-    if (registered.outcome === "forbidden") return fail(403, "forbidden");
-    return fail(500, "register_failed");
-  }
+    if (!(await deps.putObject(reserved.objectPath, csv))) return fail(500, "store_failed");
+    const registered = await deps.register(reserved.reservationId, csv.byteLength, req.periodYear, req.periodId, req.engagementId);
+    if ((registered.outcome !== "registered" && registered.outcome !== "already_registered") || !registered.uploadId) {
+      if (registered.outcome === "unconfirmed") return fail(503, "registration_unconfirmed");
+      await deps.removeObject(reserved.objectPath).catch(() => undefined);
+      if (registered.outcome === "active_upload_exists") return fail(409, "active_upload_exists");
+      if (registered.outcome === "forbidden") return fail(403, "forbidden");
+      return fail(500, "register_failed");
+    }
 
-  // The upload exists and its evidence is already on record; link them. Idempotent, so a transient failure is simply retried.
-  const linked = await attempt(() => deps.completePull(reserved.reservationId), pause);
-  const done = { uploadId: registered.uploadId, currency: report.currency, accountCount: summary.accountCount, startDate: req.startDate, endDate: req.endDate };
-  if (linked.ok && (linked.value === "completed" || linked.value === "already")) return { status: 200, outcome: "imported", ...done };
-  return { status: 202, outcome: "imported_record_pending", ...done };
+    // The upload exists and its evidence is already on record; link them. Idempotent, so a transient failure is simply retried.
+    const linked = await attempt(() => deps.completePull(reserved.reservationId), pause);
+    const done = { uploadId: registered.uploadId, currency: report.currency, accountCount: summary.accountCount, startDate: req.startDate, endDate: req.endDate };
+    if (linked.ok && (linked.value === "completed" || linked.value === "already")) return { status: 200, outcome: "imported", ...done };
+    return { status: 202, outcome: "imported_record_pending", ...done };
+  } finally { await deps.releaseRefreshLease(conn.id, leaseId).catch(() => undefined); }
 }

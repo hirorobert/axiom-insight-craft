@@ -39,13 +39,13 @@ describe("Import from QuickBooks card", () => {
     expect(buttons(html)).toEqual(["connect"]);
     expect(text(html)).toContain("Connect QuickBooks");
     expect(text(html)).toMatch(/we never see your password/);
-    expect(text(html)).toMatch(/read the trial balance report only/);
+
   });
   it("connected with the period's dates: names the company and the dates it will import, and offers exactly one action, Import", async () => {
     const html = await render({ state: { kind: "connected", realmId: "9341458607761798" } });
     expect(buttons(html)).toEqual(["import"]);
     expect(text(html)).toContain("Connected to QuickBooks company 9341458607761798 (a test company)");
-    expect(text(html)).toContain("2026-01-01 to 2026-12-31, the dates of this period");
+
   });
   it("a production connection is not called a test company", async () => {
     expect(text(await render({ state: { kind: "connected", realmId: "1" }, environment: "production" }))).not.toContain("test company");

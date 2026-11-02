@@ -14,7 +14,7 @@ import { useQboSandboxAccess } from "@/hooks/useQboSandboxAccess";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
 import { invokeProcessing, type FunctionsClient } from "@/lib/workspace/processingInvoke";
 import {
-  QBO_CONNECTOR_ENABLED, QBO_ENVIRONMENT, RECORD_PENDING_NOTE, connectionState, fetchConnections, finishConnect, pullFromQuickBooks, readHandoff, startConnect,
+  QBO_CONNECTOR_ENABLED, QBO_ENVIRONMENT, disconnectQuickBooks, RECORD_PENDING_NOTE, connectionState, fetchConnections, finishConnect, pullFromQuickBooks, readHandoff, startConnect,
   type QboConnectionState,
 } from "@/lib/workspace/qboConnectorClient";
 
@@ -30,13 +30,15 @@ export interface QuickBooksImportViewProps {
   state: QboConnectionState | "checking";
   environment: "sandbox" | "production";
   period: PeriodDates | "loading";
-  busy: "connect" | "finish" | "import" | null;
+  busy: "connect" | "finish" | "import" | "disconnect" | null;
   /** The status word the OAuth redirect came back with (or "connected" once the finish step succeeded), shown once. */
   returned: ReturnedStatus | null;
   /** The result of the last import attempt (a plain sentence) and whether it succeeded. */
   result: { ok: boolean; text: string; detail?: string } | null;
   onConnect(): void;
   onImport(): void;
+  onDisconnect?(): void;
+  revocationPending?: boolean;
 }
 
 /** Pure view: no data access, no effects. What it shows is decided by its props, so every state is testable. */
@@ -44,7 +46,7 @@ export function QuickBooksImportView(p: QuickBooksImportViewProps): JSX.Element 
   if (p.state !== "checking" && p.state.kind === "unavailable") return null;
   const test = p.environment === "sandbox" ? " (a test company)" : "";
   const hasDates = p.period !== "loading" && !!p.period.start && !!p.period.end;
-  const action = p.state === "checking" ? null
+  const action = p.revocationPending || p.state === "checking" ? null
     : p.state.kind === "none" ? { id: "connect" as const, label: "Connect QuickBooks" }
     : p.state.kind === "reconnect" ? { id: "connect" as const, label: "Reconnect QuickBooks" }
     : p.state.kind === "connected" && hasDates ? { id: "import" as const, label: "Import from QuickBooks" } : null;
@@ -58,13 +60,13 @@ export function QuickBooksImportView(p: QuickBooksImportViewProps): JSX.Element 
           {kind === "checking" && <p className="mt-1 text-[13px] text-muted-foreground">Checking the QuickBooks connection…</p>}
           {kind === "none" && (
             <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
-              Bring this period's trial balance in straight from QuickBooks instead of exporting a file. You sign in at QuickBooks, so we never see your password, and access is used to read the trial balance report only.
+              Bring this period's trial balance in straight from QuickBooks instead of exporting a file. You sign in at QuickBooks, so we never see your password, and access is used only to read the trial balance report and verify fiscal settings.
             </p>
           )}
           {kind === "connected" && p.state !== "checking" && p.state.kind === "connected" && (
             <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
               Connected to QuickBooks company {p.state.realmId}{test}.{" "}
-              {hasDates && p.period !== "loading" ? <>It will import {p.period.start} to {p.period.end}, the dates of this period.</> : p.period === "loading" ? "Reading this period's dates…" : "Set this period's start and end dates first; the import uses them."}
+              {hasDates && p.period !== "loading" ? <>As of {p.period.end}, on QuickBooks fiscal year-to-date basis. Its verified fiscal start must match this saved period’s start, {p.period.start}.</> : p.period === "loading" ? "Reading this period's dates…" : "Set this period's start and end dates first; the import uses them."}
             </p>
           )}
           {kind === "reconnect" && (
@@ -85,6 +87,7 @@ export function QuickBooksImportView(p: QuickBooksImportViewProps): JSX.Element 
         </div>
       )}
 
+      {(kind === "connected" || p.revocationPending) && p.onDisconnect && <Button type="button" variant="ghost" disabled={p.busy !== null} onClick={p.onDisconnect}>{p.revocationPending ? "Retry QuickBooks disconnect" : "Disconnect QuickBooks"}</Button>}
       {action && (
         <Button type="button" variant="outline" size="sm" onClick={action.id === "connect" ? p.onConnect : p.onImport} disabled={p.busy !== null}
           className="h-auto min-h-10 w-full rounded-none px-4 py-2 text-[13px] font-semibold shadow-none sm:w-auto" data-testid="quickbooks-action" data-action={action.id}>
@@ -128,15 +131,22 @@ function QuickBooksImportSession({ companyId, periodYear, periodId, engagementId
   const [state, setState] = useState<QboConnectionState | "checking">("checking");
   const [period, setPeriod] = useState<PeriodDates | "loading">(periodId ? "loading" : { start: null, end: null });
   const [handoff] = useState<string | null>(handoffFromAddress);
-  const [busy, setBusy] = useState<"connect" | "finish" | "import" | null>(handoff ? "finish" : null);
+  const [busy, setBusy] = useState<"connect" | "finish" | "import" | "disconnect" | null>(handoff ? "finish" : null);
   const [result, setResult] = useState<{ ok: boolean; text: string; detail?: string } | null>(null);
   const [returned, setReturned] = useState<ReturnedStatus | null>(returnedFromAddress);
   const working = useRef(false);
   const finished = useRef(false);
+  const disconnectRequest = useRef<string | null>(null);
+  const [pendingDisconnect, setPendingDisconnect] = useState<{ connectionId: string; requestId: string } | null>(null);
 
   useEffect(() => {
     if (!enabled) return;
     let live = true;
+    void (supabase as unknown as { rpc(n: string, a: Record<string, unknown>): PromiseLike<{ data: unknown; error: unknown }> }).rpc("qbo_pending_disconnect", { p_company: companyId }).then(({ data, error }) => {
+      if (!live || error || !data || typeof data !== "object") return;
+      const p = data as Record<string, unknown>;
+      if (typeof p.connectionId === "string" && typeof p.requestId === "string") { setPendingDisconnect({ connectionId: p.connectionId, requestId: p.requestId }); disconnectRequest.current = p.requestId; }
+    });
     void fetchConnections(supabase as never, companyId).then((rows) => { if (live) setState(connectionState(rows, QBO_ENVIRONMENT)); });
     return () => { live = false; };
   }, [enabled, companyId]);
@@ -207,6 +217,19 @@ function QuickBooksImportSession({ companyId, periodYear, periodId, engagementId
     }
   }, [companyId, engagementId, onImported, period, periodId, periodYear, state]);
 
+  const disconnect = async () => {
+    const connectionId = pendingDisconnect?.connectionId ?? (state !== "checking" && state.kind === "connected" ? state.connectionId : null);
+    if (working.current || !connectionId) return;
+    if (!disconnectRequest.current && !window.confirm("Disconnect QuickBooks? Saved imports remain unchanged. New imports stop and QuickBooks access will be revoked.")) return;
+    const request = disconnectRequest.current ?? crypto.randomUUID(); disconnectRequest.current = request;
+    working.current = true; setBusy("disconnect");
+    try {
+      const answer = await disconnectQuickBooks(supabase as never, connectionId, request);
+      setResult({ ok: answer.confirmed, text: answer.confirmed ? "QuickBooks disconnected. Saved imports are unchanged." : answer.outcome === "revocation_busy" ? "A disconnect is already running. Wait a minute, then retry the same request." : answer.outcome === "busy" ? "An import is running. Wait until it finishes before disconnecting." : answer.outcome === "local_only" ? "New imports are stopped. Remove CFOClose access in QuickBooks; upstream revocation could not be verified." : answer.outcome === "revocation_pending" ? "New imports are stopped. QuickBooks revocation is not confirmed; retry this same disconnect request." : "Disconnect could not be confirmed. Refresh the connection before retrying." });
+      if (answer.outcome !== "busy" && !answer.confirmed) setPendingDisconnect({ connectionId, requestId: request });
+      if (answer.confirmed) { setPendingDisconnect(null); disconnectRequest.current = null; setState(connectionState(await fetchConnections(supabase as never, companyId), QBO_ENVIRONMENT)); }
+    } finally { working.current = false; setBusy(null); }
+  };
   if (!enabled) return null;
-  return <QuickBooksImportView state={state} environment={QBO_ENVIRONMENT} period={period} busy={busy} returned={returned} result={result} onConnect={() => void connect()} onImport={() => void importNow()} />;
+  return <QuickBooksImportView state={state} environment={QBO_ENVIRONMENT} period={period} busy={busy} returned={returned} result={result} onConnect={() => void connect()} onImport={() => void importNow()} onDisconnect={() => void disconnect()} revocationPending={pendingDisconnect !== null} />;
 }
