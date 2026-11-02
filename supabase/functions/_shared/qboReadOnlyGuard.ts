@@ -25,6 +25,9 @@ export const QBO_API_HOSTS: Readonly<Record<QboEnvironment, string>> = Object.fr
 });
 export const QBO_TOKEN_HOST = "oauth.platform.intuit.com";
 export const QBO_TOKEN_PATH = "/oauth2/v1/tokens/bearer";
+const QBO_REVOKE_HOST = "developer.api.intuit.com";
+const QBO_REVOKE_PATH = "/v2/oauth2/tokens/revoke";
+export const QBO_REVOKE_URL = `https://${QBO_REVOKE_HOST}${QBO_REVOKE_PATH}`;
 
 /** The only reports the connector may read. TrialBalanceFR (France) is deliberately absent until a French sample is recorded. */
 export const QBO_ALLOWED_REPORTS: readonly string[] = Object.freeze(["TrialBalance"]);
@@ -36,7 +39,7 @@ const REPORT_QUERY: Readonly<Record<string, RegExp>> = Object.freeze({
   minorversion: /^\d{1,3}$/,
 });
 
-export type QboRequestKind = "report" | "token";
+export type QboRequestKind = "report" | "token" | "preferences" | "revoke";
 export type QboRequestVerdict = { ok: true; kind: QboRequestKind; environment: QboEnvironment | null } | { ok: false; reason: string };
 
 const no = (reason: string): QboRequestVerdict => ({ ok: false, reason });
@@ -53,6 +56,11 @@ export function classifyQboRequest(req: { method: string; url: string }): QboReq
   if (u.port !== "") return no("a port is not allowed");
   if (u.hash !== "") return no("a fragment is not allowed");
 
+  if (u.hostname === QBO_REVOKE_HOST) {
+    return req.method === "POST" && u.pathname === QBO_REVOKE_PATH && !u.search
+      ? { ok: true, kind: "revoke", environment: null } : no("only the fixed OAuth revocation POST is allowed");
+  }
+
   if (u.hostname === QBO_TOKEN_HOST) {
     if (req.method !== "POST") return no("the token endpoint is called with POST only");
     if (u.pathname !== QBO_TOKEN_PATH || u.search !== "") return no("only the token path, without a query, is allowed");
@@ -62,6 +70,12 @@ export function classifyQboRequest(req: { method: string; url: string }): QboReq
   const environment = (Object.keys(QBO_API_HOSTS) as QboEnvironment[]).find((e) => QBO_API_HOSTS[e] === u.hostname);
   if (!environment) return no(`the host "${u.hostname}" is not allowed`);
   if (req.method !== "GET") return no("QuickBooks data is read with GET only");
+  const preferences = /^\/v3\/company\/\d{1,20}\/preferences$/.test(u.pathname);
+  if (preferences) {
+    const entries = [...u.searchParams];
+    if (entries.length > 1 || entries.some(([k, v]) => k !== "minorversion" || !/^\d{1,3}$/.test(v))) return no("only minorversion is allowed for Preferences");
+    return { ok: true, kind: "preferences", environment };
+  }
   const m = /^\/v3\/company\/(\d{1,20})\/reports\/([A-Za-z]+)$/.exec(u.pathname);
   if (!m) return no("only /v3/company/<id>/reports/<report> is allowed");
   if (!QBO_ALLOWED_REPORTS.includes(m[2])) return no(`the report "${m[2]}" is not allowed`);
@@ -87,6 +101,12 @@ export class QboGuardRefusal extends Error {
 
 export const QBO_TOKEN_URL = `https://${QBO_TOKEN_HOST}${QBO_TOKEN_PATH}`;
 export const QBO_ACCOUNTING_SCOPE = "com.intuit.quickbooks.accounting";
+export function qboPreferencesUrl(environment: QboEnvironment, realmId: string, minorVersion: number): string {
+  const url = `https://${QBO_API_HOSTS[environment]}/v3/company/${realmId}/preferences?minorversion=${minorVersion}`;
+  const verdict = classifyQboRequest({ method: "GET", url });
+  if (!verdict.ok) throw new QboGuardRefusal(verdict.reason);
+  return url;
+}
 // The authorisation page is a BROWSER redirect target. The server never fetches it, so it is not on the request allow-list above.
 const QBO_AUTHORIZE_BASE = "https://appcenter.intuit.com/connect/oauth2";
 
@@ -123,14 +143,14 @@ type FetchLike = (url: string, init: { method: string; headers?: Record<string, 
  * that matters: it runs under the 90-second refresh lease (qboPull.REFRESH_LEASE_SECONDS), and must end well inside it so that the lease can never
  * lapse while this import is still waiting for Intuit, which would let a second import present the same refresh token.
  */
-export const QBO_TIMEOUTS_MS: Readonly<Record<QboRequestKind, number>> = Object.freeze({ token: 30_000, report: 60_000 });
+export const QBO_TIMEOUTS_MS: Readonly<Record<QboRequestKind, number>> = Object.freeze({ token: 30_000, report: 60_000, preferences: 15_000, revoke: 15_000 });
 
 /** The only way the connector calls Intuit. Refuses before any network call; never follows a redirect; never waits longer than its timeout. */
 export function createGuardedQboFetch(fetchImpl: FetchLike, timeoutsMs: Readonly<Record<QboRequestKind, number>> = QBO_TIMEOUTS_MS) {
   return async function guardedQboFetch(req: GuardedRequest): Promise<Response> {
     const verdict = classifyQboRequest(req);
     if (!verdict.ok) throw new QboGuardRefusal(verdict.reason);
-    if (verdict.kind === "report" && req.body !== undefined) throw new QboGuardRefusal("a report request has no body");
+    if ((verdict.kind === "report" || verdict.kind === "preferences") && req.body !== undefined) throw new QboGuardRefusal("a report request has no body");
     return fetchImpl(req.url, { method: req.method, headers: req.headers, body: req.body, redirect: "error", signal: AbortSignal.timeout(timeoutsMs[verdict.kind]) });
   };
 }
