@@ -11,10 +11,12 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/auth.ts";
 import { parsePullRequest, REFRESH_LEASE_SECONDS, runQboPull, type CompletePullResult } from "../_shared/qboPull.ts";
 import { readQboEnv } from "../_shared/qboEnv.ts";
-import { createGuardedQboFetch, qboReportUrl } from "../_shared/qboReadOnlyGuard.ts";
+import { createGuardedQboFetch, qboReportUrl, qboPreferencesUrl } from "../_shared/qboReadOnlyGuard.ts";
 import { sha256Hex, summariseCanonicalCsv } from "../_shared/qboPullSummary.ts";
 import { createQboTokenClient } from "../_shared/qboTokenClient.ts";
 import { openSecret, sealSecret } from "../_shared/qboTokenEnvelope.ts";
+
+import { boundedQboRead } from "../_shared/qboBoundedRead.ts";
 
 const BUCKET = "trial-balance-files";
 const json = (status: number, body: unknown) =>
@@ -57,6 +59,17 @@ Deno.serve(async (req) => {
       actor = error ? null : data.user?.id ?? null;
       return actor;
     },
+    savedPeriod: async (userId, request) => {
+      const { data, error } = await service.rpc("qbo_saved_period", { p_actor: userId, p_company: request.companyId, p_period: request.periodId, p_year: request.periodYear, p_engagement: request.engagementId });
+      return !error && data ? data : null;
+    },
+    connectionActive: async (id) => {
+      const { data, error } = await service.from("qbo_connections").select("status").eq("id", id).maybeSingle();
+      return !error && data?.status === "active";
+    },
+    fetchPreferences: (environment, realmId, accessToken) => boundedQboRead(guardedFetch, {
+      method: "GET", url: qboPreferencesUrl(environment, realmId, config.minorVersion), headers: { Accept: "application/json", Authorization: `Bearer ${accessToken}` },
+    }),
     canPrepare: (userId, companyId) => hasCapability(userId, companyId, "prepare_trial_balance"),
     canManageSources: (userId, companyId) => hasCapability(userId, companyId, "manage_source_files"),
     acquireRefreshLease: async (connectionId, envelope) => {
@@ -82,12 +95,11 @@ Deno.serve(async (req) => {
     },
     markReconnectNeeded: async (connectionId, refusedEnvelope) => { await service.rpc("qbo_mark_reconnect_needed", { p_connection_id: connectionId, p_refused_envelope: refusedEnvelope }); },
     fetchReport: async (environment, realmId, accessToken, p) => {
-      const res = await guardedFetch({
+      return boundedQboRead(guardedFetch, {
         method: "GET",
         url: qboReportUrl({ environment, realmId, startDate: p.startDate, endDate: p.endDate, accountingMethod: p.accountingMethod, minorVersion: config.minorVersion }),
         headers: { Accept: "application/json", Authorization: `Bearer ${accessToken}` },
       });
-      return { status: res.status, text: await res.text() };
     },
     sha256Hex,
     summarise: summariseCanonicalCsv,
@@ -109,7 +121,8 @@ Deno.serve(async (req) => {
       return error || !r ? { outcome: "failed", uploadId: null } : { outcome: String(r.outcome), uploadId: (r.upload_id as string | null) ?? null };
     },
     recordIntent: async (r) => {
-      const { error } = await service.rpc("qbo_record_pull_intent", {
+      const { error } = await service.rpc("qbo_record_fiscal_pull_intent", {
+        p_period_id: r.periodId, p_fiscal_basis: r.fiscalBasis,
         p_reservation_id: r.reservationId, p_connection_id: r.connectionId, p_actor_user_id: r.actorUserId, p_realm_id: r.realmId, p_environment: r.environment,
         p_start_date: r.startDate, p_end_date: r.endDate, p_accounting_method: r.accountingMethod, p_minor_version: r.minorVersion, p_currency: r.currency,
         p_account_count: r.accountCount, p_raw_sha256: r.rawSha256, p_canonical_sha256: r.canonicalSha256, p_result_sha256: r.resultSha256,

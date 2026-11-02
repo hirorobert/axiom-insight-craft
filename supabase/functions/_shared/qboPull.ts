@@ -24,6 +24,7 @@
 import { parseQboTrialBalanceReport, toCanonicalCsv, type QboTbRefusalCode } from "./qboTrialBalance.ts";
 import { connectionBinding, type EnvelopeBinding } from "./qboTokenEnvelope.ts";
 import type { TokenResult } from "./qboTokenClient.ts";
+import { alignQboFiscalBasis, type QboSavedPeriod, type QboFiscalBasis } from "./qboFiscalBasis.ts";
 import type { QboEnvironment } from "./qboReadOnlyGuard.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -65,12 +66,15 @@ export interface StoredConnection { id: string; status: "active" | "reconnect_ne
 /** The facts recorded BEFORE the file is stored, keyed by the upload reservation (the workspace comes from the reservation, never from here). */
 export interface ProvenanceRecord {
   reservationId: string; connectionId: string; actorUserId: string; realmId: string; environment: QboEnvironment; startDate: string; endDate: string;
-  accountingMethod: string | null; minorVersion: number | null; currency: string; accountCount: number; rawSha256: string; canonicalSha256: string; resultSha256: string;
+  fiscalBasis: QboFiscalBasis; periodId: string; accountingMethod: string | null; minorVersion: number | null; currency: string; accountCount: number; rawSha256: string; canonicalSha256: string; resultSha256: string;
 }
 export type CompletePullResult = "completed" | "already" | "not_registered" | "no_intent" | "no_reservation";
 
 export interface PullDeps {
   authenticate(): Promise<string | null>;
+  savedPeriod(userId: string, request: PullRequest): Promise<QboSavedPeriod | null>;
+  fetchPreferences(environment: QboEnvironment, realmId: string, accessToken: string): Promise<{ status: number; text: string }>;
+  connectionActive(connectionId: string): Promise<boolean>;
   /** workspace_authority_basis(user, company, 'prepare_trial_balance') is not null. */
   canPrepare(userId: string, companyId: string): Promise<boolean>;
   /** workspace_authority_basis(user, company, 'manage_source_files') is not null: the right the upload steps need. Both are required; neither implies the other. */
@@ -129,6 +133,9 @@ export async function runQboPull(deps: PullDeps, req: PullRequest): Promise<Pull
   // Both rights, before Intuit is touched: a person who could prepare but not upload must not cause a token refresh that can only end in a refusal.
   if (!(await deps.canPrepare(userId, req.companyId))) return fail(403, "forbidden");
   if (!(await deps.canManageSources(userId, req.companyId))) return fail(403, "forbidden");
+  const period = await deps.savedPeriod(userId, req);
+  if (!period || period.companyId !== req.companyId || period.year !== req.periodYear || period.id !== req.periodId
+      || period.start !== req.startDate || period.end !== req.endDate) return fail(422, "saved_period_mismatch");
   await deps.completePending?.().catch(() => undefined);
 
   const conn = await deps.findConnection(req.companyId, req.realmId, req.environment);
@@ -142,9 +149,9 @@ export async function runQboPull(deps: PullDeps, req: PullRequest): Promise<Pull
   // The lease comes BEFORE Intuit: two simultaneous imports can never present the same refresh token together. The second is told "busy" without any call.
   const leaseId = await deps.acquireRefreshLease(conn.id, presented);
   if (!leaseId) return fail(409, "busy");
-  let rotatedAway = false;   // a stored rotation has already cleared the lease; in every other case it is given back, by its own id
   let accessToken: string;
   try {
+  {
     const refreshed = await deps.refresh(req.environment, stored);
     if (!refreshed.ok) {
       // Only the token we presented is deleted: if another import stored a newer one meanwhile, the refusal was of an out-of-date token.
@@ -157,13 +164,20 @@ export async function runQboPull(deps: PullDeps, req: PullRequest): Promise<Pull
     const rotated = await attempt(() => deps.rotate(conn.id, presented, next, refreshed.tokens.refreshExpiresAt, refreshed.tokens.hardExpiresAt), pause);
     if (!rotated.ok) return fail(500, "pull_failed");
     if (!rotated.value) return fail(409, "busy");
-    rotatedAway = true;
     accessToken = refreshed.tokens.accessToken;
-  } finally {
-    if (!rotatedAway) await deps.releaseRefreshLease(conn.id, leaseId).catch(() => undefined);
   }
 
-  const res = await deps.fetchReport(req.environment, req.realmId, accessToken, { startDate: req.startDate, endDate: req.endDate, accountingMethod: req.accountingMethod });
+  // All work remains inside the operation lease. SQL keeps it across rotation and fences registration.
+  const preferences = await deps.fetchPreferences(req.environment, req.realmId, accessToken);
+  if (preferences.status === 429 || preferences.status === 402) return fail(429, "rate_limited");
+  if (preferences.status !== 200) return fail(503, "fiscal_configuration_missing");
+  let preferencesJson: unknown;
+  try { preferencesJson = JSON.parse(preferences.text); } catch { return fail(422, "fiscal_configuration_missing"); }
+  const alignment = alignQboFiscalBasis(period, preferencesJson, await deps.sha256Hex(preferences.text));
+  if (!alignment.ok) return fail(422, alignment.outcome, { message: alignment.message });
+  const fiscalBasis = alignment.basis;
+  if (req.accountingMethod && req.accountingMethod !== fiscalBasis.accountingMethod) return fail(422, "accounting_basis_mismatch");
+  const res = await deps.fetchReport(req.environment, req.realmId, accessToken, { startDate: req.startDate, endDate: req.endDate, accountingMethod: fiscalBasis.accountingMethod });
   if (res.status === 429) return fail(429, "rate_limited");
   if (res.status >= 500) return fail(503, "quickbooks_unavailable");
   if (res.status !== 200) return fail(502, "report_failed");
@@ -174,7 +188,9 @@ export async function runQboPull(deps: PullDeps, req: PullRequest): Promise<Pull
   const parsed = parseQboTrialBalanceReport(json);
   if (!parsed.ok) return fail(422, "report_refused", { code: parsed.code, message: parsed.message });
   const report = parsed.report;
-  if (report.startPeriod !== req.startDate || report.endPeriod !== req.endDate) {
+  if (report.currency !== period.currency) return fail(422, "currency_mismatch");
+  if (report.basis !== fiscalBasis.accountingMethod) return fail(422, "accounting_basis_mismatch");
+  if (report.startPeriod !== fiscalBasis.fiscalStart || report.endPeriod !== req.endDate) {
     return fail(422, "period_mismatch", { message: `QuickBooks returned ${report.startPeriod} to ${report.endPeriod}, not the ${req.startDate} to ${req.endDate} that was asked for.` });
   }
 
@@ -182,6 +198,7 @@ export async function runQboPull(deps: PullDeps, req: PullRequest): Promise<Pull
   const [rawSha256, canonicalSha256, summary] = await Promise.all([deps.sha256Hex(res.text), deps.sha256Hex(csv), deps.summarise(csv, report.currency, req.periodYear)]);
 
   const fileName = `quickbooks-${req.environment === "sandbox" ? "sandbox-" : ""}${req.realmId}-${req.endDate}.csv`;
+  if (!(await deps.connectionActive(conn.id))) return fail(409, "disconnected");
   const reserved = await deps.reserve(req.companyId, fileName);
   if (!reserved.ok) return reserved.reason === "forbidden" ? fail(403, "forbidden") : fail(500, "reserve_failed");
 
@@ -208,4 +225,5 @@ export async function runQboPull(deps: PullDeps, req: PullRequest): Promise<Pull
   const done = { uploadId: registered.uploadId, currency: report.currency, accountCount: summary.accountCount, startDate: req.startDate, endDate: req.endDate };
   if (linked.ok && (linked.value === "completed" || linked.value === "already")) return { status: 200, outcome: "imported", ...done };
   return { status: 202, outcome: "imported_record_pending", ...done };
+  } finally { await deps.releaseRefreshLease(conn.id, leaseId).catch(() => undefined); }
 }
