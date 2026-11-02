@@ -56,5 +56,33 @@ try {
   await assert.rejects(()=>db.admin.query("insert into public.trial_balance_uploads(file_name,file_path,file_size,status,user_id,company_id,period_year,period_id) values('quickbooks.csv',$1,100,'pending',$2,$3,2026,$4)",[path,w.U.owner,w.A,p]),/QBO_CONNECTION_UNAVAILABLE/);
   assert.equal((await db.one('select count(*)::int n from public.trial_balance_uploads where file_path=$1',[path])).n,0);
  });
+ await check('pending retry identities are own actor only and rights checked again',async()=>{
+  const pending=await db.asUser(w.U.owner,'select public.qbo_pending_disconnect($1) r',[w.A]);assert.equal(pending.r.connectionId,fresh);
+  assert.equal((await db.asUser(w.U.ownerB,'select public.qbo_pending_disconnect($1) r',[w.A])).r,null);
+ });
+ // Held transaction interleavings: the second actor blocks on the SAME row before it observes final state.
+ const racingStore=async()=> (await svc("select public.qbo_store_connection($1,$2,'456','sandbox',$3,now()+interval '100 days',null) id",[w.A,w.U.owner,env])).id;
+ const racingId=await racingStore();
+ await check('disconnect wins concurrent lease acquisition without resurrection',async()=>{
+  const holder=await db.pool.connect();
+  try {
+   await holder.query('BEGIN'); await holder.query('SET LOCAL ROLE service_role');
+   const r=await holder.query('select public.qbo_begin_disconnect($1,$2,$3) r',[racingId,w.U.owner,uuid()]); assert.equal(r.rows[0].r.outcome,'pending');
+   let resolved=false;const waiting=svc('select public.qbo_acquire_refresh_lease($1,$2,90) r',[racingId,env]).then(r=>{resolved=true;return r});
+   await new Promise(r=>setTimeout(r,100));assert.equal(resolved,false);
+   await holder.query('COMMIT');assert.equal((await waiting).r,null);
+  } finally {await holder.query('ROLLBACK');holder.release();}
+ });
+ const other=(await svc("select public.qbo_store_connection($1,$2,'789','sandbox',$3,now()+interval '100 days',null) id",[w.A,w.U.owner,env])).id;
+ await check('lease acquisition wins concurrent disconnect and prevents revoke',async()=>{
+  const holder=await db.pool.connect();
+  try {
+   await holder.query('BEGIN');await holder.query('SET LOCAL ROLE service_role');
+   await holder.query('select public.qbo_acquire_refresh_lease($1,$2,90) r',[other,env]);
+   let resolved=false;const waiting=svc('select public.qbo_begin_disconnect($1,$2,$3) r',[other,w.U.owner,uuid()]).then(r=>{resolved=true;return r});
+   await new Promise(r=>setTimeout(r,100));assert.equal(resolved,false);
+   await holder.query('COMMIT');assert.equal((await waiting).r.outcome,'busy');
+  } finally {await holder.query('ROLLBACK');holder.release();}
+ });
  console.log(`QBO_READINESS ${passed}/${passed} passed (disposable PostgreSQL; no Intuit)`);
 } finally { await db.close(); }
