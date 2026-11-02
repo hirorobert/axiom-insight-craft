@@ -348,3 +348,54 @@ describe("two pulls at once (review finding 6)", () => {
     expect(c.refreshes).toHaveLength(2); expect(c.rotated).toHaveLength(1); expect(c.fetches).toHaveLength(1);
   });
 });
+
+describe("production-readiness adversarial pull boundaries", () => {
+  it("forged client dates cannot override the server period and never reach Intuit", async () => {
+    const w = await world();
+    expect((await runQboPull(w.deps, { ...REQ, startDate: "2026-02-01" })).outcome).toBe("saved_period_mismatch");
+    expect(w.calls).not.toContain("refresh"); expect(w.calls).not.toContain("reserve");
+  });
+  it("Preferences failure or ambiguous fiscal month never reserves an upload", async () => {
+    for (const fetchPreferences of [async () => ({ status: 503, text: "" }), async () => ({ status: 200, text: JSON.stringify({ Preferences: {} }) })]) {
+      const w = await world({ fetchPreferences });
+      expect((await runQboPull(w.deps, REQ)).outcome).toBe("fiscal_configuration_missing");
+      expect(w.calls).not.toContain("reserve"); expect(w.calls).not.toContain("fetchReport"); expect(w.store.leased).toBe(false);
+    }
+  });
+  it("echoed report start_date does not compensate for a conflicting verified fiscal start", async () => {
+    const w = await world({ fetchPreferences: async () => ({ status: 200, text: JSON.stringify({ Preferences: { AccountingInfoPrefs: { FirstMonthOfFiscalYear: "July" }, ReportPrefs: { ReportBasis: "Accrual" }, CurrencyPrefs: { HomeCurrency: { value: "GBP" } } } }) }) });
+    expect((await runQboPull(w.deps, REQ)).outcome).toBe("fiscal_period_mismatch");
+    expect(w.calls).not.toContain("reserve"); expect(w.calls).not.toContain("fetchReport");
+  });
+  it("source report accounting basis or currency mismatch refuses the whole source", async () => {
+    for (const [key, value, outcome] of [["ReportBasis", "Cash", "accounting_basis_mismatch"], ["Currency", "USD", "currency_mismatch"]]) {
+      const report = JSON.parse(GB_TEXT); report.Header[key] = value;
+      const w = await world({}, { text: JSON.stringify(report) });
+      expect((await runQboPull(w.deps, REQ)).outcome).toBe(outcome); expect(w.calls).not.toContain("reserve");
+    }
+  });
+  it("a disconnected connection cannot reserve even after a report was fetched", async () => {
+    const w = await world({ connectionActive: async () => false });
+    expect((await runQboPull(w.deps, REQ)).outcome).toBe("disconnected"); expect(w.calls).not.toContain("reserve");
+  });
+  it("lost registration response never removes a possibly bound source or retries registration", async () => {
+    const w = await world({ register: async () => ({ outcome: "unconfirmed", uploadId: null }) });
+    expect((await runQboPull(w.deps, REQ)).outcome).toBe("registration_unconfirmed");
+    expect(w.seen.removed).toEqual([]); expect(w.calls).not.toContain("completePull");
+  });
+  it("a concurrent pull during report fetch is busy for the whole import, not merely refresh", async () => {
+    const w = await world(); let second: string | undefined;
+    const report = w.deps.fetchReport;
+    w.deps.fetchReport = async (...args) => {
+      const competing = { ...w.deps, fetchReport: report };
+      second = (await runQboPull(competing, REQ)).outcome;
+      return report(...args);
+    };
+    expect((await runQboPull(w.deps, REQ)).outcome).toBe("imported"); expect(second).toBe("busy");
+    expect(w.calls.filter(c => c === "refresh")).toHaveLength(1);
+  });
+  it("new provenance records actual fiscal basis and Preferences digest; no retrospective alteration", async () => {
+    const w = await world(); await runQboPull(w.deps, REQ);
+    expect(w.seen.recorded).toMatchObject({ periodId: COMPANY, fiscalBasis: { kind: "fiscal-ytd-as-of", fiscalStartMonth: 1, fiscalStart: "2026-01-01", asOf: "2026-10-31", currency: "GBP", accountingMethod: "Accrual", preferencesSha256: expect.stringMatching(/^[a-f0-9]{64}$/) } });
+  });
+});
