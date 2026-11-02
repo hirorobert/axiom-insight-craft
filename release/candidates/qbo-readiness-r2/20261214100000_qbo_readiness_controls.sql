@@ -163,4 +163,12 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.qbo_rotate_leased_token(uuid,uuid,text,text,timestamptz,timestamptz) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.qbo_rotate_leased_token(uuid,uuid,text,text,timestamptz,timestamptz) TO service_role;
+CREATE FUNCTION public.qbo_pending_disconnect(p_company uuid)
+RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+ SELECT jsonb_build_object('connectionId',connection_id,'requestId',request_id)
+ FROM public.qbo_disconnect_operations WHERE company_id=p_company AND actor_user_id=auth.uid() AND outcome='pending'
+ AND public.qbo_connector_basis(auth.uid(),p_company) ORDER BY created_at LIMIT 1;
+$$;
+REVOKE ALL ON FUNCTION public.qbo_pending_disconnect(uuid) FROM PUBLIC,anon,service_role;
+GRANT EXECUTE ON FUNCTION public.qbo_pending_disconnect(uuid) TO authenticated;
 COMMIT;
