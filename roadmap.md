@@ -6,11 +6,13 @@ This is the ONE status file for this programme. It is updated in place; earlier 
 ## Current hosted release close-out — 2026-10-22
 
 ## QBO production-readiness source controls — 2026-11-02
-- [ ] Verify primary Intuit fiscal/OAuth/disconnect/quota documentation; preserve historical imports and installed SQL.
-- [ ] Implement saved-period fiscal alignment, GET-only outbound isolation, bounded reads, and truthful source provenance.
-- [ ] Implement authorized revoke/disconnect, full-import concurrency fencing and explicit recovery; safe Disconnect URL landing.
-- [ ] Add forward-only inert SQL candidate, local adversarial proofs, release/postchecks and production assessment evidence.
-- [ ] Run focused tests and appropriate release checks; keep customer flag false, no hosted writes/deployment/publication/Intuit calls.
+- [x] Verify primary Intuit fiscal/OAuth/disconnect/quota documentation; preserve historical imports and installed SQL.
+- [x] Implement saved-period fiscal alignment, GET-only outbound isolation, bounded reads, and truthful source provenance.
+- [x] Implement authorized revoke/disconnect, full-import concurrency fencing and explicit recovery; safe Disconnect URL landing.
+- [x] Add forward-only inert SQL candidate, local adversarial proofs, release/postchecks and production assessment evidence.
+- [x] Run focused tests and appropriate release checks; keep customer flag false, no hosted writes/deployment/publication/Intuit calls.
+
+Source/local proofs only: see `docs/release/qbo-readiness-r2/README.md`. Hosted installation/acceptance and production assessment remain external, separately authorized steps.
 
 ## Authorized tester-only release — 2026-10-25
 

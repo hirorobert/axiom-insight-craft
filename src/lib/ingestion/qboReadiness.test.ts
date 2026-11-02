@@ -48,6 +48,21 @@ describe("outbound writes cannot leave the guard", () => {
     expect((await boundedQboRead(quota, { method: "GET", url: "fixture" }, pause)).status).toBe(429); expect(quota).toHaveBeenCalledTimes(1);
     await expect(boundedQboRead(f, { method: "POST", url: "fixture" })).rejects.toThrow("read_only_required"); expect(f).toHaveBeenCalledTimes(2);
   });
+  it("the guarded body is size bounded, including OAuth responses", async () => {
+    const send = createGuardedQboFetch(async () => new Response("x".repeat(5_000_001)));
+    expect((await send({ method: "POST", url: QBO_REVOKE_URL })).status).toBe(413);
+  });
+  it("a slow response body is aborted within the request deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const send = createGuardedQboFetch(async (_url, init) => new Response(new ReadableStream({
+        start(controller) { init?.signal?.addEventListener("abort", () => controller.error(new Error("timed out"))); }
+      })), { report: 10, token: 10, preferences: 10, revoke: 10 });
+      const result = send({ method: "POST", url: QBO_REVOKE_URL }).catch(() => "timed out");
+      await vi.advanceTimersByTimeAsync(11);
+      expect(await result).toBe("timed out");
+    } finally { vi.useRealTimers(); }
+  });
   it("never truncates an oversized response into accepted data", async () => {
     const f = async () => new Response("x".repeat(5_000_001));
     expect(await boundedQboRead(f, { method: "GET", url: "fixture" })).toEqual({ status: 413, text: "" });

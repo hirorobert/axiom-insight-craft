@@ -225,8 +225,8 @@ function QuickBooksImportSession({ companyId, periodYear, periodId, engagementId
     working.current = true; setBusy("disconnect");
     try {
       const answer = await disconnectQuickBooks(supabase as never, connectionId, request);
-      setResult({ ok: answer.confirmed, text: answer.confirmed ? "QuickBooks disconnected. Saved imports are unchanged." : answer.outcome === "busy" ? "An import is running. Wait until it finishes before disconnecting." : answer.outcome === "revocation_pending" || answer.outcome === "local_only" ? "New imports are stopped. QuickBooks revocation is not confirmed; retry this same disconnect request." : "Disconnect could not be confirmed. Refresh the connection before retrying." });
-      if (answer.outcome === "revocation_pending") setPendingDisconnect({ connectionId, requestId: request });
+      setResult({ ok: answer.confirmed, text: answer.confirmed ? "QuickBooks disconnected. Saved imports are unchanged." : answer.outcome === "busy" ? "An import is running. Wait until it finishes before disconnecting." : answer.outcome === "local_only" ? "New imports are stopped. Remove CFOClose access in QuickBooks; upstream revocation could not be verified." : answer.outcome === "revocation_pending" ? "New imports are stopped. QuickBooks revocation is not confirmed; retry this same disconnect request." : "Disconnect could not be confirmed. Refresh the connection before retrying." });
+      if (answer.outcome !== "busy" && !answer.confirmed) setPendingDisconnect({ connectionId, requestId: request });
       if (answer.confirmed) { setPendingDisconnect(null); disconnectRequest.current = null; setState(connectionState(await fetchConnections(supabase as never, companyId), QBO_ENVIRONMENT)); }
     } finally { working.current = false; setBusy(null); }
   };
