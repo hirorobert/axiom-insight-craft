@@ -21,7 +21,7 @@ const CONN = "33333333-3333-3333-3333-333333333333";
 const UPLOAD = "44444444-4444-4444-4444-444444444444";
 const REALM = "9341458607761798";
 const KEY: EnvelopeKey = { id: "k1", bytes: new Uint8Array(32).fill(3) };
-const REQ: PullRequest = { companyId: COMPANY, environment: "sandbox", realmId: REALM, startDate: "2026-01-01", endDate: "2026-10-31", periodYear: 2026, periodId: null, engagementId: null };
+const REQ: PullRequest = { companyId: COMPANY, environment: "sandbox", realmId: REALM, startDate: "2026-01-01", endDate: "2026-10-31", periodYear: 2026, periodId: COMPANY, engagementId: null };
 const BINDING = connectionBinding(COMPANY, REALM, "sandbox");
 const GOOD_TOKENS: TokenResult = { ok: true, tokens: { accessToken: "access-not-real", refreshToken: "refresh-new-not-real", accessExpiresInSeconds: 3600, refreshExpiresAt: "2027-02-09T00:00:00.000Z", hardExpiresAt: "2031-11-01T00:00:00.000Z" } };
 const SECRETS = ["access-not-real", "refresh-new-not-real", "refresh-old-not-real", "v1.k1."];
@@ -31,6 +31,9 @@ async function world(over: Partial<PullDeps> = {}, opts: { text?: string } = {})
   const calls: string[] = [];
   const seen = { fetchToken: "", object: new Uint8Array(), recorded: null as null | Record<string, unknown>, removed: [] as string[], registered: [] as unknown[][], released: [] as string[], refused: [] as string[] };
   const deps: PullDeps = {
+    savedPeriod: async (_u, r) => ({ id: r.periodId ?? COMPANY, companyId: COMPANY, year: 2026, start: "2026-01-01", end: "2026-10-31", currency: "GBP" }),
+    connectionActive: async () => store.status === "active",
+    fetchPreferences: async () => ({ status: 200, text: JSON.stringify({ Preferences: { AccountingInfoPrefs: { FirstMonthOfFiscalYear: "January" }, ReportPrefs: { ReportBasis: "Accrual" }, CurrencyPrefs: { HomeCurrency: { value: "GBP" } } } }) }),
     authenticate: async () => (calls.push("authenticate"), ACTOR),
     canPrepare: async () => (calls.push("canPrepare"), true),
     canManageSources: async () => (calls.push("canManageSources"), true),
@@ -42,7 +45,7 @@ async function world(over: Partial<PullDeps> = {}, opts: { text?: string } = {})
     openRefreshToken: async (e, b) => { calls.push("open"); try { return await openSecret(e, [KEY], b); } catch { return null; } },
     refresh: async () => (calls.push("refresh"), GOOD_TOKENS),
     sealRefreshToken: async (t, b) => sealSecret(t, KEY, b),
-    rotate: async (_id, expected, next) => { calls.push("rotate"); if (store.envelope === next) return true; if (store.envelope !== expected) return false; store.envelope = next; store.leased = false; store.leaseId = null; return true; },
+    rotate: async (_id, expected, next) => { calls.push("rotate"); if (store.envelope === next) return true; if (store.envelope !== expected) return false; store.envelope = next; return true; },
     // As the database does: only the token that was refused is deleted.
     markReconnectNeeded: async (_c, refused) => { calls.push("markReconnectNeeded"); seen.refused.push(refused); if (store.envelope !== refused) return; store.status = "reconnect_needed"; store.leased = false; store.leaseId = null; },
     fetchReport: async (_e, _r, token) => { calls.push("fetchReport"); seen.fetchToken = token; return { status: 200, text: opts.text ?? GB_TEXT }; },
@@ -89,7 +92,7 @@ describe("a pull that succeeds", () => {
     const w = await world();
     const r = await runQboPull(w.deps, REQ);
     expect(r).toMatchObject({ status: 200, outcome: "imported", uploadId: UPLOAD, currency: "GBP", startDate: "2026-01-01", endDate: "2026-10-31" });
-    expect(w.calls).toEqual(["authenticate", "canPrepare", "canManageSources", "findConnection", "open", "acquireLease", "refresh", "rotate", "fetchReport", "summarise", "reserve", "recordIntent", "putObject", "register", "completePull"]);
+    expect(w.calls).toEqual(["authenticate", "canPrepare", "canManageSources", "findConnection", "open", "acquireLease", "refresh", "rotate", "fetchReport", "summarise", "reserve", "recordIntent", "putObject", "register", "completePull", "releaseLease"]);
   });
   it("uses the NEW access token for the report, stores the NEW refresh token (the old one no longer opens it), and the stored envelope opens only with its binding", async () => {
     const w = await world();
@@ -108,7 +111,7 @@ describe("a pull that succeeds", () => {
     await runQboPull(w.deps, REQ);
     const rec = w.seen.recorded as Record<string, unknown>;
     expect(rec).toMatchObject({ reservationId: "55555555-5555-5555-5555-555555555555", connectionId: CONN, actorUserId: ACTOR, realmId: REALM, environment: "sandbox", startDate: "2026-01-01", endDate: "2026-10-31",
-      accountingMethod: null, minorVersion: 75, currency: "GBP", accountCount: 30 });
+      accountingMethod: "Accrual", minorVersion: 75, currency: "GBP", accountCount: 30 });
     expect(rec.rawSha256).toBe(await sha256Hex(GB_TEXT));
     expect(rec.canonicalSha256).toBe(await sha256Hex(w.seen.object));
     for (const k of ["rawSha256", "canonicalSha256", "resultSha256"]) expect(rec[k]).toMatch(/^[0-9a-f]{64}$/);
@@ -318,7 +321,7 @@ describe("two pulls at once (review finding 6)", () => {
     const refreshes: string[] = [], fetches: string[] = [], rotated: string[] = [];
     const mk = (): PullDeps => ({ ...w.deps,
       refresh: async (...x) => { refreshes.push("r"); return w.deps.refresh(...x); },
-      rotate: async (_id, expected, next) => { if (w.store.envelope !== expected) return false; w.store.envelope = next; w.store.leased = false; w.store.leaseId = null; rotated.push(next); return true; },
+      rotate: async (_id, expected, next) => { if (w.store.envelope !== expected) return false; w.store.envelope = next; rotated.push(next); return true; },
       fetchReport: async (...x) => { fetches.push("f"); return w.deps.fetchReport(...x); },
       findConnection: async () => ({ id: CONN, status: "active", envelope: w.store.envelope }) });
     return { a: mk(), b: mk(), refreshes, fetches, rotated };

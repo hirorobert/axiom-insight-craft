@@ -71,7 +71,7 @@ describe("guarded fetch", () => {
 
   it("abandons a call that takes longer than its timeout (the caller sees a network failure)", async () => {
     const hang = vi.fn((_u: string, init: { signal: AbortSignal }) => new Promise<Response>((_r, reject) => { init.signal.addEventListener("abort", () => reject(init.signal.reason)); }));
-    const g = createGuardedQboFetch(hang as never, { token: 20, report: 20 });
+    const g = createGuardedQboFetch(hang as never, { token: 20, report: 20, preferences: 20, revoke: 20 });
     await expect(g({ method: "GET", url: REPORT })).rejects.toMatchObject({ name: "TimeoutError" });
   });
 

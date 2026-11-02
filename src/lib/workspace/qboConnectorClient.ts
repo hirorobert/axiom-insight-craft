@@ -16,7 +16,7 @@ export interface QboConnectionRow {
 export type QboConnectionState =
   | { kind: "unavailable" }
   | { kind: "none" }
-  | { kind: "connected"; realmId: string }
+  | { kind: "connected"; realmId: string; connectionId?: string }
   | { kind: "reconnect"; realmId: string };
 
 type RpcClient = { rpc(name: string, args: Record<string, unknown>): PromiseLike<{ data: unknown; error: unknown }> };
@@ -29,7 +29,7 @@ export function connectionState(rows: QboConnectionRow[] | null, environment: "s
     .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
   const newest = live[0];
   if (!newest) return { kind: "none" };
-  return newest.status === "active" ? { kind: "connected", realmId: newest.realm_id } : { kind: "reconnect", realmId: newest.realm_id };
+  return newest.status === "active" ? { kind: "connected", realmId: newest.realm_id, connectionId: newest.id } : { kind: "reconnect", realmId: newest.realm_id };
 }
 
 export async function fetchConnections(client: RpcClient, companyId: string): Promise<QboConnectionRow[] | null> {
@@ -51,7 +51,7 @@ async function readAnswer(res: { data: unknown; error: unknown }): Promise<Recor
   }
 }
 
-const GENERIC = "The import could not be completed. Nothing was imported. Please try again.";
+const GENERIC = "The import outcome could not be confirmed. Refresh the workspace to check for a saved trial balance before trying again.";
 /** Plain sentences for every outcome the functions answer. None mentions a token, an engine or a vendor term beyond QuickBooks. */
 export const QBO_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
   unauthenticated: "Please sign in again, then try once more.",
@@ -68,6 +68,12 @@ export const QBO_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
   report_unreadable: "QuickBooks returned an answer that could not be read. Nothing was imported.",
   report_too_large: "The QuickBooks report is too large to import this way. Export it from QuickBooks and upload the file instead.",
   report_refused: "The report from QuickBooks isn't one this import can read safely, so nothing was imported. Export it from QuickBooks and upload the file instead.",
+  fiscal_configuration_missing: "QuickBooks fiscal settings could not be verified. Confirm the fiscal start month, accounting basis and home currency in QuickBooks.",
+  fiscal_period_mismatch: "QuickBooks fiscal year-to-date does not match this saved period. Choose an aligned period or upload a separately prepared trial balance.",
+  saved_period_mismatch: "The saved reporting dates could not be confirmed. Refresh the workspace and confirm its reporting period.",
+  accounting_basis_mismatch: "QuickBooks returned a different accounting basis. Confirm the QuickBooks reporting settings before importing.",
+  currency_mismatch: "QuickBooks home currency differs from this period. No currency conversion is performed.",
+  disconnected: "QuickBooks was disconnected. No new import can start.",
   period_mismatch: "QuickBooks returned a different period from the one asked for, so nothing was imported.",
   active_upload_exists: "A trial balance is already saved for this period. To replace it, use Replace trial balance and upload a file.",
   provenance_failed: "Nothing was imported, because the record of where these figures came from could not be saved. Please try again.",
@@ -137,4 +143,12 @@ export async function pullFromQuickBooks(client: FnClient, a: PullInput): Promis
   } catch {
     return { kind: "failed", outcome: "pull_failed", message: GENERIC };
   }
+}
+
+export async function disconnectQuickBooks(client: FnClient, connectionId: string, requestId: string): Promise<{ outcome: string; confirmed: boolean }> {
+  try {
+    const b = await readAnswer(await client.functions.invoke("qbo-disconnect", { body: { connectionId, requestId } }));
+    const outcome = typeof b?.outcome === "string" ? b.outcome : "disconnect_unconfirmed";
+    return { outcome, confirmed: outcome === "disconnected" };
+  } catch { return { outcome: "disconnect_unconfirmed", confirmed: false }; }
 }

@@ -22,7 +22,7 @@ describe("connector configuration", () => {
   });
   it("production is configured only when ITS OWN id and secret are set: the sandbox ones never stand in", () => {
     expect(env(FULL).oauth("production")).toBeNull(); expect(env(FULL).credentials("production")).toBeNull();
-    const c = env({ ...FULL, QBO_CLIENT_ID_PRODUCTION: "ABprodclientid000000000000000000000000", QBO_CLIENT_SECRET_PRODUCTION: "prod-secret-not-real" });
+    const c = env({ ...FULL, QBO_PRODUCTION_APPROVED: "true", QBO_CLIENT_ID_PRODUCTION: "ABprodclientid000000000000000000000000", QBO_CLIENT_SECRET_PRODUCTION: "prod-secret-not-real" });
     expect(c.oauth("production")?.clientId).toBe("ABprodclientid000000000000000000000000");
   });
   it.each<[string, Record<string, string | undefined>]>([
