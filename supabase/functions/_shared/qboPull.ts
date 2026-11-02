@@ -206,7 +206,8 @@ export async function runQboPull(deps: PullDeps, req: PullRequest): Promise<Pull
   // and says so: there is no upload, so there is nothing that lacks its evidence (the unused reservation expires and is swept by the existing sweeper).
   const intent = await attempt(() => deps.recordIntent({
     reservationId: reserved.reservationId, connectionId: conn.id, actorUserId: userId, realmId: req.realmId, environment: req.environment,
-    startDate: req.startDate, endDate: req.endDate, accountingMethod: req.accountingMethod ?? null, minorVersion: deps.minorVersion, currency: report.currency,
+    startDate: fiscalBasis.fiscalStart, endDate: fiscalBasis.asOf, fiscalBasis, periodId: period.id,
+    accountingMethod: fiscalBasis.accountingMethod, minorVersion: deps.minorVersion, currency: report.currency,
     accountCount: summary.accountCount, rawSha256, canonicalSha256, resultSha256: summary.resultSha256,
   }), pause);
   if (!intent.ok) return fail(500, "provenance_failed");
