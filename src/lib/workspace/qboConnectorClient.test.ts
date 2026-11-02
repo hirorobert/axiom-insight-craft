@@ -21,10 +21,10 @@ describe("connection state", () => {
     expect(connectionState([], "sandbox")).toEqual({ kind: "none" });
     expect(connectionState([row({ status: "disconnected" })], "sandbox")).toEqual({ kind: "none" });
     expect(connectionState([row({ environment: "production" })], "sandbox")).toEqual({ kind: "none" });
-    expect(connectionState([row()], "sandbox")).toEqual({ kind: "connected", realmId: "9341458607761798" });
+    expect(connectionState([row()], "sandbox")).toEqual({ kind: "connected", realmId: "9341458607761798", connectionId: "c1" });
     expect(connectionState([row({ status: "reconnect_needed" })], "sandbox")).toEqual({ kind: "reconnect", realmId: "9341458607761798" });
     expect(connectionState([row({ id: "old", status: "reconnect_needed", created_at: "2026-01-01T00:00:00Z" }), row({ id: "new", realm_id: "777", created_at: "2026-06-01T00:00:00Z" })], "sandbox"))
-      .toEqual({ kind: "connected", realmId: "777" });
+      .toEqual({ kind: "connected", realmId: "777", connectionId: "new" });
   });
   it("reads status through the status function only, and treats any failure as unavailable", async () => {
     const rpc = vi.fn(async () => ({ data: [row()], error: null }));
