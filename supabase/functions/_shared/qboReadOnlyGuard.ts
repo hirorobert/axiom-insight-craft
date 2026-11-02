@@ -10,8 +10,8 @@
  *   token    POST https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer      (authorisation-code exchange and refresh; no query)
  *
  * Nothing else: no other report, no query/entity endpoint, no write method, no other host (look-alikes, userinfo, ports, plain
- * http, fragments, encoded or doubled path segments are all refused), no redirect following. Revocation on disconnect is NOT on
- * the list yet: its endpoint has not been verified against Intuit's documentation, and an unverified endpoint is not added.
+ * http, fragments, encoded or doubled path segments are all refused), no redirect following. Preferences GET and the exact
+ * OAuth revoke POST are allowed separately (Intuit OAuth documentation, Step 16, verified 2026-11-02).
  * Every call is abandoned after a fixed time (QBO_TIMEOUTS_MS), so a refresh can never outlast the refresh lease that protects it.
  *
  * Pure apart from the injected fetch; no credentials are read, stored or logged here.
@@ -119,7 +119,7 @@ export function qboAuthorizeUrl(a: { clientId: string; redirectUri: string; stat
   return `${QBO_AUTHORIZE_BASE}?${q.toString()}`;
 }
 
-/** The address of one Trial Balance report. Always both dates (a lone end date is ignored by QuickBooks). Refused unless the guard would allow it. */
+/** The address of one Trial Balance report. Always both dates (start_date is not proof of fiscal YTD alignment). Refused unless the guard would allow it. */
 export function qboReportUrl(a: { environment: QboEnvironment; realmId: string; startDate: string; endDate: string; accountingMethod?: "Accrual" | "Cash"; minorVersion?: number }): string {
   const q = new URLSearchParams({ start_date: a.startDate, end_date: a.endDate });
   if (a.accountingMethod) q.set("accounting_method", a.accountingMethod);
