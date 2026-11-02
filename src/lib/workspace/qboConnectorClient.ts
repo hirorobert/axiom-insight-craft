@@ -73,6 +73,7 @@ export const QBO_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
   saved_period_mismatch: "The saved reporting dates could not be confirmed. Refresh the workspace and confirm its reporting period.",
   accounting_basis_mismatch: "QuickBooks returned a different accounting basis. Confirm the QuickBooks reporting settings before importing.",
   currency_mismatch: "QuickBooks home currency differs from this period. No currency conversion is performed.",
+  registration_unconfirmed: "The save could not be confirmed. Refresh the workspace before another import; do not remove the source file.",
   disconnected: "QuickBooks was disconnected. No new import can start.",
   period_mismatch: "QuickBooks returned a different period from the one asked for, so nothing was imported.",
   active_upload_exists: "A trial balance is already saved for this period. To replace it, use Replace trial balance and upload a file.",

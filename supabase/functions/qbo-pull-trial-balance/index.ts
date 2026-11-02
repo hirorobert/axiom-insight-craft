@@ -88,8 +88,8 @@ Deno.serve(async (req) => {
     openRefreshToken: async (envelope, binding) => { try { return await openSecret(envelope, keys.all, binding); } catch { return null; } },
     refresh: (_environment, refreshToken) => tokens.refresh(refreshToken),
     sealRefreshToken: (refreshToken, binding) => sealSecret(refreshToken, keys.current, binding),
-    rotate: async (connectionId, expected, next, refreshExpiresAt, hardExpiresAt) => {
-      const { data, error } = await service.rpc("qbo_rotate_refresh_token", { p_connection_id: connectionId, p_expected_envelope: expected, p_new_envelope: next, p_refresh_expires_at: refreshExpiresAt, p_hard_expires_at: hardExpiresAt });
+    rotate: async (connectionId, expected, next, refreshExpiresAt, hardExpiresAt, leaseId) => {
+      const { data, error } = await service.rpc("qbo_rotate_leased_token", { p_lease_id: leaseId, p_connection_id: connectionId, p_expected_envelope: expected, p_new_envelope: next, p_refresh_expires_at: refreshExpiresAt, p_hard_expires_at: hardExpiresAt });
       if (error) throw error;
       return data === true;
     },
@@ -118,7 +118,7 @@ Deno.serve(async (req) => {
     register: async (reservationId, fileSize, periodYear, periodId, engagementId) => {
       const { data, error } = await asPerson.rpc("register_trial_balance_upload", { p_reservation_id: reservationId, p_file_size: fileSize, p_period_year: periodYear, p_period_id: periodId, p_engagement_id: engagementId });
       const r = Array.isArray(data) ? data[0] : null;
-      return error || !r ? { outcome: "failed", uploadId: null } : { outcome: String(r.outcome), uploadId: (r.upload_id as string | null) ?? null };
+      return error || !r ? { outcome: "unconfirmed", uploadId: null } : { outcome: String(r.outcome), uploadId: (r.upload_id as string | null) ?? null };
     },
     recordIntent: async (r) => {
       const { error } = await service.rpc("qbo_record_fiscal_pull_intent", {

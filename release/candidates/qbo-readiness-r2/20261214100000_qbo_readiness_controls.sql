@@ -27,7 +27,7 @@ DECLARE p public.fiscal_periods;
 BEGIN
  IF NOT public.qbo_connector_basis(p_actor,p_company) THEN RETURN NULL; END IF;
  SELECT * INTO p FROM public.fiscal_periods WHERE id=p_period AND company_id=p_company;
- IF NOT FOUND OR p.reporting_start IS NULL OR p.reporting_end IS NULL OR p.reporting_currency IS NULL
+ IF NOT FOUND OR p.reporting_start IS NULL OR p.reporting_end IS NULL OR p.reporting_currency IS NULL OR p.dates_basis IS DISTINCT FROM 'confirmed'
     OR extract(year FROM p.reporting_end)::integer<>p_year THEN RETURN NULL; END IF;
  IF p_engagement IS NOT NULL AND NOT EXISTS(SELECT 1 FROM public.engagements WHERE id=p_engagement AND company_id=p_company AND period_year=p_year) THEN RETURN NULL; END IF;
  RETURN jsonb_build_object('id',p.id,'companyId',p.company_id,'year',p_year,'start',p.reporting_start,'end',p.reporting_end,'currency',p.reporting_currency);
@@ -125,6 +125,7 @@ BEGIN
  THEN RAISE EXCEPTION 'QBO_FISCAL_BASIS_MISMATCH'; END IF;
  SELECT * INTO existing FROM public.qbo_fiscal_pull_basis WHERE reservation_id=p_reservation_id;
  IF FOUND AND (existing.basis IS DISTINCT FROM p_fiscal_basis OR existing.period_id<>p_period_id) THEN RAISE EXCEPTION 'QBO_BASIS_CONFLICT'; END IF;
+ IF NOT EXISTS(SELECT 1 FROM public.trial_balance_source_reservations WHERE id=p_reservation_id AND company_id=c.company_id AND actor_user_id=p_actor_user_id) THEN RAISE EXCEPTION 'QBO_SCOPE_MISMATCH'; END IF;
  v:=public.qbo_record_pull_intent(p_reservation_id,p_connection_id,p_actor_user_id,p_realm_id,p_environment,p_start_date,p_end_date,p_accounting_method,p_minor_version,p_currency,p_account_count,p_raw_sha256,p_canonical_sha256,p_result_sha256);
  INSERT INTO public.qbo_fiscal_pull_basis(reservation_id,period_id,basis) VALUES(p_reservation_id,p_period_id,p_fiscal_basis) ON CONFLICT DO NOTHING;
  RETURN v;
@@ -152,4 +153,14 @@ GRANT EXECUTE ON FUNCTION public.qbo_finish_disconnect(uuid,uuid,uuid) TO servic
 REVOKE ALL ON FUNCTION public.qbo_record_fiscal_pull_intent(uuid,jsonb,uuid,uuid,uuid,text,text,date,date,text,integer,text,integer,text,text,text) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.qbo_record_fiscal_pull_intent(uuid,jsonb,uuid,uuid,uuid,text,text,date,date,text,integer,text,integer,text,text,text) TO service_role;
 REVOKE ALL ON FUNCTION public.qbo_fence_upload_registration() FROM PUBLIC,anon,authenticated,service_role;
+CREATE FUNCTION public.qbo_rotate_leased_token(p_connection_id uuid,p_lease_id uuid,p_expected_envelope text,p_new_envelope text,p_refresh_expires_at timestamptz,p_hard_expires_at timestamptz)
+RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+DECLARE c public.qbo_connections;
+BEGIN
+ SELECT * INTO c FROM public.qbo_connections WHERE id=p_connection_id FOR UPDATE;
+ IF NOT FOUND OR c.status<>'active' OR c.refresh_lease_id IS DISTINCT FROM p_lease_id OR c.refresh_lease_until IS NULL OR c.refresh_lease_until<=clock_timestamp() THEN RETURN false; END IF;
+ RETURN public.qbo_rotate_refresh_token(p_connection_id,p_expected_envelope,p_new_envelope,p_refresh_expires_at,p_hard_expires_at);
+END $$;
+REVOKE ALL ON FUNCTION public.qbo_rotate_leased_token(uuid,uuid,text,text,timestamptz,timestamptz) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.qbo_rotate_leased_token(uuid,uuid,text,text,timestamptz,timestamptz) TO service_role;
 COMMIT;

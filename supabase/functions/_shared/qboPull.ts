@@ -31,7 +31,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_REPORT_CHARS = 5_000_000;
 /** Long enough for one refresh round trip (the token call is abandoned after QBO_TIMEOUTS_MS.token = 30 s), short enough that a crashed import never blocks the next for long. */
-export const REFRESH_LEASE_SECONDS = 90;
+export const REFRESH_LEASE_SECONDS = 300;
 
 export interface PullRequest {
   companyId: string; environment: QboEnvironment; realmId: string; startDate: string; endDate: string; periodYear: number;
@@ -92,7 +92,7 @@ export interface PullDeps {
   refresh(environment: QboEnvironment, refreshToken: string): Promise<TokenResult>;
   sealRefreshToken(refreshToken: string, binding: EnvelopeBinding): Promise<string>;
   /** Compare-and-swap: true only if `expected` was still the stored envelope, or if `next` already is (a retry whose first answer was lost). Safe to retry. */
-  rotate(connectionId: string, expected: string, next: string, refreshExpiresAt: string, hardExpiresAt: string | null): Promise<boolean>;
+  rotate(connectionId: string, expected: string, next: string, refreshExpiresAt: string, hardExpiresAt: string | null, leaseId: string): Promise<boolean>;
   /** Deletes the token Intuit refused, and only that one: if another import has stored a newer token meanwhile, nothing changes. */
   markReconnectNeeded(connectionId: string, refusedEnvelope: string): Promise<void>;
   fetchReport(environment: QboEnvironment, realmId: string, accessToken: string, p: { startDate: string; endDate: string; accountingMethod?: "Accrual" | "Cash" }): Promise<{ status: number; text: string }>;
@@ -161,7 +161,7 @@ export async function runQboPull(deps: PullDeps, req: PullRequest): Promise<Pull
     // Intuit rolls the refresh token over: the newest one is stored BEFORE the new access token is used. A lost race (another pull rotated first) stops here.
     // The swap is retried: it is safe to retry, and Intuit may already have retired the token we presented, so the new one must not be dropped lightly.
     const next = await deps.sealRefreshToken(refreshed.tokens.refreshToken, binding);
-    const rotated = await attempt(() => deps.rotate(conn.id, presented, next, refreshed.tokens.refreshExpiresAt, refreshed.tokens.hardExpiresAt), pause);
+    const rotated = await attempt(() => deps.rotate(conn.id, presented, next, refreshed.tokens.refreshExpiresAt, refreshed.tokens.hardExpiresAt, leaseId), pause);
     if (!rotated.ok) return fail(500, "pull_failed");
     if (!rotated.value) return fail(409, "busy");
     accessToken = refreshed.tokens.accessToken;
@@ -178,7 +178,8 @@ export async function runQboPull(deps: PullDeps, req: PullRequest): Promise<Pull
   const fiscalBasis = alignment.basis;
   if (req.accountingMethod && req.accountingMethod !== fiscalBasis.accountingMethod) return fail(422, "accounting_basis_mismatch");
   const res = await deps.fetchReport(req.environment, req.realmId, accessToken, { startDate: req.startDate, endDate: req.endDate, accountingMethod: fiscalBasis.accountingMethod });
-  if (res.status === 429) return fail(429, "rate_limited");
+  if (res.status === 429 || res.status === 402) return fail(429, "rate_limited");
+  if (res.status === 413) return fail(502, "report_too_large");
   if (res.status >= 500) return fail(503, "quickbooks_unavailable");
   if (res.status !== 200) return fail(502, "report_failed");
   if (res.text.length > MAX_REPORT_CHARS) return fail(502, "report_too_large");
@@ -215,6 +216,7 @@ export async function runQboPull(deps: PullDeps, req: PullRequest): Promise<Pull
   if (!(await deps.putObject(reserved.objectPath, csv))) return fail(500, "store_failed");
   const registered = await deps.register(reserved.reservationId, csv.byteLength, req.periodYear, req.periodId, req.engagementId);
   if ((registered.outcome !== "registered" && registered.outcome !== "already_registered") || !registered.uploadId) {
+    if (registered.outcome === "unconfirmed") return fail(503, "registration_unconfirmed");
     await deps.removeObject(reserved.objectPath).catch(() => undefined);
     if (registered.outcome === "active_upload_exists") return fail(409, "active_upload_exists");
     if (registered.outcome === "forbidden") return fail(403, "forbidden");
