@@ -1,3 +1,4 @@
+import { QBO_CONNECTOR_ENABLED } from "@/lib/workspace/qboConnectorClient";
 import { WorkspaceRefreshButton } from "@/components/workspace/WorkspaceRefreshButton";
 import { ManagementLink } from "@/components/account/ManagementNavigation";
 import { useActivity } from "@/components/feedback/useActivity";
@@ -197,6 +198,7 @@ function UserMenu({ email }: { email: string }) {
             <Settings className="w-4 h-4" />
             Settings
           </ManagementLink>
+          {QBO_CONNECTOR_ENABLED && <Link to="/quickbooks/disconnect" onClick={() => setOpen(false)} className="block px-3 py-2 text-sm hover:bg-secondary">QuickBooks connections</Link>}
           {SERVICE_ENQUIRY_SURFACES.helpSupportLinks && (
             <Link
               to={contactHref("help_support")}

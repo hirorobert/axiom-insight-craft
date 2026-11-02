@@ -20,7 +20,7 @@ export async function runQboDisconnect(d: DisconnectDeps, request: ReturnType<ty
   if (!request) return { status: 400, outcome: "invalid_request" };
   const b = await d.begin(request.connectionId, actor, request.requestId);
   if (b.outcome === "forbidden") return { status: 403, outcome: "forbidden" };
-  if (b.outcome === "busy" || b.outcome === "revocation_busy" || b.outcome === "request_conflict") return { status: 409, outcome: b.outcome };
+  if (b.outcome === "busy" || b.outcome === "revocation_busy" || b.outcome === "request_conflict" || b.outcome === "shared_connection") return { status: 409, outcome: b.outcome };
   if (b.outcome === "revoked") return { status: 200, outcome: "disconnected" };
   if (b.outcome === "local_only") return { status: 202, outcome: "local_only" };
   if (b.outcome !== "pending" || !b.leaseId || !b.envelope || !b.companyId || !b.realmId || !b.environment) return { status: 503, outcome: "disconnect_unconfirmed" };

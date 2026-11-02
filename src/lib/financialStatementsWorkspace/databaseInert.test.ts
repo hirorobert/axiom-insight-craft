@@ -614,6 +614,8 @@ describe("database inertness — schema and functions", () => {
       // ...and the superseded sandbox licence isolation (commercial-p3), quarantined the same way (added above).
       "supabase/migrations/20261031100000_sandbox_licence_isolation.sql",
     ]);
+    // Exact local QBO follow-up: revocation remains possible while imports are disabled.
+    for (const file of ["supabase/functions/_shared/qboEnv.ts", "supabase/functions/_shared/qboDisconnect.ts", "supabase/functions/qbo-disconnect/index.ts"]) modified.add(file);
     expect(unreviewedChanges(changed, { added, modified, removed })).toEqual([]);
   });
 
@@ -913,6 +915,7 @@ describe("database inertness — schema and functions", () => {
     // Guided-equipment candidate: local build assets and a synthetic, no-network OCR proof only.
     // These exact additions require PR review; no glob/prefix exception and no deploy capability.
     for (const file of ["scripts/build/localOcrAssets.ts", "scripts/preparation/assertOcrAssets.mjs", "scripts/preparation/ocrSmoke.mjs", "scripts/preparation/syntheticScan.mjs"]) allowed.add(file);
+    allowed.add("scripts/db-proof/qboReadiness.mjs"); // Extends the existing loopback-only candidate proof.
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
 
