@@ -77,10 +77,12 @@ Secret **names only** checked 2026-11-02: `QBO_CLIENT_ID_SANDBOX`, `QBO_CLIENT_S
 ## Test evidence
 
 - Connector/sandbox regressions: **302/302**, 12 files (including 24 new readiness and 8 new pull adversarial cases).
-- Final broader release selection: **401/401**, 17 files; migration authority, applied immutability, release journal, legacy-name and metadata regressions included.
+- Final broader release selection: **413/413**, 18 files; migration authority, applied immutability, release journal, legacy-name and metadata regressions included.
 - Disposable PostgreSQL 17.11: **19/19** real candidate controls; full existing chain, synthetic ownership, grant refusal, lease/disconnect/rotation, immutable history counts, saved period, evidence idempotency and no partial upload after disconnect. No hosted DB.
 - Deno check: all five function entry points passed; latest changed pull/disconnect also checked. No Intuit request made.
 - Full lint: 0 errors, 181 warnings at final run; no manual project build/typecheck invocation permitted by the preview harness. Preview build log reports `build OK`; this is not an independently run full production build/typecheck.
 - Playwright: 1280 and 375 widths, informational Disconnect page renders; forged realm/company URL identifiers ignored; no POST, no horizontal overflow. Screenshots under `/tmp/browser/qbo-readiness`. Authenticated NEW disconnect/import journey NOT exercised: candidate intentionally unapplied, no hosted mutation authorized; local orchestration and PostgreSQL boundaries exercised instead.
 
 The QBO Deno entry-point check and disposable candidate proof are wired into the existing CI jobs; no hosted execution is introduced. Full independent production build/TypeScript clearance remains a CI requirement, not claimed from the preview watcher.
+
+Final evidence snapshot before documentation fingerprint refresh: source `796030ae9cf0dc5698cd596e86313b16a506d553`, working tree clean; all 413 tests and 19 PostgreSQL proofs passed, five entry points Deno-checked, lint 0 errors/181 warnings; preview build OK at 18:59:22 UTC. Documentation/manifest refresh advances the platform-managed source snapshot; exact final source SHA is reported separately in chat. Served/deployed identity unverified; no deployment or publication.
