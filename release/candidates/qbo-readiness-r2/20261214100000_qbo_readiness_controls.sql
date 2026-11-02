@@ -29,7 +29,7 @@ BEGIN
  SELECT * INTO p FROM public.fiscal_periods WHERE id=p_period AND company_id=p_company;
  IF NOT FOUND OR p.reporting_start IS NULL OR p.reporting_end IS NULL OR p.reporting_currency IS NULL OR p.dates_basis IS DISTINCT FROM 'confirmed'
     OR extract(year FROM p.reporting_end)::integer<>p_year THEN RETURN NULL; END IF;
- IF p_engagement IS NOT NULL AND NOT EXISTS(SELECT 1 FROM public.engagements WHERE id=p_engagement AND company_id=p_company AND period_year=p_year) THEN RETURN NULL; END IF;
+ IF p_engagement IS NOT NULL AND NOT EXISTS(SELECT 1 FROM public.engagements WHERE id=p_engagement AND company_id=p_company AND fiscal_period_id=p_period) THEN RETURN NULL; END IF;
  RETURN jsonb_build_object('id',p.id,'companyId',p.company_id,'year',p_year,'start',p.reporting_start,'end',p.reporting_end,'currency',p.reporting_currency);
 END $$;
 CREATE FUNCTION public.qbo_begin_disconnect(p_connection uuid,p_actor uuid,p_request uuid)
