@@ -151,6 +151,25 @@ export function createGuardedQboFetch(fetchImpl: FetchLike, timeoutsMs: Readonly
     const verdict = classifyQboRequest(req);
     if (!verdict.ok) throw new QboGuardRefusal(verdict.reason);
     if ((verdict.kind === "report" || verdict.kind === "preferences") && req.body !== undefined) throw new QboGuardRefusal("a report request has no body");
-    return fetchImpl(req.url, { method: req.method, headers: req.headers, body: req.body, redirect: "error", signal: AbortSignal.timeout(timeoutsMs[verdict.kind]) });
+    const controller = new AbortController();
+    const deadline = setTimeout(() => controller.abort(new DOMException("Request timed out", "TimeoutError")), timeoutsMs[verdict.kind]);
+    try {
+      const response = await fetchImpl(req.url, { method: req.method, headers: req.headers, body: req.body, redirect: "error", signal: controller.signal });
+      const reader = response.body?.getReader(); const chunks: Uint8Array[] = []; let size = 0;
+      if (reader) {
+        try {
+          while (true) {
+            const { done, value } = await reader.read(); if (done) break;
+            size += value.byteLength;
+            if (size > 5_000_000) { await reader.cancel(); return new Response(null, { status: 413 }); }
+            chunks.push(value);
+          }
+        } finally { reader.releaseLock(); }
+      }
+      const bytes = new Uint8Array(size); let offset = 0;
+      for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+      return new Response(response.status === 204 || response.status === 205 || response.status === 304 ? null : bytes, { status: response.status, headers: response.headers });
+    } finally { clearTimeout(deadline); }
+
   };
 }
