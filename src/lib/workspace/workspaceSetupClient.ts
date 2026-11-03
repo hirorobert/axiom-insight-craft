@@ -205,7 +205,10 @@ export async function confirmPeriodDates(client: RpcClient, periodId: string, st
     const x = refusal(r);
     return x.outcome === "refused" ? { outcome: "refused", code: x.code, message: x.message } : (() => { throw new Error("unreachable"); })();
   }
-  return { outcome: "confirmed", periodId: String(r.periodId), changed: r.changed === true };
+  if (r.outcome !== "confirmed" || r.periodId !== periodId) {
+    throw new WorkspaceSetupError("INVALID", "The reporting date confirmation could not be verified. Your entries are kept; check the period before retrying.");
+  }
+  return { outcome: "confirmed", periodId, changed: r.changed === true };
 }
 
 export type CompleteLegacyDatesResult =

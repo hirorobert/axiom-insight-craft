@@ -28,7 +28,7 @@ beforeEach(() => {
 });
 afterEach(() => { ui?.unmount(); ui=undefined; document.body.innerHTML=""; });
 const card = (companyId="company-a", periodYear=2025) => h(MemoryRouter, null, h(ReportingPeriodHandoff, { companyId, periodYear }));
-const form = () => h(ManagementContext.Provider, { value: { origin: null, register: fixture.register } }, h(PeriodSetup, { companyId:"company-a", periodYear:2025, client:supabase as never }));
+const form = (onOpened = vi.fn()) => h(ManagementContext.Provider, { value: { origin: null, register: fixture.register } }, h(PeriodSetup, { companyId:"company-a", periodYear:2025, client:supabase as never, onOpened }));
 describe("prior period settings regression", () => {
   it("reopening shows both saved prior dates and starts clean; no setup write", async () => {
     ui=mount(form()); await flush();
@@ -43,9 +43,39 @@ describe("prior period settings regression", () => {
   it("saving a linked period sends the exact saved prior dates instead of silently omitting the prior", async () => {
     fixture.rpc.mockImplementation(async (name: string) => ({ error:null, data:name === "open_engagement_with_period"
       ? {outcome:"opened",engagementId:"e",periodId:"p25",priorPeriodId:"p24",periodYear:2025,created:false,granted:["FINANCIAL_STATEMENTS"]}
+      : name === "confirm_period_dates" ? {outcome:"confirmed",periodId:"p25",changed:true}
       : {outcome:"not_eligible",currency:"TZS",block:{code:"ACCEPTED_CERTIFICATION"}} }));
     ui=mount(form());await flush();click(document.querySelector('button[type="submit"]')!);await flush();
     expect(fixture.rpc).toHaveBeenCalledWith("open_engagement_with_period", expect.objectContaining({p_prior_start:"2024-01-01",p_prior_end:"2024-12-31",p_period_start:"2025-01-01",p_period_end:"2025-12-31"}));
+  });
+  it("waits for audited confirmation before announcing success or navigating", async () => {
+    let confirm!: (v: unknown) => void;
+    fixture.rpc.mockImplementation((name: string) => name === "confirm_period_dates"
+      ? new Promise(r => { confirm=r; })
+      : Promise.resolve({ error:null,data:name === "open_engagement_with_period"
+        ? {outcome:"opened",engagementId:"e",periodId:"p25",priorPeriodId:"p24",periodYear:2025,created:false,granted:[]}
+        : {outcome:"not_eligible",currency:"TZS",block:{code:"ACCEPTED_CERTIFICATION"}} }));
+    const opened=vi.fn();ui=mount(form(opened));await flush();
+    click(document.querySelector('button[type="submit"]')!);await flush();
+    expect(fixture.rpc).toHaveBeenCalledWith("confirm_period_dates",{p_period_id:"p25",p_start:"2025-01-01",p_end:"2025-12-31"});
+    expect(opened).not.toHaveBeenCalled();
+    expect(document.querySelector<HTMLFieldSetElement>("fieldset")?.disabled).toBe(true);
+    await act(async()=>confirm({error:null,data:{outcome:"confirmed",periodId:"p25",changed:true}}));await flush();
+    expect(opened).toHaveBeenCalledTimes(1);
+  });
+  it.each([
+    {outcome:"refused",code:"PERIOD_LOCKED_BY_PROCESSING"},
+    {outcome:"confirmed",periodId:"another-period",changed:true},
+    {outcome:"unexpected",periodId:"p25"},
+  ])("keeps the form open when confirmation is refused or invalid: %j", async receipt => {
+    fixture.rpc.mockImplementation(async (name: string)=>({error:null,data:name === "open_engagement_with_period"
+      ? {outcome:"opened",engagementId:"e",periodId:"p25",priorPeriodId:"p24",periodYear:2025,created:false,granted:[]}
+      : name === "confirm_period_dates" ? receipt : {outcome:"not_eligible",currency:"TZS",block:{code:"ACCEPTED_CERTIFICATION"}}}));
+    const opened=vi.fn();ui=mount(form(opened));await flush();
+    click(document.querySelector('button[type="submit"]')!);await flush();
+    expect(opened).not.toHaveBeenCalled();
+    expect(document.querySelector('[role="alert"]')?.textContent).toBeTruthy();
+    expect(document.querySelector<HTMLInputElement>('input[type="date"]')?.value).toBe("2025-01-01");
   });
   it("a linked prior record hidden or absent blocks saving rather than offering blank dates as saved state", async () => {
     fixture.query.mockResolvedValue({ data: [periods[0]], error:null }); ui=mount(form()); await flush();
