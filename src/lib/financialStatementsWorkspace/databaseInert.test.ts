@@ -618,6 +618,8 @@ describe("database inertness — schema and functions", () => {
     ]);
     // Exact local QBO follow-up: revocation remains possible while imports are disabled.
     for (const file of ["scripts/db-proof/qboConnectorStorage.mjs", "supabase/functions/_shared/qboEnv.ts", "supabase/functions/_shared/qboDisconnect.ts", "supabase/functions/qbo-disconnect/index.ts"]) modified.add(file);
+    // Reviewed production privacy fix: remove customer identifiers from routine QBO logs; no authority, schema or financial-write changes.
+    for (const file of ["supabase/functions/qbo-connect-start/index.ts", "supabase/functions/qbo-finish-connection/index.ts", "supabase/functions/qbo-pull-trial-balance/index.ts"]) modified.add(file);
     expect(unreviewedChanges(changed, { added, modified, removed })).toEqual([]);
   });
 
