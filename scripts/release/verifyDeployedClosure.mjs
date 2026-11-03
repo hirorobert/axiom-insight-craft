@@ -20,7 +20,7 @@ export const KNOWN_CLOSURES = Object.freeze({
   // PR #176 (FS first slice): the mapping read is paged (DEFECT-PTB-MAPPINGS-API-ROW-CAP-001). The closure deployed hosted on
   // 2026-10-18 (tb-release-r1, EVIDENCE.md) read at most 1,000 mappings and must be redeployed.
   "process-trial-balance": Object.freeze({
-    required: { sha256: "f2653da42337a597735937e8d97a723ba5001e39d51086deec808c60dcb0edea", source: "reader: the Tally (TallyPrime) trial-balance export adapter and XML reader (tally-export-r1, tb-ingest-3.3.0; .xml accepted by the upload policy for that one shape, tb-upload-policy-4), on top of the number-cell noise rule and the QuickBooks Desktop export reading; no migration" },
+    required: { sha256: "580f06973538b31395d8f025916a2e63c1fae2014d38d3e44dd68fac242ebc77", source: "reader: the Tally (TallyPrime) trial-balance export adapter and XML reader (tally-export-r1, tb-ingest-3.3.0; .xml accepted by the upload policy for that one shape, tb-upload-policy-4), on top of the number-cell noise rule and the QuickBooks Desktop export reading; no migration" },
     known: [{ sha256: "120f3899c291cec18571bc4f8c806e00f62c3f963ad8327b96c476e13f616fa8", source: "main with the number-cell noise rule (QuickBooks Online float noise) on the QuickBooks Desktop export reading, before the Tally export adapter" },
       { sha256: "06425fa89ec9ac6abe5a5b5ba4de04493e6ad655e60e8d3e9b06942398f76755", source: "main with the QuickBooks Desktop export reading (PR #235), before the number-cell noise rule" },
       { sha256: "d0e8eb018c50e870d561c1bd45b21472ab0d29fd57c199cee852bd6f9dee19db", source: "main with classification-r1 (specific names win over general words in classification suggestions; docs/release/classification-r1/RECORD.md), before the QuickBooks Desktop export reading fix" },
@@ -30,7 +30,7 @@ export const KNOWN_CLOSURES = Object.freeze({
       { sha256: "85670e5ae5bd01a737ca7a30f90f9b779784d272ad4422c5d94f36e2f7ba8a6e", source: "PR #176 bbb9ad2-018f1f4 (never deployed): OFFSET-window pages, unsafe against a concurrent unrelated mapping change" }],
   }),
   "trial-balance-layout": Object.freeze({
-    required: { sha256: "cf1ae1196d2eb0d670fcef5c31cb3e5c4e8e5185b3fc51ce39b9b7d9696b9552", source: "Tally export adapter and XML reader (tally-export-r1) on the number-cell noise rule, the QuickBooks Desktop export reading and the generation 7 layout/investigation closure (20261118100000)" },
+    required: { sha256: "a358206d78cc7d0fbbef30da7b783092f589380e19deaba03ab9b403efdce09a", source: "Tally export adapter and XML reader (tally-export-r1) on the number-cell noise rule, the QuickBooks Desktop export reading and the generation 7 layout/investigation closure (20261118100000)" },
     // The prior hosted layout digest is only abbreviated in historical evidence; without a full digest it remains UNKNOWN,
     // which correctly requires a fresh closure verification rather than accepting a partial identity.
     known: [{ sha256: "e3a7516b7f38df6775bdd94ec643b830d71c704acec1fdd563fad02e98d2a44c", source: "main with the number-cell noise rule on the QuickBooks Desktop export reading, before the Tally export adapter" },

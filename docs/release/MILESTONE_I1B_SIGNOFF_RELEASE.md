@@ -224,7 +224,7 @@ financial-statements rollout.
 ## Unreleased ingestion compatibility update (2026-10-15)
 
 The historical release identities above remain unchanged. The current source dependency closure of
-`layout-assist` is now `a606ade0d79c87e062bfc0664067fa4f92f9c7ba09c6d6227bd1e3f163247a8d` because the shared deterministic ingestion core recognises
+`layout-assist` is now `e9ed02181abbebc68a4837588fa88afd0edc06a3b92bf2abbf27d75cac8ee3c8` because the shared deterministic ingestion core recognises
 printed-workbook metadata and control totals (tb-ingest-3.1.0), and then printed-report footers by position and structure, title-block
 evidence and the review-only rules (tb-ingest-3.2.0), and the shared reader enforces the one upload policy before any parse
 (`_shared/uploadPolicy.ts`, tb-upload-policy-4: the account bound added by the certification-capacity repair, then `.xml` accepted for exactly one shape, TallyPrime's Trial Balance export). A file refused as a whole
