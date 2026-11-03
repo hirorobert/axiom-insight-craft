@@ -8228,6 +8228,72 @@ export type Database = {
           },
         ]
       }
+      qbo_disconnect_operations: {
+        Row: {
+          actor_user_id: string
+          company_id: string
+          completed_at: string | null
+          connection_id: string
+          created_at: string
+          environment: string
+          outcome: string
+          pending_envelope: string | null
+          realm_id: string
+          request_id: string
+          revoke_lease_id: string | null
+          revoke_lease_until: string | null
+        }
+        Insert: {
+          actor_user_id: string
+          company_id: string
+          completed_at?: string | null
+          connection_id: string
+          created_at?: string
+          environment: string
+          outcome: string
+          pending_envelope?: string | null
+          realm_id: string
+          request_id: string
+          revoke_lease_id?: string | null
+          revoke_lease_until?: string | null
+        }
+        Update: {
+          actor_user_id?: string
+          company_id?: string
+          completed_at?: string | null
+          connection_id?: string
+          created_at?: string
+          environment?: string
+          outcome?: string
+          pending_envelope?: string | null
+          realm_id?: string
+          request_id?: string
+          revoke_lease_id?: string | null
+          revoke_lease_until?: string | null
+        }
+        Relationships: []
+      }
+      qbo_fiscal_pull_basis: {
+        Row: {
+          basis: Json
+          period_id: string
+          recorded_at: string
+          reservation_id: string
+        }
+        Insert: {
+          basis: Json
+          period_id: string
+          recorded_at?: string
+          reservation_id: string
+        }
+        Update: {
+          basis?: Json
+          period_id?: string
+          recorded_at?: string
+          reservation_id?: string
+        }
+        Relationships: []
+      }
       qbo_oauth_states: {
         Row: {
           actor_user_id: string
@@ -14526,6 +14592,10 @@ export type Database = {
         }
         Returns: string
       }
+      qbo_begin_disconnect: {
+        Args: { p_actor: string; p_connection: string; p_request: string }
+        Returns: Json
+      }
       qbo_complete_pending_pulls: { Args: never; Returns: number }
       qbo_complete_pull: { Args: { p_reservation_id: string }; Returns: string }
       qbo_connection_status: {
@@ -14547,6 +14617,15 @@ export type Database = {
         Args: { p_actor_user_id: string; p_connection_id: string }
         Returns: string
       }
+      qbo_finish_disconnect: {
+        Args: {
+          p_actor: string
+          p_connection: string
+          p_lease: string
+          p_request: string
+        }
+        Returns: boolean
+      }
       qbo_housekeeping: {
         Args: never
         Returns: {
@@ -14559,12 +14638,34 @@ export type Database = {
         Args: { p_connection_id: string; p_refused_envelope: string }
         Returns: boolean
       }
+      qbo_pending_disconnect: { Args: { p_company: string }; Returns: Json }
       qbo_provenance_past_retention: {
         Args: { p_retention: string }
         Returns: {
           intents: number
           pulls: number
         }[]
+      }
+      qbo_record_fiscal_pull_intent: {
+        Args: {
+          p_account_count: number
+          p_accounting_method: string
+          p_actor_user_id: string
+          p_canonical_sha256: string
+          p_connection_id: string
+          p_currency: string
+          p_end_date: string
+          p_environment: string
+          p_fiscal_basis: Json
+          p_minor_version: number
+          p_period_id: string
+          p_raw_sha256: string
+          p_realm_id: string
+          p_reservation_id: string
+          p_result_sha256: string
+          p_start_date: string
+        }
+        Returns: string
       }
       qbo_record_oauth_return: {
         Args: {
@@ -14602,6 +14703,17 @@ export type Database = {
         Args: { p_connection_id: string; p_lease_id: string }
         Returns: boolean
       }
+      qbo_rotate_leased_token: {
+        Args: {
+          p_connection_id: string
+          p_expected_envelope: string
+          p_hard_expires_at: string
+          p_lease_id: string
+          p_new_envelope: string
+          p_refresh_expires_at: string
+        }
+        Returns: boolean
+      }
       qbo_rotate_refresh_token: {
         Args: {
           p_connection_id: string
@@ -14611,6 +14723,16 @@ export type Database = {
           p_refresh_expires_at: string
         }
         Returns: boolean
+      }
+      qbo_saved_period: {
+        Args: {
+          p_actor: string
+          p_company: string
+          p_engagement: string
+          p_period: string
+          p_year: number
+        }
+        Returns: Json
       }
       qbo_start_oauth_state: {
         Args: {
