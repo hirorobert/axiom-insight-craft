@@ -138,7 +138,7 @@ Deno.serve(async (req) => {
   }, parsed).catch(() => ({ status: 500 as const, outcome: "pull_failed" }));
 
   // OPERATIONAL LOG: never a token, an envelope or any part of the report.
-  console.log(JSON.stringify({ event: "qbo.pull", company_id: parsed.companyId, environment: parsed.environment, realm_id: parsed.realmId, actor, status: result.status, outcome: result.outcome }));
+  console.log(JSON.stringify({ event: "qbo.pull", status: result.status, outcome: result.outcome }));
   const { status, ...body } = result;
   return json(status, body);
 });
