@@ -770,7 +770,7 @@ export default function PrepareWorkspace() {
               <input
                 ref={replaceInputRef}
                 type="file"
-                accept=".csv,.xlsx,.xls"
+                accept=".csv,.xlsx,.xls,.xml"
                 className="hidden"
                 data-testid="trial-balance-replace-input"
                 onChange={(e) => {

@@ -56,13 +56,14 @@ export const INITIAL_FLOW: FlowState = {
   phase: "empty", file: null, choiceError: null, reservationId: null, uploadId: null, clientRequestId: null, failure: null,
 };
 
-export const ACCEPTED_EXTENSIONS = [".csv", ".xlsx", ".xls"] as const;
+/** The upload policy's accepted types (held equal to the server module by uploadPolicy.test.ts). .xml is Tally's export only. */
+export const ACCEPTED_EXTENSIONS = [".csv", ".xlsx", ".xls", ".xml"] as const;
 
 export function validateFileChoice(file: { name: string; size: number }): string | null {
   const dot = file.name.lastIndexOf(".");
   const ext = dot >= 0 ? file.name.slice(dot).toLowerCase() : "";
   if (!(ACCEPTED_EXTENSIONS as readonly string[]).includes(ext)) {
-    return `“${file.name}” is not a spreadsheet. Upload the trial balance as .xlsx, .xls or .csv.`;
+    return `“${file.name}” is not a spreadsheet or a Tally export. Upload the trial balance as .xlsx, .xls or .csv, or as a Tally .xml export.`;
   }
   if (file.size === 0) return `“${file.name}” is empty. Export the trial balance again and upload the new file.`;
   return null;

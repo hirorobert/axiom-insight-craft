@@ -298,6 +298,9 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/_shared/tbSource.ts",
       // ...and the one configurable printed-report footer rule set it uses (tb-ingest-3.2.0). Pure; no schema.
       "supabase/functions/_shared/printedReportMetadata.ts",
+      // ...and the Tally (TallyPrime) Trial Balance XML reader (tally-export-r1, tb-ingest-3.3.0): a strict tokenizer for
+      // Tally's documented ENVELOPE shape, feeding the same ingestion core. Pure module; no schema, no new Edge Function.
+      "supabase/functions/_shared/tallyXmlExport.ts",
       // ...and its Deno function-path tests: the real handler with only the network edges (Supabase client, std serve)
       // replaced by in-memory doubles through an import map used by the tests alone. Never deployed (not under a
       // function's entry point), no schema.
