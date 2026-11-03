@@ -1,3 +1,4 @@
+import { channel, mailtoHref } from "@/lib/contact/contactChannels";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 
@@ -89,7 +90,7 @@ export default function Privacy() {
             <p>
               For privacy questions, access or deletion requests, or support,
               email{" "}
-              <a href="mailto:support@cfoclose.com" className="underline hover:text-foreground">support@cfoclose.com</a>.
+              <a href={mailtoHref("support")} className="underline hover:text-foreground">{channel("support").address}</a>.
               We may need to verify your authority over an account or workspace
               before disclosing, changing or deleting its records.
             </p>
