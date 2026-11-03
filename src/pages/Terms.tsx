@@ -8,7 +8,7 @@ export default function Terms() {
       <Header />
       <main className="max-w-3xl mx-auto px-6 pt-32 pb-20">
         <h1 className="text-3xl font-bold text-foreground mb-2">Terms of Service</h1>
-        <p className="text-sm text-muted-foreground mb-10">Last updated: 4 September 2026</p>
+        <p className="text-sm text-muted-foreground mb-10">Last updated: 3 November 2026</p>
 
         <section className="space-y-8 text-sm leading-relaxed text-muted-foreground">
           <div>
@@ -35,12 +35,11 @@ export default function Terms() {
           <div>
             <h2 className="text-lg font-semibold text-foreground mb-2">3. Current commercial terms</h2>
             <p>
-              Self-service paid subscriptions are not yet available. There is no
-              free plan and no trial: a workspace needs a plan recorded for the
-              account by our team. If and when paid
-              licensing becomes self-serve, these terms will be updated first, and
-              nothing will be charged without that update being published and, where
-              required, your affirmative agreement to it.
+              Access depends on the plan and permissions recorded for your
+              account and company. Any purchase is subject to the price, currency,
+              billing interval and cancellation or refund terms shown before you
+              confirm payment. Connecting an accounting source does not itself
+              authorize a purchase or change your plan.
             </p>
           </div>
 
@@ -78,8 +77,49 @@ export default function Terms() {
           <div>
             <h2 className="text-lg font-semibold text-foreground mb-2">7. Contact</h2>
             <p>
-              For questions about these terms, contact the team through the channel
-              provided at sign-up or by your account representative.
+              For support or questions about these terms, email{" "}
+              <a href="mailto:support@cfoclose.com" className="underline hover:text-foreground">support@cfoclose.com</a>.
+            </p>
+          </div>
+
+          <div>
+            <h2 className="text-lg font-semibold text-foreground mb-2">8. QuickBooks connections and imports</h2>
+            <p>
+              Customer QuickBooks connections are not currently available. The
+              integration is being tested with Intuit sandbox companies. When
+              available, only connect books you are authorized to access.
+              Authorization takes place at Intuit; CFOClose does not collect your
+              Intuit password. Intuit grants an accounting scope that is broader
+              than read-only access. CFOClose restricts its connector to reading
+              the trial balance and fiscal preferences, together with the token
+              operations needed to connect, refresh access and disconnect. It
+              does not write accounting transactions back to QuickBooks.
+            </p>
+            <p className="mt-3">
+              An import is a snapshot, not continuous synchronization. Review its
+              company, reporting period, accounting basis, currency, balances and
+              classifications before relying on it. QuickBooks trial balances
+              use fiscal year-to-date semantics; the connector checks fiscal
+              settings against your confirmed reporting dates. Disconnecting
+              stops new imports and requests revocation of access. Saved imports
+              and reports remain in your workspace; disconnection is not a
+              deletion request. An unconfirmed revocation must not be treated
+              as completed.
+            </p>
+          </div>
+
+          <div>
+            <h2 className="text-lg font-semibold text-foreground mb-2">9. Optional AI assistance</h2>
+            <p>
+              Customer-facing AI features are currently disabled or withheld
+              server-side. Trial balance ingestion and financial calculations
+              use deterministic code. Optional AI functionality exists for
+              advisory explanations and drafting; it does not approve accounts,
+              journals or reports. Before enabling external AI processing of
+              accounting data, we require a review of provider data-handling
+              terms, appropriate disclosures and authorization controls.
+              Availability of AI in development tools does not make it an
+              enabled customer feature.
             </p>
           </div>
         </section>
