@@ -102,7 +102,35 @@ No new finding code was introduced, so `public.tb_finding_rule` (migration `2026
 group-wise detailed export (Excel), one ledger-wise export (Excel), one XML export, each with its Tally screen
 totals, read through `readTrialBalanceSource` with the outcome recorded here.
 
-## 5. Charter references
+## 5. What was built, and the evidence (local, Windows, Bun 1.3.14, 2026-11-03)
+
+| Piece | Where |
+|---|---|
+| Grid adapter: detection, Tally amount grammar, structural pass (groups, ledgers, Grand Total), hooks in the main pass | `supabase/functions/_shared/tbIngestion.ts` (`detectTallyGrid`, `parseTallyAmount`, `analyseTallyRows`; version `tb-ingest-3.3.0`) |
+| XML reader: strict tokenizer for the documented envelope, rows for the same core | `supabase/functions/_shared/tallyXmlExport.ts`; entry in `tbSource.ts` (`detectSourceFormat` → `"xml"`, same byte and table gates; a layout never applies to XML) |
+| `.xml` accepted by the upload policy and the browser picker (server stays the authority: any non-Tally XML is refused) | `_shared/uploadPolicy.ts` and its browser mirror (`tb-upload-policy-4`), `src/lib/ingestion/uploadFlow.ts`, `trialBalanceManagement.ts`, the two file inputs, their pinned copy tests |
+| Synthetic fixtures | `src/lib/ingestion/__fixtures__/tally/` (README states they are hand-written) and `scripts/dev/make-tally-fixture.mjs` |
+| Tests | `src/lib/ingestion/tallyExport.test.ts` (40 tests: happy paths for the detailed grid, the two-row-header workbook, the ledger-wise and Dr/Cr exports and the XML; group-subtotal mismatch; nested parents; net-reported groups; duplicate ledgers; a ledger named like a total; Grand Total missing/wrong; sub-ledger and condensed groups; indentation faults; flattened indentation; period line; precision; amount grammar; XML sign, group, shape, entity, encoding and layout refusals; the corpus never detected; a title-less "Particulars" file reads generically) |
+
+Rule: no new finding code. The adapter's refusals reuse `TOTAL_ROW_MISMATCH`, `UNSUPPORTED_LAYOUT`, `MALFORMED_NUMERIC_VALUE`,
+`TRIAL_BALANCE_IMBALANCE`, `PERIOD_MISMATCH`, `UNSUPPORTED_FORMAT` and `ENCODING_NOT_UTF8` with Tally-specific
+messages, so `public.tb_finding_rule` and `_shared/tbFindingDecisions.ts` are untouched. The generic unknown-format
+message was kept byte-identical because the characterization corpus pins it.
+
+Local gate:
+
+| Step | Result |
+|---|---|
+| `bun install --frozen-lockfile` | OK (554 packages) |
+| `bunx tsc --noEmit -p tsconfig.app.json` | exit 0 |
+| `tsc` over `_shared/tbIngestion.ts`, `tbSource.ts`, `tallyXmlExport.ts`, `layoutProfile.ts` (strict, scratch tsconfig; CI runs `deno check` on these and Deno is not installed here) | exit 0 |
+| `bun run lint` | exit 0 (181 pre-existing warnings, 0 errors; `supabase/functions` is outside the lint config) |
+| Ingestion and upload-policy suites (29 files incl. `ingestCharacterization.test.ts`, `quickbooksDesktopExport.test.ts`, `layout*.test.ts`, `uploadPolicy.test.ts`, `FirstUpload.test.ts`, `tbJourneySix.test.ts`) + `databaseInert.test.ts` | 29 files / 503 tests passed; 2 files / 52 tests passed |
+| **Characterization corpus** (`ingestCharacterization.test.ts`, every pinned digest) | unchanged — passes |
+| `bun run build` | built in 35.8 s, exit 0 |
+| Full `bun run test` | not run here (known Windows-environment failures: git-base lookups, 5 s timeouts); Linux CI is the authority |
+
+## 6. Charter references
 
 - P1/R1 provenance: the detection and every excluded group line are recorded in the read's `columns` and lineage.
 - R2 / §11.1: integer minor units, exact equality, no tolerance, no rounding; `(-)` and `Dr`/`Cr` are sign
