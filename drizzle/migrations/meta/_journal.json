@@ -708,6 +708,13 @@
       "when": 1793550874617,
       "tag": "0100_qbo_connector_storage",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1793687385445,
+      "tag": "0101_qbo_readiness_controls",
+      "breakpoints": true
     }
   ]
 }
