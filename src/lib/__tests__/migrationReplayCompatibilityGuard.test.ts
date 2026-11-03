@@ -287,7 +287,8 @@ describe("migration directory integrity", () => {
     // 206 -> 207: 20261211100000_source_access_authority_repairs.sql (independent review of #229: member removal revokes the person's explicit workspace grants
     // in the same transaction; an append-only record of file-link issuance decisions), a NEW forward-only migration pending hosted application.
     // 207 -> 209: CF-03 legacy write revocation and QuickBooks connector storage, both pending hosted apply.
-    expect(files.length).toBe(209);
+    // 209 -> 210: canonical QBO readiness controls, registered but not installed.
+    expect(files.length).toBe(210);
   });
 });
 

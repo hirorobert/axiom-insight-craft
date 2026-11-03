@@ -167,6 +167,8 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20261212100000_legacy_financial_write_revocation.sql",
       // QuickBooks Online connector storage (charter B9): connections with enveloped tokens, single-use OAuth state, append-only provenance. Additive, no financial-statements schema.
       "supabase/migrations/20261213100000_qbo_connector_storage.sql",
+      // QBO readiness: terminal revocation outbox, fiscal provenance and full-import fences.
+      "supabase/migrations/20261214100000_qbo_readiness_controls.sql",
       "supabase/functions/assistant-explain/index.ts",
       "supabase/functions/_shared/assistantFacts.ts",
       "supabase/functions/_shared/assistantResponse.ts",
@@ -615,7 +617,7 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20261031100000_sandbox_licence_isolation.sql",
     ]);
     // Exact local QBO follow-up: revocation remains possible while imports are disabled.
-    for (const file of ["supabase/functions/_shared/qboEnv.ts", "supabase/functions/_shared/qboDisconnect.ts", "supabase/functions/qbo-disconnect/index.ts"]) modified.add(file);
+    for (const file of ["scripts/db-proof/qboConnectorStorage.mjs", "supabase/functions/_shared/qboEnv.ts", "supabase/functions/_shared/qboDisconnect.ts", "supabase/functions/qbo-disconnect/index.ts"]) modified.add(file);
     expect(unreviewedChanges(changed, { added, modified, removed })).toEqual([]);
   });
 
@@ -915,6 +917,7 @@ describe("database inertness — schema and functions", () => {
     // Guided-equipment candidate: local build assets and a synthetic, no-network OCR proof only.
     // These exact additions require PR review; no glob/prefix exception and no deploy capability.
     for (const file of ["scripts/build/localOcrAssets.ts", "scripts/preparation/assertOcrAssets.mjs", "scripts/preparation/ocrSmoke.mjs", "scripts/preparation/syntheticScan.mjs"]) allowed.add(file);
+    allowed.add("scripts/release/qboReadinessPromotion.mjs"); // Offline deterministic promotion, no deployment.
     allowed.add("scripts/db-proof/qboReadiness.mjs"); // Extends the existing loopback-only candidate proof.
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
