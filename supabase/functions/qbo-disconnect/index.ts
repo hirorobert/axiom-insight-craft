@@ -28,7 +28,7 @@ Deno.serve(async req => {
       try { return await openSecret(envelope, keys.all, binding); } catch { return null; }
     },
     revoke: async (environment, token) => {
-      const creds = config.credentials(environment); if (!creds) return false;
+      const creds = config.revocationCredentials(environment); if (!creds) return false;
       const response = await fetcher({ method: "POST", url: QBO_REVOKE_URL, headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: `Basic ${btoa(`${creds.clientId}:${creds.clientSecret}`)}` }, body: JSON.stringify({ token }) });
       await response.body?.cancel(); return response.status === 200;
     },

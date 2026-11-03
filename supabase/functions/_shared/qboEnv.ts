@@ -19,6 +19,7 @@ const present = (v: string | undefined): v is string => typeof v === "string" &&
 export interface QboEnvConfig {
   oauth(environment: QboEnvironment): { clientId: string; redirectUri: string } | null;
   credentials(environment: QboEnvironment): { clientId: string; clientSecret: string } | null;
+  revocationCredentials(environment: QboEnvironment): { clientId: string; clientSecret: string } | null;
   keys(): { current: EnvelopeKey; all: EnvelopeKey[] } | null;
   appUrl(): string | null;
   minorVersion: number;
@@ -26,12 +27,12 @@ export interface QboEnvConfig {
 
 export function readQboEnv(get: Get): QboEnvConfig {
   const upper = (e: QboEnvironment) => e.toUpperCase();
-  const credentials = (e: QboEnvironment) => {
-    if (e === "production" && get("QBO_PRODUCTION_APPROVED") !== "true") return null;
+  const revocationCredentials = (e: QboEnvironment) => {
     const id = get(`QBO_CLIENT_ID_${upper(e)}`), secret = get(`QBO_CLIENT_SECRET_${upper(e)}`);
     if (e === "production" && (id?.trim() === get("QBO_CLIENT_ID_SANDBOX")?.trim() || secret?.trim() === get("QBO_CLIENT_SECRET_SANDBOX")?.trim())) return null;
     return present(id) && present(secret) ? { clientId: id.trim(), clientSecret: secret.trim() } : null;
   };
+  const credentials = (e: QboEnvironment) => e === "production" && get("QBO_PRODUCTION_APPROVED") !== "true" ? null : revocationCredentials(e);
   const redirect = get("QBO_REDIRECT_URI");
   const redirectUri = present(redirect) && /^https:\/\/[^\s?#]+$/.test(redirect.trim()) ? redirect.trim() : null;
   const app = get("QBO_APP_URL");
@@ -39,6 +40,7 @@ export function readQboEnv(get: Get): QboEnvConfig {
   const mv = Number(get("QBO_MINOR_VERSION") ?? "75");
   return {
     credentials,
+    revocationCredentials,
     oauth: (e) => { const c = credentials(e); return c && redirectUri ? { clientId: c.clientId, redirectUri } : null; },
     keys: () => {
       try {

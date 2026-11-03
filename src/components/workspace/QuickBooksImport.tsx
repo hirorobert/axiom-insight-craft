@@ -95,6 +95,7 @@ export function QuickBooksImportView(p: QuickBooksImportViewProps): JSX.Element 
           {p.busy === "connect" ? "Opening QuickBooks…" : p.busy === "finish" ? "Finishing the QuickBooks connection…" : p.busy === "import" ? "Importing…" : action.label}
         </Button>
       )}
+      <a href="/quickbooks/disconnect" className="block text-sm underline">Manage QuickBooks connections</a>
     </section>
   );
 }

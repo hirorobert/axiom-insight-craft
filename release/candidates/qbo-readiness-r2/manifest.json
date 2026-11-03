@@ -1,8 +1,8 @@
 {
   "status": "INERT_NOT_REGISTERED_NOT_APPLIED",
   "candidate": "release/candidates/qbo-readiness-r2/20261214100000_qbo_readiness_controls.sql",
-  "bytes": 16922,
-  "sha256": "c13efe8b36cd1bd9b86529e4de4e55b55252b44576ece83192169de670afd4fc",
+  "bytes": 17890,
+  "sha256": "00cb216ee96596fb1bb81a27e652d8ef701ac0b175bca25ca3bda206da1cca7f",
   "prerequisite": "20261213100000_qbo_connector_storage.sql",
   "transaction": "BEGIN/COMMIT; requires a reviewed compatible canonical submission form before installation"
 }

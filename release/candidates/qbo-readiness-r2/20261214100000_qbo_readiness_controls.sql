@@ -38,7 +38,7 @@ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,publi
 DECLARE c public.qbo_connections; o public.qbo_disconnect_operations; ticket uuid;
 BEGIN
  SELECT * INTO c FROM public.qbo_connections WHERE id=p_connection;
- IF FOUND THEN PERFORM pg_advisory_xact_lock(hashtextextended('qbo-connect:'||c.company_id::text||':'||c.environment||':'||c.realm_id,0)); END IF;
+ IF FOUND THEN PERFORM pg_advisory_xact_lock(hashtextextended('qbo-connect:'||c.environment||':'||c.realm_id,0)); END IF;
  SELECT * INTO c FROM public.qbo_connections WHERE id=p_connection FOR UPDATE;
  IF NOT FOUND OR NOT public.qbo_connector_basis(p_actor,c.company_id) THEN RETURN jsonb_build_object('outcome','forbidden'); END IF;
  IF p_request IS NULL THEN RETURN jsonb_build_object('outcome','invalid_request'); END IF;
@@ -54,6 +54,7 @@ BEGIN
  IF EXISTS(SELECT 1 FROM public.qbo_disconnect_operations WHERE request_id=p_request) THEN RETURN jsonb_build_object('outcome','request_conflict'); END IF;
  IF c.status='disconnected' THEN RETURN jsonb_build_object('outcome','local_only'); END IF;
  IF c.refresh_lease_until>clock_timestamp() THEN RETURN jsonb_build_object('outcome','busy'); END IF;
+ IF EXISTS(SELECT 1 FROM public.qbo_connections x WHERE x.id<>c.id AND x.realm_id=c.realm_id AND x.environment=c.environment AND x.status='active') THEN RETURN jsonb_build_object('outcome','shared_connection'); END IF;
  INSERT INTO public.qbo_disconnect_operations(connection_id,request_id,actor_user_id,company_id,realm_id,environment,pending_envelope,outcome)
  VALUES(c.id,p_request,p_actor,c.company_id,c.realm_id,c.environment,c.refresh_token_envelope,CASE WHEN c.refresh_token_envelope IS NULL THEN 'local_only' ELSE 'pending' END);
  UPDATE public.qbo_connections SET status='disconnected',refresh_token_envelope=NULL,envelope_key_id=NULL,refresh_expires_at=NULL,hard_expires_at=NULL,
@@ -89,8 +90,8 @@ BEGIN
   IF NOT public.qbo_connector_basis(p_actor_user_id, p_company_id) THEN
     RAISE EXCEPTION 'FORBIDDEN: no right to connect QuickBooks in this workspace' USING ERRCODE = '42501';
   END IF;
-  PERFORM pg_advisory_xact_lock(hashtextextended('qbo-connect:'||p_company_id::text||':'||p_environment||':'||p_realm_id,0));
-  IF EXISTS(SELECT 1 FROM public.qbo_disconnect_operations WHERE company_id=p_company_id AND realm_id=p_realm_id AND environment=p_environment AND outcome='pending') THEN RAISE EXCEPTION 'QBO_REVOKE_PENDING' USING ERRCODE='PT409'; END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended('qbo-connect:'||p_environment||':'||p_realm_id,0));
+  IF EXISTS(SELECT 1 FROM public.qbo_disconnect_operations WHERE realm_id=p_realm_id AND environment=p_environment AND outcome='pending') THEN RAISE EXCEPTION 'QBO_REVOKE_PENDING' USING ERRCODE='PT409'; END IF;
   IF EXISTS(SELECT 1 FROM public.qbo_connections WHERE company_id=p_company_id AND realm_id=p_realm_id AND environment=p_environment AND refresh_lease_until>clock_timestamp()) THEN RAISE EXCEPTION 'QBO_OPERATION_BUSY' USING ERRCODE='PT409'; END IF;
   SELECT id INTO v_id FROM public.qbo_connections
    WHERE company_id = p_company_id AND realm_id = p_realm_id AND environment = p_environment AND status <> 'disconnected' FOR UPDATE;
@@ -178,4 +179,15 @@ RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,pu
 $$;
 REVOKE ALL ON FUNCTION public.qbo_pending_disconnect(uuid) FROM PUBLIC,anon,service_role;
 GRANT EXECUTE ON FUNCTION public.qbo_pending_disconnect(uuid) TO authenticated;
+-- A cascade must not erase the only identity needed to retry upstream revocation.
+CREATE FUNCTION public.qbo_company_delete_fence() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+BEGIN
+ IF EXISTS(SELECT 1 FROM public.qbo_connections WHERE company_id=OLD.id AND status='active')
+ OR EXISTS(SELECT 1 FROM public.qbo_disconnect_operations WHERE company_id=OLD.id AND outcome='pending') THEN
+ RAISE EXCEPTION 'Disconnect QuickBooks and confirm removal of access before deleting this company.' USING ERRCODE='55000';
+ END IF;
+ RETURN OLD;
+END $$;
+REVOKE ALL ON FUNCTION public.qbo_company_delete_fence() FROM PUBLIC,anon,authenticated,service_role;
+CREATE TRIGGER qbo_company_delete_fence BEFORE DELETE ON public.companies FOR EACH ROW EXECUTE FUNCTION public.qbo_company_delete_fence();
 COMMIT;

@@ -86,3 +86,15 @@ Secret **names only** checked 2026-11-02: `QBO_CLIENT_ID_SANDBOX`, `QBO_CLIENT_S
 The QBO Deno entry-point check and disposable candidate proof are wired into the existing CI jobs; no hosted execution is introduced. Full independent production build/TypeScript clearance remains a CI requirement, not claimed from the preview watcher.
 
 Final evidence snapshot before documentation fingerprint refresh: source `796030ae9cf0dc5698cd596e86313b16a506d553`, working tree clean; all 413 tests and 19 PostgreSQL proofs passed, five entry points Deno-checked, lint 0 errors/181 warnings; preview build OK at 18:59:22 UTC. Documentation/manifest refresh advances the platform-managed source snapshot; exact final source SHA is reported separately in chat. Served/deployed identity unverified; no deployment or publication.
+
+## Local follow-up after source sync
+
+The original asynchronous implementation reached main `8b7c528fcc14e9433547bf5d1b801d2aae0774b4` while separate local work was in progress. The local follow-up preserves this source, its full-import lease and its request-identity protocol. No further Lovable AI requests are used.
+
+- Production revocation credentials are now read separately from the production-import approval gate. Disabling imports cannot prevent a person from removing existing access. Both operations still require distinct, correctly configured production credentials; sandbox values never substitute.
+- `/quickbooks/disconnect` remains non-mutating on arrival, ignores URL parameters, and now permits an authenticated authorized person to manage connections after import. Pending operation identities are read from the server, reused on retry and kept out of shared URLs. Auth identity changes invalidate pending view loads. The release-gated workspace account link is available only when customer UI activation is separately enabled; the internal card also links to this page.
+- The unapplied candidate serializes reconnect and disconnect by environment/realm across workspaces. A pending revoke blocks storage of a new connection to that same realm in any workspace. A shared live realm refuses one-workspace revocation until an administrator reconciles the shared access. Neither path enumerates another workspace's financial information.
+- The candidate blocks company deletion while an active connection or pending revoke would be stranded. The existing candidate manifest is refreshed; no installed migration, journal entry or previously imported source is modified.
+- Three PostgreSQL proof cases cover cross-workspace pending reconnect, deletion with pending revoke, and shared live realm refusal. They require CI execution; the earlier 19/19 result above applies to the predecessor candidate, not these additions. Local native PostgreSQL cannot run in the single-UID environment. No live provider acceptance is inferred.
+
+These changes do not promote the SQL candidate, install it, deploy functions, publish the page, enable customer connections or submit Intuit's assessment. Canonical promotion/installation, matching function deployment and independent source-export comparison remain release tasks.

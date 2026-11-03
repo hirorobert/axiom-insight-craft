@@ -24,6 +24,8 @@ try {
  await check('same request replay and wrong request conflict',async()=>{assert.equal((await svc('select public.qbo_begin_disconnect($1,$2,$3) r',[id,w.U.owner,rid])).r.outcome,'revocation_busy');assert.equal((await svc('select public.qbo_begin_disconnect($1,$2,$3) r',[id,w.U.owner,uuid()])).r.outcome,'request_conflict');});
  await check('disconnected token cannot rotate or lease',async()=>{assert.equal((await svc("select public.qbo_rotate_refresh_token($1,$2,$3,now()+interval '100 days',null) r",[id,next,env])).r,false);assert.equal((await svc('select public.qbo_acquire_refresh_lease($1,$2,90) r',[id,next])).r,null);});
  await check('pending revoke blocks reconnect',async()=>assert.rejects(store,/QBO_REVOKE_PENDING/));
+ await check('pending revoke blocks reconnect in a different workspace too',async()=>assert.rejects(()=>svc("select public.qbo_store_connection($1,$2,'123','sandbox',$3,now()+interval '100 days',null)",[w.B,w.U.ownerB,env]),/QBO_REVOKE_PENDING/));
+ await check('company deletion cannot strand a pending revocation',async()=>assert.rejects(()=>db.admin.query('delete from public.companies where id=$1',[w.A]),/Disconnect QuickBooks/));
  await check('clients cannot read pending envelope or call writers',async()=>{for(const role of ['anon','authenticated']){await assert.rejects(()=>db.asRole(role,w.U.owner,'select * from public.qbo_disconnect_operations'),/permission denied/);await assert.rejects(()=>db.asRole(role,w.U.owner,'select public.qbo_begin_disconnect($1,$2,$3)',[id,w.U.owner,rid]),/permission denied/);}});
  const revokeLease=(await db.one('select revoke_lease_id from public.qbo_disconnect_operations where connection_id=$1',[id])).revoke_lease_id;
  await check('wrong revocation lease cannot clear token material',async()=>{assert.equal((await svc('select public.qbo_finish_disconnect($1,$2,$3,$4) r',[id,w.U.owner,rid,uuid()])).r,false);assert.notEqual((await db.one('select pending_envelope from public.qbo_disconnect_operations where connection_id=$1',[id])).pending_envelope,null);});
@@ -85,6 +87,12 @@ try {
    await new Promise(r=>setTimeout(r,100));assert.equal(resolved,false);
    await holder.query('COMMIT');assert.equal((await waiting).r.outcome,'busy');
   } finally {await holder.query('ROLLBACK');holder.release();}
+ });
+ await check('shared live realm cannot be revoked by one workspace',async()=>{
+  const first=(await svc("select public.qbo_store_connection($1,$2,'991','sandbox',$3,now()+interval '100 days',null) id",[w.A,w.U.owner,env])).id;
+  await svc("select public.qbo_store_connection($1,$2,'991','sandbox',$3,now()+interval '100 days',null)",[w.B,w.U.ownerB,env]);
+  const result=await svc('select public.qbo_begin_disconnect($1,$2,$3) r',[first,w.U.owner,uuid()]);
+  assert.equal(result.r.outcome,'shared_connection');
  });
  console.log(`QBO_READINESS ${passed}/${passed} passed (disposable PostgreSQL; no Intuit)`);
 } finally { await db.close(); }

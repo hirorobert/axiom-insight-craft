@@ -25,6 +25,14 @@ describe("connector configuration", () => {
     const c = env({ ...FULL, QBO_PRODUCTION_APPROVED: "true", QBO_CLIENT_ID_PRODUCTION: "ABprodclientid000000000000000000000000", QBO_CLIENT_SECRET_PRODUCTION: "prod-secret-not-real" });
     expect(c.oauth("production")?.clientId).toBe("ABprodclientid000000000000000000000000");
   });
+  it("permits production revocation while production imports are disabled, without borrowing sandbox keys", () => {
+    const values = { ...FULL, QBO_CLIENT_ID_PRODUCTION: "prod-id", QBO_CLIENT_SECRET_PRODUCTION: "prod-secret" };
+    expect(env(values).credentials("production")).toBeNull();
+    expect(env(values).oauth("production")).toBeNull();
+    expect(env(values).revocationCredentials("production")).toEqual({clientId:"prod-id",clientSecret:"prod-secret"});
+    expect(env({...values,QBO_CLIENT_SECRET_PRODUCTION:FULL.QBO_CLIENT_SECRET_SANDBOX}).revocationCredentials("production")).toBeNull();
+    expect(env({...values,QBO_CLIENT_SECRET_PRODUCTION:undefined}).revocationCredentials("production")).toBeNull();
+  });
   it.each<[string, Record<string, string | undefined>]>([
     ["no client id", { ...FULL, QBO_CLIENT_ID_SANDBOX: undefined }],
     ["no secret", { ...FULL, QBO_CLIENT_SECRET_SANDBOX: "  " }],
