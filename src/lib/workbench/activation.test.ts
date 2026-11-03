@@ -143,6 +143,7 @@ describe("intake: the real page, end to end against the server contracts", () =>
   it("period setup, whole-file layout check (BHD, three decimals), confirmation, the new check and the uploader link — in order", async () => {
     rpcImpl = (name) => name === "open_engagement_with_period"
       ? { data: { outcome: "opened", engagementId: "e", periodId: "p", priorPeriodId: "pp", periodYear: 2025, created: true, granted: ["FINANCIAL_STATEMENTS"] }, error: null }
+      : name === "confirm_period_dates" ? {data:{outcome:"confirmed",periodId:"p",changed:true},error:null}
       : name === "tbu_request_reprocess" ? { data: { outcome: "accepted", code: "ACCEPTED", upload_id: "u1", operation_id: "op", invalidated_certification_id: null }, error: null }
       : { data: null, error: null };
     invokeImpl = (name, body) => {

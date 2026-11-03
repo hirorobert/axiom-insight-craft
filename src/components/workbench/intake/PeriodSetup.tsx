@@ -9,7 +9,7 @@ import { CurrencySelect } from "@/components/currency/CurrencySelect";
 import { isoCurrencyOptions } from "@/lib/currency/currencyOptions";
 import { periodFormProblems } from "@/lib/workbench/intake/periodForm";
 import {
-  SetupFeatureUnavailable, WorkspaceSetupError, openEngagementWithPeriod, type PeriodOpenResult, type RpcClient,
+  SetupFeatureUnavailable, WorkspaceSetupError, openEngagementWithPeriod, confirmPeriodDates, type PeriodOpenResult, type RpcClient,
 } from "@/lib/workspace/workspaceSetupClient";
 import { explainBlock, getCorrectionEligibility, type Eligibility } from "@/lib/workspace/periodCurrency";
 
@@ -84,6 +84,13 @@ export function PeriodSetup({ client, companyId, periodYear, onOpened, onBusyCha
       });
       if (r.outcome === "refused") setMessage({ tone: "error", text: r.message });
       else {
+        // Reopening an existing period preserves its derived dates. The person's explicit
+        // save must confirm them through the audited server RPC before reporting success.
+        const confirmation = await confirmPeriodDates(client, r.periodId, f.start, f.end);
+        if (confirmation.outcome === "refused") {
+          setMessage({ tone: "error", text: confirmation.message });
+          return;
+        }
         const prior = f.withPrior && r.priorPeriodId ? ` The prior period ${f.priorStart} to ${f.priorEnd} is set up and linked for comparatives.` : "";
         setMessage({ tone: "info", text: (r.created ? `Reporting period ${f.start} to ${f.end} (${f.currency}) is set up.` : `Reporting period ${f.start} to ${f.end} (${f.currency}) is ready.`) + prior });
         setBaseline(f);

@@ -14,7 +14,7 @@ vi.mock("@/hooks/useEngagementMandate", () => ({ useEngagementMandate: () => ({ 
 vi.mock("@/hooks/useWorkspaceCapabilities", () => ({ useWorkspaceCapabilities: () => ({ loading: false, state: { access: true, allowed: ["prepare_close"] } }) }));
 vi.mock("@/integrations/supabase/client", () => ({ supabase: {
   from: () => ({ select: () => ({ eq: async () => ({ error: fixture.readFailed ? { code: "offline" } : null, data: fixture.readFailed ? null : [{ id: "p1", reporting_start: "2025-01-01", reporting_end: "2025-12-31", reporting_currency: "TZS", prior_period_id: null }] }) }) }),
-  rpc: (name: string, args: unknown) => name === "get_period_currency_correction" ? Promise.resolve({ data: { outcome: "not_eligible", currency: "TZS", block: { code: "ACCEPTED_CERTIFICATION" } }, error: null }) : fixture.save(name, args),
+  rpc: (name: string, args: unknown) => name === "get_period_currency_correction" ? Promise.resolve({ data: { outcome: "not_eligible", currency: "TZS", block: { code: "ACCEPTED_CERTIFICATION" } }, error: null }) : name === "confirm_period_dates" ? Promise.resolve({data:{outcome:"confirmed",periodId:"p1",changed:true},error:null}) : fixture.save(name, args),
 } }));
 let mounts = 0;
 function Work() {

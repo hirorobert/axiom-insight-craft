@@ -129,6 +129,11 @@ export const TEMPLATES = {
 
 /** The reviewed release journal. Changing, adding or removing an entry requires a new review here. */
 export const RELEASE_JOURNAL = {
+  // Hosted id 102, installed 3 November 2026 in the preregistered identical form; independently read journal hash.
+  "0101_qbo_readiness_controls": { kind: "release_verbatim",
+    source: "20261214100000_qbo_readiness_controls.sql", bytes: 20040,
+    digest: "6ac1c74c46171138915d936191beff45d26ca92abb6f7a820d0d73aadf0ddcd8",
+    sha256: "6ac1c74c46171138915d936191beff45d26ca92abb6f7a820d0d73aadf0ddcd8" },
   "0013_pr34_probe_session_identity": { kind: "probe", sha256: "c57e8d89f4e3716a4cb6d6539d41726b8e67cf3b15624d13cf420600a177e878",
     objects: ["public._pr34_probe"], pendingCleanup: true },
   "0014_pr34_release_staging_table": { kind: "staging_table", sha256: "f53362ad4bb0360b6c50b848414576b451d01eb64752cdce169ed7921c8d4c01",
