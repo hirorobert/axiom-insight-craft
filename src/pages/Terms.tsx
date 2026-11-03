@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { channel, mailtoHref } from "@/lib/contact/contactChannels";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 
@@ -78,7 +79,7 @@ export default function Terms() {
             <h2 className="text-lg font-semibold text-foreground mb-2">7. Contact</h2>
             <p>
               For support or questions about these terms, email{" "}
-              <a href="mailto:support@cfoclose.com" className="underline hover:text-foreground">support@cfoclose.com</a>.
+              <a href={mailtoHref("support")} className="underline hover:text-foreground">{channel("support").address}</a>.
             </p>
           </div>
 
