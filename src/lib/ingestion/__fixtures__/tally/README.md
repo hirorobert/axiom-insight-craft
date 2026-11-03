@@ -11,7 +11,7 @@ The company, ledgers and amounts are invented. The chart is a small Tanzanian tr
 | File | Shape |
 |---|---|
 | `tally-detailed-fy2025.csv` | Group-wise Detailed export, one-row header (Particulars / Debit / Credit), group lines above indented ledgers (2 spaces per level, kept by quoting), Indian lakh grouping as text, Grand Total. 12 group lines, 13 ledgers. |
-| `tally-detailed-fy2025.xlsx` | The same report as a workbook: two-row header ("Closing Balance" over Debit / Credit) and NUMBER cells. Built by `scripts/dev/make-tally-fixture.mjs`. |
+| `tally-detailed-fy2025.xlsx` | The same report as a workbook: two-row header ("Closing Balance" over Debit / Credit) and NUMBER cells. Built by `make-tally-fixture.mjs` in this folder (run from the repository root). |
 | `tally-ledgerwise-fy2025.csv` | Ledger-wise export (F5): a flat list of the 13 ledgers and the Grand Total, international grouping. |
 | `tally-closing-drcr-fy2025.csv` | Ledger-wise with one "Closing Balance" column and a `Dr`/`Cr` suffix on every amount (its Grand Total cell is left empty — what Tally prints there in a one-column view is not documented). |
 | `tally-trial-balance-fy2025.xml` | The ENVELOPE of DSPACCNAME / DSPACCINFO pairs that Tally's XML case study shows, ledger-wise: a closing debit negative, a closing credit positive, the unused side empty. |

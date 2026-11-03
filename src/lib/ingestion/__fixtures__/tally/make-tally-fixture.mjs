@@ -1,6 +1,6 @@
 // Builds src/lib/ingestion/__fixtures__/tally/tally-detailed-fy2025.xlsx — a SYNTHETIC Tally-style workbook (see that
 // folder's README). The same detailed report as tally-detailed-fy2025.csv, with the two-row header ("Closing Balance"
-// over Debit / Credit) and NUMBER cells. Run from the repository root:  node scripts/dev/make-tally-fixture.mjs
+// over Debit / Credit) and NUMBER cells. Run from the repository root:  node src/lib/ingestion/__fixtures__/tally/make-tally-fixture.mjs
 import fs from "node:fs";
 import path from "node:path";
 import * as XLSX from "xlsx";

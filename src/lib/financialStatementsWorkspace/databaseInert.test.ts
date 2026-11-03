@@ -530,6 +530,9 @@ describe("database inertness — schema and functions", () => {
       // I1-A A1: the ingestion core reads its exponents from currency-registry/1 (every previously supported currency keeps
       // its exponent; characterization-tested).
       "supabase/functions/_shared/tbIngestion.ts",
+      // tally-export-r1: the upload policy accepts .xml for exactly one shape, TallyPrime's Trial Balance export (read by
+      // tbSource → tallyXmlExport; any other XML refused); limits unchanged (tb-upload-policy-4). Pure; no schema.
+      "supabase/functions/_shared/uploadPolicy.ts",
       "supabase/functions/_shared/serviceEnquiryContract.ts",
       "supabase/functions/_shared/serviceEnquiryEmail.ts",
       "supabase/functions/_shared/serviceEnquiryHandler.ts",
