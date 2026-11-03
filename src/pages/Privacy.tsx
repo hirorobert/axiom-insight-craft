@@ -143,13 +143,19 @@ export default function Privacy() {
             <h2 className="text-lg font-semibold text-foreground mb-2">10. Hosting and international processing</h2>
             <p>
               The production database is configured in AWS eu-west-1, Ireland.
-              This does not establish the location of every storage replica,
-              backup or server-function execution. Managed storage and edge
-              services may involve other processing locations; those locations
-              have not all been verified. We do not promise that all data
-              processing is confined to Ireland, the European Union or your
-              country. Any future external AI processing requires the review
-              described above.
+              Supabase states that project database, authentication, storage
+              objects and backups are hosted in the selected project region.
+              Edge Functions use distributed execution; content delivery,
+              support and operational processing can involve other locations.
+              We do not promise that all processing is confined to Ireland,
+              the European Union or your country. Any future external AI
+              processing requires the review described above.
+            </p>
+            <p className="mt-3">
+              <a href="https://supabase.com/legal/privacy-resources/data-residency-and-transfers-faq" className="underline hover:text-foreground">Supabase data residency and transfers</a>
+              {" "}describes the provider's regional hosting and international
+              processing practices. This is provider documentation, not a
+              claim that CFOClose holds a particular certification.
             </p>
           </div>
         </section>
