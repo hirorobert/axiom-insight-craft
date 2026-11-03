@@ -1,3 +1,4 @@
+import { channel, mailtoHref } from "@/lib/contact/contactChannels";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 
@@ -7,7 +8,7 @@ export default function Privacy() {
       <Header />
       <main className="max-w-3xl mx-auto px-6 pt-32 pb-20">
         <h1 className="text-3xl font-bold text-foreground mb-2">Privacy Policy</h1>
-        <p className="text-sm text-muted-foreground mb-10">Last updated: 4 September 2026</p>
+        <p className="text-sm text-muted-foreground mb-10">Last updated: 3 November 2026</p>
 
         <section className="space-y-8 text-sm leading-relaxed text-muted-foreground">
           <div>
@@ -52,7 +53,7 @@ export default function Privacy() {
             <h2 className="text-lg font-semibold text-foreground mb-2">4. Commercial and billing data</h2>
             <p>
               Separately from your accounting data, we maintain minimal commercial
-              records (plan, licence status, and — once introduced — payment
+              records (plan, licence status and, where applicable, payment
               history) needed to operate accounts and support. This commercial
               record is kept administratively separate from, and is never used to
               alter, your accounting data or the results your firm has produced.
@@ -72,19 +73,90 @@ export default function Privacy() {
           <div>
             <h2 className="text-lg font-semibold text-foreground mb-2">6. Third parties</h2>
             <p>
-              We use infrastructure providers (hosting, database, authentication)
-              to run the service. We do not currently integrate a payment provider.
-              When one is introduced, this policy will be updated to name it before
-              it is used to process any payment.
+              Lovable Cloud and Supabase provide hosting, database, file
+              storage, authentication and server-function infrastructure.
+              Authorized workspace members can access the company records their
+              permissions allow. Operational staff access is limited to service,
+              security, support and legal needs. Intuit processes authorization
+              and source requests for QuickBooks connections. Payment integrations
+              in the product include Polar and Snippe; their availability depends
+              on the configured checkout. Any payment provider and applicable
+              terms must be shown before you confirm a payment.
             </p>
           </div>
 
           <div>
             <h2 className="text-lg font-semibold text-foreground mb-2">7. Contact</h2>
             <p>
-              For questions about this policy or your data, contact the team
-              through the channel provided at sign-up or by your account
-              representative.
+              For privacy questions, access or deletion requests, or support,
+              email{" "}
+              <a href={mailtoHref("support")} className="underline hover:text-foreground">{channel("support").address}</a>.
+              We may need to verify your authority over an account or workspace
+              before disclosing, changing or deleting its records.
+            </p>
+          </div>
+
+          <div>
+            <h2 className="text-lg font-semibold text-foreground mb-2">8. QuickBooks data</h2>
+            <p>
+              Customer QuickBooks access is currently disabled; sandbox testing
+              uses Intuit sample companies. A connection records the source
+              company identifier, environment, connection status and the person
+              who connected it. Refresh tokens are encrypted on the server and
+              are not exposed to workspace browsers. On an authorized import,
+              the connector reads the trial balance and fiscal preferences.
+              Saved records include account names and balances, period, currency,
+              accounting basis, import time and integrity fingerprints.
+              CFOClose does not collect your Intuit password or write accounting
+              transactions back to QuickBooks.
+            </p>
+            <p className="mt-3">
+              Disconnecting stops new imports and requests token revocation.
+              It does not delete previously imported accounting records or
+              reports. You can request deletion through the contact above,
+              subject to applicable legal and audit-record retention obligations.
+            </p>
+          </div>
+
+          <div>
+            <h2 className="text-lg font-semibold text-foreground mb-2">9. AI processing</h2>
+            <p>
+              Customer-facing AI features are currently disabled or withheld by
+              server controls. The code includes optional Anthropic and Lovable
+              AI Gateway integrations, including Google Gemini. These are
+              separate from the development tools used to build CFOClose.
+              Deterministic trial balance ingestion does not call a model.
+              Disabled runtime AI features do not dispatch accounting data to a
+              model provider.
+            </p>
+            <p className="mt-3">
+              We do not use your accounting data to train models for other
+              customers. We have not verified a provider-wide zero-retention
+              or no-training commitment for every optional integration and do
+              not represent that we hold one. Before enabling processing of
+              accounting data by an external model, we require review of the
+              applicable provider terms, retention and training settings,
+              updated disclosures and appropriate authorization controls.
+            </p>
+          </div>
+
+          <div>
+            <h2 className="text-lg font-semibold text-foreground mb-2">10. Hosting and international processing</h2>
+            <p>
+              The production database is configured in AWS eu-west-1, Ireland.
+              Supabase states that project database, authentication, storage
+              objects and backups are hosted in the selected project region.
+              Edge Functions use distributed execution; content delivery,
+              support and operational processing can involve other locations.
+              We do not promise that all processing is confined to Ireland,
+              the European Union or your country. Any future external AI
+              processing requires the review described above.
+            </p>
+            <p className="mt-3">
+              <a href="https://supabase.com/legal/privacy-resources/data-residency-and-transfers-faq" className="underline hover:text-foreground">Supabase data residency and transfers</a>
+              {" "}describes the provider's regional hosting and international
+              processing practices. This is provider documentation, not a
+              claim that CFOClose holds a particular certification.
             </p>
           </div>
         </section>
