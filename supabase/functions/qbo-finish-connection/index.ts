@@ -72,7 +72,7 @@ Deno.serve(async (req) => {
   }, parsed).catch(() => ({ status: 500 as const, outcome: "failed" as const }));
 
   // OPERATIONAL LOG: never the handoff, the code, a token or an envelope.
-  console.log(JSON.stringify({ event: "qbo.finish_connection", company_id: company, actor, status: result.status, outcome: result.outcome }));
+  console.log(JSON.stringify({ event: "qbo.finish_connection", status: result.status, outcome: result.outcome }));
   const { status, ...body } = result;
   return json(status, body);
 });
