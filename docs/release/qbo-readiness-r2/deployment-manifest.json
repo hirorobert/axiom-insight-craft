@@ -1,0 +1,436 @@
+{
+  "functions": [
+    {
+      "function": "qbo-connect-start",
+      "entry": "supabase/functions/qbo-connect-start/index.ts",
+      "files": [
+        {
+          "path": "supabase/functions/_shared/auth.ts",
+          "size": 5408,
+          "sha256": "4d67284e6eb27cf6d2cba56a2e2ce3ea69fe92c4d221599a3bf3bdb972493097"
+        },
+        {
+          "path": "supabase/functions/_shared/currencyRegistry.ts",
+          "size": 2722,
+          "sha256": "ce1f08e57862427f8f6f0c38108260e5a5fdb97c760456c0890c637205070993"
+        },
+        {
+          "path": "supabase/functions/_shared/hash.ts",
+          "size": 4847,
+          "sha256": "333051d5fd8d26dff9b56920b1fa1e2f45311a6d9d8bbe676757f4ed9835289c"
+        },
+        {
+          "path": "supabase/functions/_shared/layoutProfile.ts",
+          "size": 16878,
+          "sha256": "9773a7c1831d32b0395ae24a723a927ef63bb4f2171a8d38f75dcce4bb838395"
+        },
+        {
+          "path": "supabase/functions/_shared/namedUserAccess.ts",
+          "size": 2222,
+          "sha256": "ca984a836fbfb1cffb67c66f72015f4dddc47f0c46196694c543fcddede844bf"
+        },
+        {
+          "path": "supabase/functions/_shared/printedReportMetadata.ts",
+          "size": 2725,
+          "sha256": "3f72ccacb88dfe2e35766abe0312eb6e690b68c637670abc39c41f37139b5b87"
+        },
+        {
+          "path": "supabase/functions/_shared/qboConnect.ts",
+          "size": 13189,
+          "sha256": "ab8f83cb4a457292d50a265cf502028ecdc9875a79d821654bd9fb496e99bf6f"
+        },
+        {
+          "path": "supabase/functions/_shared/qboEnv.ts",
+          "size": 3896,
+          "sha256": "34b6e42cb958d2c0f4ad2e56243b7b7edf71a098db12d34147ebe83a129f2354"
+        },
+        {
+          "path": "supabase/functions/_shared/qboPullSummary.ts",
+          "size": 1774,
+          "sha256": "9de85a01c0ae539ea3c21d0793275ea40923929a18aee8f428d816f10b2b77da"
+        },
+        {
+          "path": "supabase/functions/_shared/qboReadOnlyGuard.ts",
+          "size": 10527,
+          "sha256": "5e1ed0f858509b9f5013a72ec475a35f920bac34326b917f2211b27be4765d82"
+        },
+        {
+          "path": "supabase/functions/_shared/qboTokenClient.ts",
+          "size": 4438,
+          "sha256": "737daf0e0b27f952af3bb000e4684615e3ae2a55a35836093ee50f56ca8a0e2e"
+        },
+        {
+          "path": "supabase/functions/_shared/qboTokenEnvelope.ts",
+          "size": 6217,
+          "sha256": "e64cb6dd460fd406e5cf24da09ba2464c5eb93e8af7af265eb68537dba75bdc3"
+        },
+        {
+          "path": "supabase/functions/_shared/qboTrialBalance.ts",
+          "size": 9554,
+          "sha256": "84a5d0dc915faa14dd6576a4bed67e632606e192682d1aa17216929376e30116"
+        },
+        {
+          "path": "supabase/functions/_shared/tbIngestion.ts",
+          "size": 68846,
+          "sha256": "7b4b7c63bd3dbf4537d74bc58e94464ead268568731e7b6fcbc85fd828b5d5c7"
+        },
+        {
+          "path": "supabase/functions/_shared/tbSource.ts",
+          "size": 11207,
+          "sha256": "e67942636226580f84d649dd1d25da0f7a5c0c2260c2c3f4f6f1e40881c81795"
+        },
+        {
+          "path": "supabase/functions/_shared/uploadPolicy.ts",
+          "size": 11290,
+          "sha256": "8898c8daad6bfee44dcaed9fd7ecc81027b32d4768c5bcfd8aa4552bc2ff4654"
+        },
+        {
+          "path": "supabase/functions/qbo-connect-start/index.ts",
+          "size": 3561,
+          "sha256": "5ecf0c6dd1ee0ec2c2e7846ebcba5d3aa988aba16fd3c747cdcceb5deac4bb0f"
+        }
+      ],
+      "remote": [
+        "https://esm.sh/@supabase/supabase-js@2"
+      ],
+      "closureSha256": "73e8304556f2cfa66bdcf83570d1b6a01f48fa5efbc19710e3acb664777c4b0a"
+    },
+    {
+      "function": "qbo-oauth-callback",
+      "entry": "supabase/functions/qbo-oauth-callback/index.ts",
+      "files": [
+        {
+          "path": "supabase/functions/_shared/currencyRegistry.ts",
+          "size": 2722,
+          "sha256": "ce1f08e57862427f8f6f0c38108260e5a5fdb97c760456c0890c637205070993"
+        },
+        {
+          "path": "supabase/functions/_shared/hash.ts",
+          "size": 4847,
+          "sha256": "333051d5fd8d26dff9b56920b1fa1e2f45311a6d9d8bbe676757f4ed9835289c"
+        },
+        {
+          "path": "supabase/functions/_shared/layoutProfile.ts",
+          "size": 16878,
+          "sha256": "9773a7c1831d32b0395ae24a723a927ef63bb4f2171a8d38f75dcce4bb838395"
+        },
+        {
+          "path": "supabase/functions/_shared/printedReportMetadata.ts",
+          "size": 2725,
+          "sha256": "3f72ccacb88dfe2e35766abe0312eb6e690b68c637670abc39c41f37139b5b87"
+        },
+        {
+          "path": "supabase/functions/_shared/qboConnect.ts",
+          "size": 13189,
+          "sha256": "ab8f83cb4a457292d50a265cf502028ecdc9875a79d821654bd9fb496e99bf6f"
+        },
+        {
+          "path": "supabase/functions/_shared/qboEnv.ts",
+          "size": 3896,
+          "sha256": "34b6e42cb958d2c0f4ad2e56243b7b7edf71a098db12d34147ebe83a129f2354"
+        },
+        {
+          "path": "supabase/functions/_shared/qboPullSummary.ts",
+          "size": 1774,
+          "sha256": "9de85a01c0ae539ea3c21d0793275ea40923929a18aee8f428d816f10b2b77da"
+        },
+        {
+          "path": "supabase/functions/_shared/qboReadOnlyGuard.ts",
+          "size": 10527,
+          "sha256": "5e1ed0f858509b9f5013a72ec475a35f920bac34326b917f2211b27be4765d82"
+        },
+        {
+          "path": "supabase/functions/_shared/qboTokenClient.ts",
+          "size": 4438,
+          "sha256": "737daf0e0b27f952af3bb000e4684615e3ae2a55a35836093ee50f56ca8a0e2e"
+        },
+        {
+          "path": "supabase/functions/_shared/qboTokenEnvelope.ts",
+          "size": 6217,
+          "sha256": "e64cb6dd460fd406e5cf24da09ba2464c5eb93e8af7af265eb68537dba75bdc3"
+        },
+        {
+          "path": "supabase/functions/_shared/qboTrialBalance.ts",
+          "size": 9554,
+          "sha256": "84a5d0dc915faa14dd6576a4bed67e632606e192682d1aa17216929376e30116"
+        },
+        {
+          "path": "supabase/functions/_shared/tbIngestion.ts",
+          "size": 68846,
+          "sha256": "7b4b7c63bd3dbf4537d74bc58e94464ead268568731e7b6fcbc85fd828b5d5c7"
+        },
+        {
+          "path": "supabase/functions/_shared/tbSource.ts",
+          "size": 11207,
+          "sha256": "e67942636226580f84d649dd1d25da0f7a5c0c2260c2c3f4f6f1e40881c81795"
+        },
+        {
+          "path": "supabase/functions/_shared/uploadPolicy.ts",
+          "size": 11290,
+          "sha256": "8898c8daad6bfee44dcaed9fd7ecc81027b32d4768c5bcfd8aa4552bc2ff4654"
+        },
+        {
+          "path": "supabase/functions/qbo-oauth-callback/index.ts",
+          "size": 3903,
+          "sha256": "d5d5ad13ea914e9eea83005fd372b16360b9ef5a2e773e0b0d04accfcbc2cd62"
+        }
+      ],
+      "remote": [
+        "https://esm.sh/@supabase/supabase-js@2"
+      ],
+      "closureSha256": "083b37a5f5bb42db0467894ad4628d0d4d4c76f6f2bfe5f42ab227f227f6a98f"
+    },
+    {
+      "function": "qbo-finish-connection",
+      "entry": "supabase/functions/qbo-finish-connection/index.ts",
+      "files": [
+        {
+          "path": "supabase/functions/_shared/auth.ts",
+          "size": 5408,
+          "sha256": "4d67284e6eb27cf6d2cba56a2e2ce3ea69fe92c4d221599a3bf3bdb972493097"
+        },
+        {
+          "path": "supabase/functions/_shared/currencyRegistry.ts",
+          "size": 2722,
+          "sha256": "ce1f08e57862427f8f6f0c38108260e5a5fdb97c760456c0890c637205070993"
+        },
+        {
+          "path": "supabase/functions/_shared/hash.ts",
+          "size": 4847,
+          "sha256": "333051d5fd8d26dff9b56920b1fa1e2f45311a6d9d8bbe676757f4ed9835289c"
+        },
+        {
+          "path": "supabase/functions/_shared/layoutProfile.ts",
+          "size": 16878,
+          "sha256": "9773a7c1831d32b0395ae24a723a927ef63bb4f2171a8d38f75dcce4bb838395"
+        },
+        {
+          "path": "supabase/functions/_shared/namedUserAccess.ts",
+          "size": 2222,
+          "sha256": "ca984a836fbfb1cffb67c66f72015f4dddc47f0c46196694c543fcddede844bf"
+        },
+        {
+          "path": "supabase/functions/_shared/printedReportMetadata.ts",
+          "size": 2725,
+          "sha256": "3f72ccacb88dfe2e35766abe0312eb6e690b68c637670abc39c41f37139b5b87"
+        },
+        {
+          "path": "supabase/functions/_shared/qboConnect.ts",
+          "size": 13189,
+          "sha256": "ab8f83cb4a457292d50a265cf502028ecdc9875a79d821654bd9fb496e99bf6f"
+        },
+        {
+          "path": "supabase/functions/_shared/qboEnv.ts",
+          "size": 3896,
+          "sha256": "34b6e42cb958d2c0f4ad2e56243b7b7edf71a098db12d34147ebe83a129f2354"
+        },
+        {
+          "path": "supabase/functions/_shared/qboPullSummary.ts",
+          "size": 1774,
+          "sha256": "9de85a01c0ae539ea3c21d0793275ea40923929a18aee8f428d816f10b2b77da"
+        },
+        {
+          "path": "supabase/functions/_shared/qboReadOnlyGuard.ts",
+          "size": 10527,
+          "sha256": "5e1ed0f858509b9f5013a72ec475a35f920bac34326b917f2211b27be4765d82"
+        },
+        {
+          "path": "supabase/functions/_shared/qboTokenClient.ts",
+          "size": 4438,
+          "sha256": "737daf0e0b27f952af3bb000e4684615e3ae2a55a35836093ee50f56ca8a0e2e"
+        },
+        {
+          "path": "supabase/functions/_shared/qboTokenEnvelope.ts",
+          "size": 6217,
+          "sha256": "e64cb6dd460fd406e5cf24da09ba2464c5eb93e8af7af265eb68537dba75bdc3"
+        },
+        {
+          "path": "supabase/functions/_shared/qboTrialBalance.ts",
+          "size": 9554,
+          "sha256": "84a5d0dc915faa14dd6576a4bed67e632606e192682d1aa17216929376e30116"
+        },
+        {
+          "path": "supabase/functions/_shared/tbIngestion.ts",
+          "size": 68846,
+          "sha256": "7b4b7c63bd3dbf4537d74bc58e94464ead268568731e7b6fcbc85fd828b5d5c7"
+        },
+        {
+          "path": "supabase/functions/_shared/tbSource.ts",
+          "size": 11207,
+          "sha256": "e67942636226580f84d649dd1d25da0f7a5c0c2260c2c3f4f6f1e40881c81795"
+        },
+        {
+          "path": "supabase/functions/_shared/uploadPolicy.ts",
+          "size": 11290,
+          "sha256": "8898c8daad6bfee44dcaed9fd7ecc81027b32d4768c5bcfd8aa4552bc2ff4654"
+        },
+        {
+          "path": "supabase/functions/qbo-finish-connection/index.ts",
+          "size": 5140,
+          "sha256": "e920bd514ba5bf5348b2d0163b4ca252e2044db94a38a604cb9f3d55b72ac478"
+        }
+      ],
+      "remote": [
+        "https://esm.sh/@supabase/supabase-js@2"
+      ],
+      "closureSha256": "c7a18ade0f88e6ed698bfc3b4612fdbe0cc4fb2ca20061548e37f5816f417109"
+    },
+    {
+      "function": "qbo-pull-trial-balance",
+      "entry": "supabase/functions/qbo-pull-trial-balance/index.ts",
+      "files": [
+        {
+          "path": "supabase/functions/_shared/auth.ts",
+          "size": 5408,
+          "sha256": "4d67284e6eb27cf6d2cba56a2e2ce3ea69fe92c4d221599a3bf3bdb972493097"
+        },
+        {
+          "path": "supabase/functions/_shared/currencyRegistry.ts",
+          "size": 2722,
+          "sha256": "ce1f08e57862427f8f6f0c38108260e5a5fdb97c760456c0890c637205070993"
+        },
+        {
+          "path": "supabase/functions/_shared/hash.ts",
+          "size": 4847,
+          "sha256": "333051d5fd8d26dff9b56920b1fa1e2f45311a6d9d8bbe676757f4ed9835289c"
+        },
+        {
+          "path": "supabase/functions/_shared/layoutProfile.ts",
+          "size": 16878,
+          "sha256": "9773a7c1831d32b0395ae24a723a927ef63bb4f2171a8d38f75dcce4bb838395"
+        },
+        {
+          "path": "supabase/functions/_shared/namedUserAccess.ts",
+          "size": 2222,
+          "sha256": "ca984a836fbfb1cffb67c66f72015f4dddc47f0c46196694c543fcddede844bf"
+        },
+        {
+          "path": "supabase/functions/_shared/printedReportMetadata.ts",
+          "size": 2725,
+          "sha256": "3f72ccacb88dfe2e35766abe0312eb6e690b68c637670abc39c41f37139b5b87"
+        },
+        {
+          "path": "supabase/functions/_shared/qboBoundedRead.ts",
+          "size": 1483,
+          "sha256": "b088d97278a911b2202f3e4c29f72aa827c2111d08907fd7ff452051d0f47b0d"
+        },
+        {
+          "path": "supabase/functions/_shared/qboEnv.ts",
+          "size": 3896,
+          "sha256": "34b6e42cb958d2c0f4ad2e56243b7b7edf71a098db12d34147ebe83a129f2354"
+        },
+        {
+          "path": "supabase/functions/_shared/qboFiscalBasis.ts",
+          "size": 3458,
+          "sha256": "2fc9d1196519223bbdb4d5243a50dcfd9c71f6c8bb3ac3f86ff1f829ec158aca"
+        },
+        {
+          "path": "supabase/functions/_shared/qboPull.ts",
+          "size": 19484,
+          "sha256": "7d7975a4fbadc7d279dfefc93960829bcd3ae727510c67a4c65ae4cf2d3ccd30"
+        },
+        {
+          "path": "supabase/functions/_shared/qboPullSummary.ts",
+          "size": 1774,
+          "sha256": "9de85a01c0ae539ea3c21d0793275ea40923929a18aee8f428d816f10b2b77da"
+        },
+        {
+          "path": "supabase/functions/_shared/qboReadOnlyGuard.ts",
+          "size": 10527,
+          "sha256": "5e1ed0f858509b9f5013a72ec475a35f920bac34326b917f2211b27be4765d82"
+        },
+        {
+          "path": "supabase/functions/_shared/qboTokenClient.ts",
+          "size": 4438,
+          "sha256": "737daf0e0b27f952af3bb000e4684615e3ae2a55a35836093ee50f56ca8a0e2e"
+        },
+        {
+          "path": "supabase/functions/_shared/qboTokenEnvelope.ts",
+          "size": 6217,
+          "sha256": "e64cb6dd460fd406e5cf24da09ba2464c5eb93e8af7af265eb68537dba75bdc3"
+        },
+        {
+          "path": "supabase/functions/_shared/qboTrialBalance.ts",
+          "size": 9554,
+          "sha256": "84a5d0dc915faa14dd6576a4bed67e632606e192682d1aa17216929376e30116"
+        },
+        {
+          "path": "supabase/functions/_shared/tbIngestion.ts",
+          "size": 68846,
+          "sha256": "7b4b7c63bd3dbf4537d74bc58e94464ead268568731e7b6fcbc85fd828b5d5c7"
+        },
+        {
+          "path": "supabase/functions/_shared/tbSource.ts",
+          "size": 11207,
+          "sha256": "e67942636226580f84d649dd1d25da0f7a5c0c2260c2c3f4f6f1e40881c81795"
+        },
+        {
+          "path": "supabase/functions/_shared/uploadPolicy.ts",
+          "size": 11290,
+          "sha256": "8898c8daad6bfee44dcaed9fd7ecc81027b32d4768c5bcfd8aa4552bc2ff4654"
+        },
+        {
+          "path": "supabase/functions/qbo-pull-trial-balance/index.ts",
+          "size": 10652,
+          "sha256": "e134e3535b756dd7b1e4eda54c790d9479f414a3a9b7bf59466eb3a68b762a2c"
+        }
+      ],
+      "remote": [
+        "https://esm.sh/@supabase/supabase-js@2"
+      ],
+      "closureSha256": "f3cd4071c3a400b9881c97f92413ab1fe0964dfb40a7467e544720968270ba89"
+    },
+    {
+      "function": "qbo-disconnect",
+      "entry": "supabase/functions/qbo-disconnect/index.ts",
+      "files": [
+        {
+          "path": "supabase/functions/_shared/auth.ts",
+          "size": 5408,
+          "sha256": "4d67284e6eb27cf6d2cba56a2e2ce3ea69fe92c4d221599a3bf3bdb972493097"
+        },
+        {
+          "path": "supabase/functions/_shared/namedUserAccess.ts",
+          "size": 2222,
+          "sha256": "ca984a836fbfb1cffb67c66f72015f4dddc47f0c46196694c543fcddede844bf"
+        },
+        {
+          "path": "supabase/functions/_shared/qboDisconnect.ts",
+          "size": 2886,
+          "sha256": "16658354f61db6fa0a78b288b6fcd59695362702b8d8bd2888fff0caf6fc1538"
+        },
+        {
+          "path": "supabase/functions/_shared/qboEnv.ts",
+          "size": 3896,
+          "sha256": "34b6e42cb958d2c0f4ad2e56243b7b7edf71a098db12d34147ebe83a129f2354"
+        },
+        {
+          "path": "supabase/functions/_shared/qboReadOnlyGuard.ts",
+          "size": 10527,
+          "sha256": "5e1ed0f858509b9f5013a72ec475a35f920bac34326b917f2211b27be4765d82"
+        },
+        {
+          "path": "supabase/functions/_shared/qboTokenEnvelope.ts",
+          "size": 6217,
+          "sha256": "e64cb6dd460fd406e5cf24da09ba2464c5eb93e8af7af265eb68537dba75bdc3"
+        },
+        {
+          "path": "supabase/functions/qbo-disconnect/index.ts",
+          "size": 2838,
+          "sha256": "ba1e6e7eefb1b207dba0df1d2e6265d01a5521833d7b1bfd4f82e6173cd29ac7"
+        }
+      ],
+      "remote": [
+        "https://esm.sh/@supabase/supabase-js@2"
+      ],
+      "closureSha256": "e31be912201aa7c388005e18194218a12db6ccd56467ebba7badb0fb0a0e6676"
+    }
+  ],
+  "migrations": [
+    {
+      "migration": "20261214100000_qbo_readiness_controls.sql",
+      "size": 20040,
+      "sha256": "6ac1c74c46171138915d936191beff45d26ca92abb6f7a820d0d73aadf0ddcd8"
+    }
+  ]
+}

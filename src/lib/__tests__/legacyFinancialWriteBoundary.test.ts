@@ -87,8 +87,8 @@ describe("CF-03 database boundary: 20261212100000 retires every client write pat
   const files = readdirSync(MIGRATIONS).filter((f) => f.endsWith(".sql")).sort();
   const sql = read(join(MIGRATIONS, MIGRATION));
 
-  it("preserves the exact tail: source access, CF-03, then QuickBooks storage", () => {
-    expect(files.slice(-3)).toEqual(["20261211100000_source_access_authority_repairs.sql", MIGRATION, "20261213100000_qbo_connector_storage.sql"]);
+  it("preserves the exact tail: source access, CF-03, QuickBooks storage and readiness", () => {
+    expect(files.slice(-4)).toEqual(["20261211100000_source_access_authority_repairs.sql", MIGRATION, "20261213100000_qbo_connector_storage.sql", "20261214100000_qbo_readiness_controls.sql"]);
   });
 
   it("drops exactly the eleven client write policies the chain created (every INSERT/UPDATE/DELETE policy on these tables)", () => {

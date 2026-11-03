@@ -1,14 +1,26 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { openDatabase, applyChain, makeWorld, uuid } from './lib/reportingKit.mjs';
+import { openDatabase, applyChainBefore, makeWorld, uuid } from './lib/reportingKit.mjs';
 const db = await openDatabase('qbo_readiness');
 let passed=0;
 const check = async (label,fn) => { await fn(); passed++; console.log('PASS',label); };
 try {
- assert.equal(await applyChain(db),null);
+ const source = '20261214100000_qbo_readiness_controls.sql';
+ assert.equal(await applyChainBefore(db, source),null);
  const w=await makeWorld(db);
  const baseline=await db.one("select (select count(*) from public.qbo_pulls) pulls,(select count(*) from public.fs_publication_bindings) bindings,(select count(*) from public.reporting_pack_issuances) packs");
- await db.admin.query(fs.readFileSync('release/candidates/qbo-readiness-r2/20261214100000_qbo_readiness_controls.sql','utf8'));
+ const sql=fs.readFileSync(`supabase/migrations/${source}`,'utf8');
+ await check('canonical envelope rolls back all earlier DDL on late failure',async()=>{
+  const broken=sql.replace('\nEND\n$cfoclose_qbo_readiness$',"\nRAISE EXCEPTION 'QBO_PROOF_ROLLBACK';\nEND\n$cfoclose_qbo_readiness$");
+  assert.notEqual(broken,sql);
+  await assert.rejects(()=>db.admin.query(broken),/QBO_PROOF_ROLLBACK/);
+  assert.equal((await db.one("select to_regclass('public.qbo_disconnect_operations') as t")).t,null);
+ });
+ await db.admin.query(sql);
+ await check('accidental replay refuses without changing installed controls',async()=>{
+  await assert.rejects(()=>db.admin.query(sql),/already exists/);
+  assert.notEqual((await db.one("select to_regclass('public.qbo_disconnect_operations') as t")).t,null);
+ });
  await check('history unchanged',async()=>assert.deepEqual(await db.one("select (select count(*) from public.qbo_pulls) pulls,(select count(*) from public.fs_publication_bindings) bindings,(select count(*) from public.reporting_pack_issuances) packs"),baseline));
  const svc=(s,p=[])=>db.asService(s,p);
  const env='v1.k1.'+'a'.repeat(20)+'.'+'b'.repeat(50);

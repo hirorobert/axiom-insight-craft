@@ -426,6 +426,11 @@ export const RELEASE_JOURNAL = {
  * count and SHA-256; no other wrapper text is ever accepted, and the source's own two forms are unchanged.
  */
 export const SUBMISSION_FORMS = Object.freeze({
+  // QBO readiness r2: promoted atomic envelope, NOT applied; exact registered bytes only.
+  "20261214100000_qbo_readiness_controls.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 20040, sha256: "6ac1c74c46171138915d936191beff45d26ca92abb6f7a820d0d73aadf0ddcd8" }),
+    finalLfRemoved: Object.freeze({ bytes: 20039, sha256: "dff70210d4be119a31ea4a550f2f28a00f84976686e6eb949bb4be5e4ef8f5b6" }),
+  }),
   // Track A authority hardening (track-a-r1, migration 1 of 2): authored, NOT applied; exact bytes only, through its staged transport.
   "20261127100000_fs_track_a_authority_hardening.sql": Object.freeze({
     identical: Object.freeze({ bytes: 44872, sha256: "a3b39b90f8a6f2b1e48372203c26618b3f864da22db16d53a96932cc21bd9e99" }),

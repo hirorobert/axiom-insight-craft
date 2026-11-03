@@ -1,12 +1,13 @@
 // Native proof of the QuickBooks Online connector storage (migration 20261213100000, charter B9): connections, single-use OAuth state and append-only
-// provenance, on the full migration chain in a disposable loopback database. Synthetic data only; never a hosted database; no Intuit call and no real token
+// provenance, on the chain before readiness-r2 in a disposable loopback database. Synthetic data only; never a hosted database; no Intuit call and no real token
 // (the "envelopes" below are well-formed strings of no value, the shape supabase/functions/_shared/qboTokenEnvelope.ts produces).
+// Readiness supersedes direct disconnect and registration; qboReadiness.mjs proves the current full chain.
 // DB_PROOF_MODE=external DB_PROOF_CONN=postgres://... | DB_PROOF_MODULES_DIR=<dir>
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { applyChain, makeWorld, openDatabase, REPO, uuid } from "./lib/reportingKit.mjs";
+import { applyChainBefore, makeWorld, openDatabase, REPO, uuid } from "./lib/reportingKit.mjs";
 import { CASES, PROOF } from "./qboConnectorStorage.manifest.mjs";
 
 const results = [], failures = [];
@@ -71,7 +72,7 @@ const denied = /permission denied/i;
 try {
   db = await openDatabase("qbo_connector_storage");
   await kase("setup.chain-and-world", async () => {
-    const err = await applyChain(db); assert.equal(err, null, String(err));
+    const err = await applyChainBefore(db, "20261214100000_qbo_readiness_controls.sql"); assert.equal(err, null, String(err));
     W = await makeWorld(db); U = W.U;
     const basis = async (u, c = W.A) => (await svc("SELECT public.workspace_authority_basis($1,$2,'prepare_trial_balance') r", [u, c])).r;
     assert.ok(await basis(U.owner), "the workspace owner holds the right");

@@ -23,6 +23,13 @@ project_id = "bvyivmmfjejbmqoydezk"
   # Finishes the connection for the SIGNED-IN person who started it (review r2, S4): the caller MUST be authenticated.
   [functions.qbo-finish-connection]
     verify_jwt = true
+  # Explicit release configuration: these endpoints also authenticate inside their handlers.
+  [functions.qbo-connect-start]
+    verify_jwt = true
+  [functions.qbo-pull-trial-balance]
+    verify_jwt = true
+  [functions.qbo-disconnect]
+    verify_jwt = true
   # Called by the database (pg_cron + pg_net) with a single-use, database-minted ticket; the ticket is the credential.
   [functions.trial-balance-source-sweeper]
     verify_jwt = false
