@@ -34,7 +34,6 @@ Deno.serve(async (req) => {
   const service = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
   const guardedFetch = createGuardedQboFetch((u, init) => fetch(u, init));
   let actor: string | null = null;
-  let company: string | null = null;
 
   const result = await runQboFinish({
     authenticate: async () => {
@@ -49,7 +48,6 @@ Deno.serve(async (req) => {
       if (error) throw error;
       const row = Array.isArray(data) ? data[0] : null;
       if (row?.outcome === "taken" && row.company_id && row.realm_id && row.code_envelope && (row.environment === "production" || row.environment === "sandbox")) {
-        company = row.company_id as string;
         return { outcome: "taken", companyId: row.company_id as string, environment: row.environment, realmId: row.realm_id as string, codeEnvelope: row.code_envelope as string };
       }
       return { outcome: REFUSED.has(row?.outcome) ? row.outcome : "unknown" } as TakenReturn;
@@ -72,7 +70,7 @@ Deno.serve(async (req) => {
   }, parsed).catch(() => ({ status: 500 as const, outcome: "failed" as const }));
 
   // OPERATIONAL LOG: never the handoff, the code, a token or an envelope.
-  console.log(JSON.stringify({ event: "qbo.finish_connection", company_id: company, actor, status: result.status, outcome: result.outcome }));
+  console.log(JSON.stringify({ event: "qbo.finish_connection", status: result.status, outcome: result.outcome }));
   const { status, ...body } = result;
   return json(status, body);
 });
