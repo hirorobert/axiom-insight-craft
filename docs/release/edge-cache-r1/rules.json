@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "status": "candidate-not-installed",
+  "hosts": [
+    "cfoclose.com",
+    "www.cfoclose.com"
+  ],
+  "request_cache_rule": {
+    "phase": "http_request_cache_settings",
+    "rule": {
+      "ref": "cfoclose_edge_bypass_v1",
+      "description": "CFOClose: bypass visitor-edge storage",
+      "enabled": false,
+      "expression": "http.host in {\"cfoclose.com\" \"www.cfoclose.com\"}",
+      "action": "set_cache_settings",
+      "action_parameters": {
+        "cache": false
+      }
+    }
+  },
+  "response_cache_rule": {
+    "phase": "http_response_cache_settings",
+    "rule": {
+      "ref": "cfoclose_document_no_store_v1",
+      "description": "CFOClose: prevent browser and edge storage of documents and private responses",
+      "enabled": false,
+      "expression": "http.host in {\"cfoclose.com\" \"www.cfoclose.com\"} and not (starts_with(http.request.uri.path, \"/assets/\") and http.request.method in {\"GET\" \"HEAD\"} and http.response.code eq 200 and any(http.response.headers[\"cache-control\"][*] contains \"public\") and any(http.response.headers[\"cache-control\"][*] contains \"immutable\") and len(http.response.headers[\"set-cookie\"]) eq 0 and (lower(http.response.headers[\"content-type\"][0]) contains \"javascript\" or lower(http.response.headers[\"content-type\"][0]) contains \"text/css\" or starts_with(lower(http.response.headers[\"content-type\"][0]), \"image/\") or starts_with(lower(http.response.headers[\"content-type\"][0]), \"font/\")))",
+      "action": "set_cache_control",
+      "action_parameters": {
+        "no-store": {
+          "operation": "set",
+          "cloudflare_only": false
+        },
+        "no-cache": {
+          "operation": "set",
+          "cloudflare_only": false
+        },
+        "max-age": {
+          "operation": "set",
+          "cloudflare_only": false,
+          "value": 0
+        },
+        "must-revalidate": {
+          "operation": "set",
+          "cloudflare_only": false
+        },
+        "public": {
+          "operation": "remove"
+        },
+        "immutable": {
+          "operation": "remove"
+        },
+        "s-maxage": {
+          "operation": "remove"
+        },
+        "stale-if-error": {
+          "operation": "remove"
+        },
+        "stale-while-revalidate": {
+          "operation": "remove"
+        }
+      }
+    }
+  }
+}
