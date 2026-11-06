@@ -460,10 +460,13 @@ async function main() {
     if (!saved) return { saved, told, responses: p.responses.slice(before).filter(r => /trial-balance-source-download|storage\/v1\/object\/sign/.test(r.url)).map(r => ({ method:r.method, status:r.status })), page: await p.evaluate(() => ({ notice:[...document.querySelectorAll('[role="status"],[role="alert"],[data-sonner-toast]')].map(e=>e.textContent), button:document.querySelector('[data-testid="download-original-trial-balance"]')?.textContent })) };
     const bytes = fs.readFileSync(path.join(dir, saved));
     const answered = p.responses.slice(before);
-    const posts = answered.filter((r) => r.method === "POST" && /\/functions\/v1\/trial-balance-source-download/.test(r.url)).length;
+    // intuit-security-r1: the function serves the bytes itself (proxied delivery, Cache-Control: no-cache, no-store); the browser makes NO
+    // request to the signed Storage object.
+    const postAnswers = answered.filter((r) => r.method === "POST" && /\/functions\/v1\/trial-balance-source-download/.test(r.url));
+    const posts = postAnswers.length, servedNoCache = postAnswers.every((r) => r.cacheControl === "no-cache, no-store");
     const fetches = answered.filter((r) => r.method === "GET" && r.status === 200 && r.url.includes("/storage/v1/object/sign/trial-balance-files/")).length;
     const matched = await p.evaluate(() => /matches the fingerprint/.test(document.body.innerText));
-    return bytes.equals(sourceBytes()) && posts === 1 && fetches === 1 && told && matched ? true : { saved, equal: bytes.equals(sourceBytes()), posts, fetches, told, matched };
+    return bytes.equals(sourceBytes()) && posts === 1 && servedNoCache && fetches === 0 && told && matched ? true : { saved, equal: bytes.equals(sourceBytes()), posts, servedNoCache, cacheControl: postAnswers.map((r) => r.cacheControl), fetches, told, matched };
   });
   await check("refused by the server with no URL: a viewer member, an outsider (naming this company or their own), anon, no session; injected path/bucket/user fields are 400", async () => {
     const out = {};

@@ -62,9 +62,13 @@ the live site. The new frontend refuses a link answer (it saves nothing), so the
   `trial-balance-source-download` `be6fc3e1…`, `qbo-connect-start` `5634764d…`, `qbo-oauth-callback` `8c7bf767…`,
   `qbo-finish-connection` `efb16ea4…`, `qbo-pull-trial-balance` `e1283fc9…`, `qbo-disconnect` `26cd8935…`,
   `trial-balance-source-signer` `8106809e…`, `trial-balance-draft` `bbda483d…`.
-* NOT run locally (no Docker here): the local Supabase stack journeys (`sourceDownloadJourney.mjs`, `localStackJourney.mjs`) — they
-  run in CI (`real-app-e2e`) and are the first execution of the hook through Supabase's own gateway and of proxied delivery through
-  the real edge runtime and Storage.
+* Local Supabase stack in CI (`real-app-e2e`, run 42197797505 on the first PR head; `supabase start` applied the migration): the
+  original-file journey passed 19/19 and the main browser journey 71/71. Measured there, through Supabase's own gateway: REST read
+  and RPC `200` with `no-cache, no-store`; a privilege-denied read (`403`) and a bad-input read (`400`) with no Cache-Control; Auth
+  `/auth/v1/user` `200` with no Cache-Control; the proxied file `200` `application/octet-stream` with `no-cache, no-store` and
+  `Pragma: no-cache`; the function's refusals (`403`, `403`, `401`) with `no-cache, no-store`; the raw signed Storage object `200`
+  with no Cache-Control, `Expires` 61 s after `Last-Modified` (the same shape as production). The IPSAS browser journey's own
+  download check still expected the old Storage fetch; it was updated to require one no-cache POST and no Storage fetch.
 
 ## Deployment (owner / Lovable only; nothing here is done by this PR)
 
