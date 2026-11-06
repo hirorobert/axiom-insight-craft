@@ -72,6 +72,21 @@ describe("proxied file response headers (Intuit: no-cache and no-store, never pr
     expect("Content-Length" in h).toBe(false);
     expect("X-Source-Sha256" in proxiedFileHeaders("tb.csv", null, null)).toBe(false);
   });
+  it("declares Storage's length only for an unencoded body: an encoded (gzip/br) answer is decoded by fetch, so its length is the compressed one", () => {
+    expect(proxiedFileHeaders("tb.csv", null, "131", null)["Content-Length"]).toBe("131");
+    expect(proxiedFileHeaders("tb.csv", null, "131", "identity")["Content-Length"]).toBe("131");
+    for (const encoding of ["gzip", "br", "deflate", "gzip, br", "GZIP", "x-unknown"]) {
+      const h = proxiedFileHeaders("tb.csv", HASH, "131", encoding);
+      expect("Content-Length" in h, encoding).toBe(false);
+      expect(h["Cache-Control"], encoding).toBe("no-cache, no-store");
+      expect("Content-Encoding" in h, encoding).toBe(false);   // the decoded bytes are streamed; the encoding header is never forwarded
+    }
+  });
+  it("the function passes Storage's Content-Encoding with its Content-Length", async () => {
+    const fs = await import("node:fs");
+    const src = fs.readFileSync("supabase/functions/trial-balance-source-download/index.ts", "utf8");
+    expect(src).toContain('upstream.headers.get("content-length"), upstream.headers.get("content-encoding")');
+  });
 });
 
 describe("runSourceDownload", () => {

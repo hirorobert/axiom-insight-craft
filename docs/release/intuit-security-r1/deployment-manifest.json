@@ -7,8 +7,8 @@
       "files": [
         {
           "path": "supabase/functions/_shared/sourceDownload.ts",
-          "size": 18225,
-          "sha256": "e2864d8ceddea1a2a771b8484fc82895bc3bc13ffb5a77f45bcae150b232e8b2"
+          "size": 18688,
+          "sha256": "be4c945f11032717afd4f0dc5d457f55a46d25e94232b955d00b87dbc380ab74"
         },
         {
           "path": "supabase/functions/_shared/sourcePath.ts",
@@ -17,15 +17,15 @@
         },
         {
           "path": "supabase/functions/trial-balance-source-download/index.ts",
-          "size": 7077,
-          "sha256": "d83b4e97f271a6901b1e269e0f9d54d0a7c91932852510af1b3a59d4cbb407e8"
+          "size": 7119,
+          "sha256": "80e2204e7be5e4fd1399d96da2d3e3027298cd20f32e232572c2a5ccf1e6167a"
         }
       ],
       "remote": [
         "npm:@supabase/supabase-js@2",
         "npm:@supabase/supabase-js@2/cors"
       ],
-      "closureSha256": "be6fc3e16ce17bbd051f1100c05fb177475cc08e1a613ae3983502370c452a23"
+      "closureSha256": "f803dddb3321c0f553355b78c7ebe45dd7c175c7456cc1ee0878780a06e9b94f"
     },
     {
       "function": "qbo-connect-start",

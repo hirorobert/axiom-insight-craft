@@ -59,7 +59,7 @@ the live site. The new frontend refuses a link answer (it saves nothing), so the
 * `bunx tsc --noEmit -p tsconfig.app.json`: 0 errors. `bun run lint`: 0 errors (181 pre-existing warnings). `bun run build`: OK;
   `assertPackIsolation`, `assertSingleLockfile`: OK; `assertMigrationAuthority`: OK, `PENDING_HOSTED_APPLY: 20261215100000_api_cache_control_headers.sql`.
 * Function closure digests (from `git archive`, LF bytes; full list with every file in `deployment-manifest.json`):
-  `trial-balance-source-download` `be6fc3e1…`, `qbo-connect-start` `5634764d…`, `qbo-oauth-callback` `8c7bf767…`,
+  `trial-balance-source-download` `f803dddb…`, `qbo-connect-start` `5634764d…`, `qbo-oauth-callback` `8c7bf767…`,
   `qbo-finish-connection` `efb16ea4…`, `qbo-pull-trial-balance` `e1283fc9…`, `qbo-disconnect` `26cd8935…`,
   `trial-balance-source-signer` `8106809e…`, `trial-balance-draft` `bbda483d…`.
 * Local Supabase stack in CI (`real-app-e2e`, run 42197797505 on the first PR head; `supabase start` applied the migration): the

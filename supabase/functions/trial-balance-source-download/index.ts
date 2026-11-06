@@ -84,7 +84,7 @@ Deno.serve(async (req) => {
       await upstream?.body?.cancel().catch(() => undefined);
       return json(delivered, { outcome: delivered === 404 ? "unavailable" : "delivery_failed" });
     }
-    return new Response(upstream.body, { status: 200, headers: { ...corsHeaders, ...proxiedFileHeaders(result.file_name ?? "trial-balance", result.sha256 ?? null, upstream.headers.get("content-length")) } });
+    return new Response(upstream.body, { status: 200, headers: { ...corsHeaders, ...proxiedFileHeaders(result.file_name ?? "trial-balance", result.sha256 ?? null, upstream.headers.get("content-length"), upstream.headers.get("content-encoding")) } });
   }
 
   // OPERATIONAL LOG, not the audit record (that is the table above): one structured line per request, never the URL or token.

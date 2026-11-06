@@ -146,9 +146,11 @@ export const NO_CACHE = "no-cache, no-store";
 
 /**
  * Headers of a proxied file response. The name is reduced to [A-Za-z0-9._ -] by safeDownloadName, so it needs no further quoting. Content-Length is
- * Storage's own (the bytes actually streamed), never the database's recorded size.
+ * Storage's own, never the database's recorded size, and only when Storage sent the body UNENCODED: fetch transparently decodes a gzip/br body but
+ * keeps the original headers, so an encoded response's Content-Length is the compressed size, not the length of the bytes streamed on. Then (and
+ * when Storage sent none) no length is declared and the runtime chunks the response.
  */
-export function proxiedFileHeaders(fileName: string, sha256: string | null, storageContentLength: string | null): Record<string, string> {
+export function proxiedFileHeaders(fileName: string, sha256: string | null, storageContentLength: string | null, storageContentEncoding: string | null = null): Record<string, string> {
   const headers: Record<string, string> = {
     "Content-Type": "application/octet-stream",
     "Content-Disposition": `attachment; filename="${safeDownloadName(fileName)}"`,
@@ -159,7 +161,8 @@ export function proxiedFileHeaders(fileName: string, sha256: string | null, stor
     "Access-Control-Expose-Headers": "Content-Disposition, X-Source-File-Name, X-Source-Sha256",
   };
   if (sha256 && /^[0-9a-f]{64}$/i.test(sha256)) headers["X-Source-Sha256"] = sha256.toLowerCase();
-  if (storageContentLength && /^[0-9]{1,15}$/.test(storageContentLength)) headers["Content-Length"] = storageContentLength;
+  const unencoded = storageContentEncoding === null || /^\s*(identity)?\s*$/i.test(storageContentEncoding);
+  if (unencoded && storageContentLength && /^[0-9]{1,15}$/.test(storageContentLength)) headers["Content-Length"] = storageContentLength;
   return headers;
 }
 
