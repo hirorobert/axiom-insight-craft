@@ -13,7 +13,7 @@ import { readQboEnv } from "../_shared/qboEnv.ts";
 import { sha256Hex } from "../_shared/qboPullSummary.ts";
 import { sealSecret } from "../_shared/qboTokenEnvelope.ts";
 
-const noStore = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" };
+const noStore = { "Cache-Control": "no-cache, no-store", "Referrer-Policy": "no-referrer" };
 const plain = (status: number, text: string) => new Response(text, { status, headers: { ...noStore, "Content-Type": "text/plain; charset=utf-8" } });
 
 Deno.serve(async (req) => {

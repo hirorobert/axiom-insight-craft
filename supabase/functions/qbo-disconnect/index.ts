@@ -4,7 +4,7 @@ import { parseDisconnectRequest, runQboDisconnect } from "../_shared/qboDisconne
 import { readQboEnv } from "../_shared/qboEnv.ts";
 import { openSecret } from "../_shared/qboTokenEnvelope.ts";
 import { createGuardedQboFetch, QBO_REVOKE_URL } from "../_shared/qboReadOnlyGuard.ts";
-const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" } });
+const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-cache, no-store" } });
 Deno.serve(async req => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json(405, { outcome: "invalid_request" });

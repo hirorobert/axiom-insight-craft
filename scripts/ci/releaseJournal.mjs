@@ -431,6 +431,12 @@ export const RELEASE_JOURNAL = {
  * count and SHA-256; no other wrapper text is ever accepted, and the source's own two forms are unchanged.
  */
 export const SUBMISSION_FORMS = Object.freeze({
+  // intuit-security-r1: PostgREST pre-request Cache-Control hook (one atomic envelope), NOT applied; exact registered bytes only.
+  // Digests computed from the committed LF blob (git show), not the working tree.
+  "20261215100000_api_cache_control_headers.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 4955, sha256: "6c7707d7f232fdec26bacc45e43dfe8e82cac92e8b057b580fd27a331c49301b" }),
+    finalLfRemoved: Object.freeze({ bytes: 4954, sha256: "eed74db49178e83c0a163312820d5bc1da75f25e7b94a036b06215180d9c4a02" }),
+  }),
   // QBO readiness r2: promoted atomic envelope, NOT applied; exact registered bytes only.
   "20261214100000_qbo_readiness_controls.sql": Object.freeze({
     identical: Object.freeze({ bytes: 20040, sha256: "6ac1c74c46171138915d936191beff45d26ca92abb6f7a820d0d73aadf0ddcd8" }),

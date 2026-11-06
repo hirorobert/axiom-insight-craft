@@ -288,7 +288,8 @@ describe("migration directory integrity", () => {
     // in the same transaction; an append-only record of file-link issuance decisions), a NEW forward-only migration pending hosted application.
     // 207 -> 209: CF-03 legacy write revocation and QuickBooks connector storage, both pending hosted apply.
     // 209 -> 210: canonical QBO readiness controls, registered but not installed.
-    expect(files.length).toBe(210);
+    // 210 -> 211: intuit-security-r1 API Cache-Control pre-request hook, registered but not installed.
+    expect(files.length).toBe(211);
   });
 });
 

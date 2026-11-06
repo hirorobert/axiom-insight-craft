@@ -56,7 +56,8 @@ export const DOWNLOAD_MIN_REMAINING_SECONDS = 5;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type SourceDownloadOutcome =
-  | "ready" | "forbidden" | "unauthenticated" | "invalid_request" | "unavailable" | "signing_failed" | "audit_unavailable" | "link_expired" | "decision_unavailable";
+  | "ready" | "forbidden" | "unauthenticated" | "invalid_request" | "unavailable" | "signing_failed" | "audit_unavailable" | "link_expired" | "decision_unavailable"
+  | "delivery_failed";
 
 /** What the database decided; 'unavailable' means a lock was not obtained in time or the owner changed (nothing recorded, safe to retry). */
 export type IssuanceDecision = "issued" | "withdrawn_before_issue" | "expired_before_issue" | "unavailable";
@@ -120,13 +121,46 @@ export interface SourceDownloadResult {
   size?: number | null;
 }
 
-export function parseSourceDownloadRequest(body: unknown): { uploadId: string; companyId: string } | null {
+/**
+ * How the authorized file reaches the caller. "link" (the original contract): the signed URL is returned and the browser fetches the object from Storage.
+ * "proxied": the function itself fetches the object through that same just-issued signed URL and serves the bytes with Cache-Control: no-cache, no-store,
+ * because Storage's own object response carries no Cache-Control (measured on production 2026-11-06; docs/release/intuit-security-r1/RECORD.md).
+ * The authorization, signing, issuance decision and record are identical in both modes; only the delivery differs.
+ */
+export type SourceDownloadDelivery = "link" | "proxied";
+
+export function parseSourceDownloadRequest(body: unknown): { uploadId: string; companyId: string; delivery: SourceDownloadDelivery } | null {
   if (!body || typeof body !== "object" || Array.isArray(body)) return null;
   const record = body as Record<string, unknown>;
-  const keys = Object.keys(record).sort();
-  if (keys.length !== 2 || keys[0] !== "company_id" || keys[1] !== "upload_id") return null;
+  const keys = Object.keys(record).sort().join(",");
+  // Exactly the two identifiers, or the two identifiers plus delivery = "proxied". Any other key or value is refused, never read.
+  if (keys !== "company_id,upload_id" && !(keys === "company_id,delivery,upload_id" && record.delivery === "proxied")) return null;
   const { upload_id: u, company_id: c } = record;
-  return typeof u === "string" && UUID.test(u) && typeof c === "string" && UUID.test(c) ? { uploadId: u, companyId: c } : null;
+  return typeof u === "string" && UUID.test(u) && typeof c === "string" && UUID.test(c)
+    ? { uploadId: u, companyId: c, delivery: record.delivery === "proxied" ? "proxied" : "link" }
+    : null;
+}
+
+/** The Cache-Control value every response of this function carries (Intuit security requirement: no-cache and no-store, never private). */
+export const NO_CACHE = "no-cache, no-store";
+
+/**
+ * Headers of a proxied file response. The name is reduced to [A-Za-z0-9._ -] by safeDownloadName, so it needs no further quoting. Content-Length is
+ * Storage's own (the bytes actually streamed), never the database's recorded size.
+ */
+export function proxiedFileHeaders(fileName: string, sha256: string | null, storageContentLength: string | null): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/octet-stream",
+    "Content-Disposition": `attachment; filename="${safeDownloadName(fileName)}"`,
+    "Cache-Control": NO_CACHE,
+    "Pragma": "no-cache",
+    "X-Content-Type-Options": "nosniff",
+    "X-Source-File-Name": safeDownloadName(fileName),
+    "Access-Control-Expose-Headers": "Content-Disposition, X-Source-File-Name, X-Source-Sha256",
+  };
+  if (sha256 && /^[0-9a-f]{64}$/i.test(sha256)) headers["X-Source-Sha256"] = sha256.toLowerCase();
+  if (storageContentLength && /^[0-9]{1,15}$/.test(storageContentLength)) headers["Content-Length"] = storageContentLength;
+  return headers;
 }
 
 /** The name the saved file gets: the original name reduced to a conservative set (the stored object keeps its own). */

@@ -15,7 +15,7 @@ import { createQboTokenClient } from "../_shared/qboTokenClient.ts";
 import { openSecret, sealSecret } from "../_shared/qboTokenEnvelope.ts";
 
 const json = (status: number, body: unknown) =>
-  new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" } });
+  new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-cache, no-store" } });
 const REFUSED = new Set(["not_yours", "expired", "forbidden", "unknown"]);
 
 Deno.serve(async (req) => {
