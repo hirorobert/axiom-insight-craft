@@ -478,14 +478,16 @@ async function main() {
     }
     if (!saved) return { saved, requests: page.requests.slice(before).filter((u) => /trial-balance-source-download|storage/.test(u)).map((u) => u.replace(/token=[^&]+/, "token=…")) };
     const bytes = fs.readFileSync(path.join(dir, saved));
-    // One POST to the function (the browser also sends a CORS preflight OPTIONS to the same URL, which is not a second request), and
-    // one fetch of the signed object from the API origin.
+    // One POST to the function (the browser also sends a CORS preflight OPTIONS to the same URL, which is not a second request). Since
+    // intuit-security-r1 the function serves the bytes itself (proxied delivery, Cache-Control: no-cache, no-store): the browser makes NO
+    // request to the signed Storage object.
     const answered = page.responses.slice(beforeResponses);
-    const sent = answered.filter((r) => r.method === "POST" && /\/functions\/v1\/trial-balance-source-download/.test(r.url)).length;
+    const posts = answered.filter((r) => r.method === "POST" && /\/functions\/v1\/trial-balance-source-download/.test(r.url));
+    const sent = posts.length, servedNoCache = posts.every((r) => r.cacheControl === "no-cache, no-store");
     const objectFetches = answered.filter((r) => r.method === "GET" && r.status === 200 && r.url.includes("/storage/v1/object/sign/trial-balance-files/")).length;
     const row = (await admin.from("trial_balance_uploads").select("source_file_hash, file_name").eq("id", currentUpload).single()).data;
     const same = bytes.equals(fs.readFileSync(tbCurrent)) && (!row.source_file_hash || row.source_file_hash === crypto.createHash("sha256").update(bytes).digest("hex"));
-    return same && sent === 1 && objectFetches === 1 && told ? true : { saved, same, sent, objectFetches, told, recorded: !!row.source_file_hash };
+    return same && sent === 1 && servedNoCache && objectFetches === 0 && told ? true : { saved, same, sent, servedNoCache, cacheControl: posts.map((r) => r.cacheControl), objectFetches, told, recorded: !!row.source_file_hash };
   });
   await check("a preparer and a partner (members without source-file authority) are refused by the SERVER; the page offers the preparer no download", async () => {
     const refusals = [await downloadFnStatus(preparer), await downloadFnStatus(partner)];

@@ -7,14 +7,18 @@
 // (decide_trial_balance_source_download_issuance: locks, authority, freshness and the record). It answers with the signed URL, for exactly that
 // object, only if that decision committed as issued. The service-role key never leaves the function. See _shared/sourceDownload.ts for the
 // ordering contract and what the record does and does not establish.
+//
+// DELIVERY. With { delivery: "proxied" } (what the app sends) the function does not return the link: after the SAME decision it fetches the object
+// through that just-issued link and serves the bytes itself with Cache-Control: no-cache, no-store (Storage's own object response carries no
+// Cache-Control; Intuit security requirement, docs/release/intuit-security-r1/RECORD.md). Without it the original link answer is unchanged.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
-import { DOWNLOAD_CAPABILITY, parseSourceDownloadRequest, runSourceDownload, signedUrlExpiryMs, storageErrorIsMissingObject, type UploadTarget } from "../_shared/sourceDownload.ts";
+import { DOWNLOAD_CAPABILITY, NO_CACHE, parseSourceDownloadRequest, proxiedFileHeaders, runSourceDownload, signedUrlExpiryMs, storageErrorIsMissingObject, type UploadTarget } from "../_shared/sourceDownload.ts";
 
 const BUCKET = "trial-balance-files";
 const json = (status: number, body: unknown) =>
-  new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" } });
+  new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": NO_CACHE } });
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -69,10 +73,22 @@ Deno.serve(async (req) => {
     recordDenial: async (e) => {
       await service.rpc("record_trial_balance_source_download_denial", { p_user_id: e.userId, p_company_id: e.companyId, p_upload_id: e.uploadId, p_object_sha256: e.sha256 });
     },
-  }, parsed).catch(() => ({ status: 500, outcome: "signing_failed" as const }));
+  }, { uploadId: parsed.uploadId, companyId: parsed.companyId }).catch(() => ({ status: 500, outcome: "signing_failed" as const }));
+
+  // Proxied delivery: the bytes of exactly the issued link, streamed (never buffered whole), never cached. The link is used once, here, and never returned.
+  if (parsed.delivery === "proxied" && result.status === 200 && result.outcome === "ready" && "url" in result && result.url) {
+    const upstream = await fetch(result.url).catch(() => null);
+    const delivered = upstream?.ok && upstream.body ? 200 : upstream?.status === 400 || upstream?.status === 404 ? 404 : 502;
+    console.log(JSON.stringify({ event: "trial_balance.source_download", upload_id: parsed.uploadId, company_id: parsed.companyId, actor, delivery: "proxied", status: delivered, outcome: delivered === 200 ? "ready" : delivered === 404 ? "unavailable" : "delivery_failed" }));
+    if (delivered !== 200 || !upstream?.body) {
+      await upstream?.body?.cancel().catch(() => undefined);
+      return json(delivered, { outcome: delivered === 404 ? "unavailable" : "delivery_failed" });
+    }
+    return new Response(upstream.body, { status: 200, headers: { ...corsHeaders, ...proxiedFileHeaders(result.file_name ?? "trial-balance", result.sha256 ?? null, upstream.headers.get("content-length"), upstream.headers.get("content-encoding")) } });
+  }
 
   // OPERATIONAL LOG, not the audit record (that is the table above): one structured line per request, never the URL or token.
-  console.log(JSON.stringify({ event: "trial_balance.source_download", upload_id: parsed.uploadId, company_id: parsed.companyId, actor, status: result.status, outcome: result.outcome }));
+  console.log(JSON.stringify({ event: "trial_balance.source_download", upload_id: parsed.uploadId, company_id: parsed.companyId, actor, delivery: parsed.delivery, status: result.status, outcome: result.outcome }));
   const { status, ...body } = result;
   return json(status, body);
 });

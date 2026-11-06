@@ -1,0 +1,557 @@
+{
+  "migration": "20261215100000_api_cache_control_headers.sql",
+  "runs": [
+    {
+      "postgrest": "PostgREST 14.18",
+      "success": [
+        {
+          "label": "anon RPC GET (no token)",
+          "method": "GET",
+          "path": "/rpc/proof_echo",
+          "status": 200,
+          "cacheControl": "no-cache, no-store",
+          "sqlstate": null
+        },
+        {
+          "label": "anon-key JWT RPC POST",
+          "method": "POST",
+          "path": "/rpc/proof_echo",
+          "status": 200,
+          "cacheControl": "no-cache, no-store",
+          "sqlstate": null
+        },
+        {
+          "label": "authenticated GET own company",
+          "method": "GET",
+          "path": "/companies",
+          "status": 200,
+          "cacheControl": "no-cache, no-store",
+          "sqlstate": null
+        },
+        {
+          "label": "authenticated HEAD",
+          "method": "HEAD",
+          "path": "/companies",
+          "status": 200,
+          "cacheControl": "no-cache, no-store",
+          "sqlstate": null
+        },
+        {
+          "label": "service_role GET",
+          "method": "GET",
+          "path": "/companies",
+          "status": 200,
+          "cacheControl": "no-cache, no-store",
+          "sqlstate": null
+        },
+        {
+          "label": "RPC POST (stable)",
+          "method": "POST",
+          "path": "/rpc/proof_echo",
+          "status": 200,
+          "cacheControl": "no-cache, no-store",
+          "sqlstate": null
+        },
+        {
+          "label": "RPC GET (stable)",
+          "method": "GET",
+          "path": "/rpc/proof_echo",
+          "status": 200,
+          "cacheControl": "no-cache, no-store",
+          "sqlstate": null
+        },
+        {
+          "label": "RPC POST real application function",
+          "method": "POST",
+          "path": "/rpc/qbo_pending_disconnect",
+          "status": 200,
+          "cacheControl": "no-cache, no-store",
+          "sqlstate": null
+        },
+        {
+          "label": "INSERT own row (RLS passes)",
+          "method": "POST",
+          "path": "/proof_cache_rows",
+          "status": 201,
+          "cacheControl": "no-cache, no-store",
+          "sqlstate": null
+        }
+      ],
+      "errors": [
+        {
+          "label": "anon: no table privilege on an application table",
+          "method": "GET",
+          "path": "/companies",
+          "status": 401,
+          "cacheControl": null,
+          "sqlstate": "42501"
+        },
+        {
+          "label": "RLS WITH CHECK violation on INSERT",
+          "method": "POST",
+          "path": "/proof_cache_rows",
+          "status": 403,
+          "cacheControl": null,
+          "sqlstate": "42501"
+        },
+        {
+          "label": "anon: no table privilege (token-material table)",
+          "method": "GET",
+          "path": "/qbo_disconnect_operations",
+          "status": 401,
+          "cacheControl": null,
+          "sqlstate": "42501"
+        },
+        {
+          "label": "authenticated: no table privilege",
+          "method": "GET",
+          "path": "/qbo_disconnect_operations",
+          "status": 403,
+          "cacheControl": null,
+          "sqlstate": "42501"
+        },
+        {
+          "label": "authenticated: no function privilege (service-only writer)",
+          "method": "POST",
+          "path": "/rpc/qbo_begin_disconnect",
+          "status": 403,
+          "cacheControl": null,
+          "sqlstate": "42501"
+        },
+        {
+          "label": "bad input: invalid uuid in filter",
+          "method": "GET",
+          "path": "/companies",
+          "status": 400,
+          "cacheControl": null,
+          "sqlstate": "22P02"
+        },
+        {
+          "label": "RPC raises an exception",
+          "method": "POST",
+          "path": "/rpc/proof_raise",
+          "status": 400,
+          "cacheControl": null,
+          "sqlstate": "P0001"
+        },
+        {
+          "label": "single object requested, zero rows",
+          "method": "GET",
+          "path": "/companies",
+          "status": 406,
+          "cacheControl": null,
+          "sqlstate": "PGRST116"
+        },
+        {
+          "label": "JWT with a wrong signature",
+          "method": "GET",
+          "path": "/companies",
+          "status": 401,
+          "cacheControl": null,
+          "sqlstate": "PGRST301"
+        },
+        {
+          "label": "expired JWT",
+          "method": "GET",
+          "path": "/companies",
+          "status": 401,
+          "cacheControl": null,
+          "sqlstate": "PGRST303"
+        },
+        {
+          "label": "unknown table (schema cache)",
+          "method": "GET",
+          "path": "/no_such_table",
+          "status": 404,
+          "cacheControl": null,
+          "sqlstate": "PGRST205"
+        },
+        {
+          "label": "unknown RPC (schema cache)",
+          "method": "POST",
+          "path": "/rpc/no_such_function",
+          "status": 404,
+          "cacheControl": null,
+          "sqlstate": "PGRST202"
+        },
+        {
+          "label": "query parse error (unknown operator)",
+          "method": "GET",
+          "path": "/companies",
+          "status": 400,
+          "cacheControl": null,
+          "sqlstate": "PGRST100"
+        },
+        {
+          "label": "method not allowed on RPC",
+          "method": "PUT",
+          "path": "/rpc/proof_echo",
+          "status": 405,
+          "cacheControl": null,
+          "sqlstate": "PGRST101"
+        }
+      ],
+      "rpcSettingOwnHeaders": {
+        "label": "RPC that sets its own response.headers",
+        "method": "POST",
+        "path": "/rpc/proof_sets_own_header",
+        "status": 200,
+        "cacheControl": null,
+        "sqlstate": null
+      }
+    },
+    {
+      "postgrest": "PostgREST 13.0.8",
+      "success": [
+        {
+          "label": "anon RPC GET (no token)",
+          "method": "GET",
+          "path": "/rpc/proof_echo",
+          "status": 200,
+          "cacheControl": "no-cache, no-store",
+          "sqlstate": null
+        },
+        {
+          "label": "anon-key JWT RPC POST",
+          "method": "POST",
+          "path": "/rpc/proof_echo",
+          "status": 200,
+          "cacheControl": "no-cache, no-store",
+          "sqlstate": null
+        },
+        {
+          "label": "authenticated GET own company",
+          "method": "GET",
+          "path": "/companies",
+          "status": 200,
+          "cacheControl": "no-cache, no-store",
+          "sqlstate": null
+        },
+        {
+          "label": "authenticated HEAD",
+          "method": "HEAD",
+          "path": "/companies",
+          "status": 200,
+          "cacheControl": "no-cache, no-store",
+          "sqlstate": null
+        },
+        {
+          "label": "service_role GET",
+          "method": "GET",
+          "path": "/companies",
+          "status": 200,
+          "cacheControl": "no-cache, no-store",
+          "sqlstate": null
+        },
+        {
+          "label": "RPC POST (stable)",
+          "method": "POST",
+          "path": "/rpc/proof_echo",
+          "status": 200,
+          "cacheControl": "no-cache, no-store",
+          "sqlstate": null
+        },
+        {
+          "label": "RPC GET (stable)",
+          "method": "GET",
+          "path": "/rpc/proof_echo",
+          "status": 200,
+          "cacheControl": "no-cache, no-store",
+          "sqlstate": null
+        },
+        {
+          "label": "RPC POST real application function",
+          "method": "POST",
+          "path": "/rpc/qbo_pending_disconnect",
+          "status": 200,
+          "cacheControl": "no-cache, no-store",
+          "sqlstate": null
+        },
+        {
+          "label": "INSERT own row (RLS passes)",
+          "method": "POST",
+          "path": "/proof_cache_rows",
+          "status": 201,
+          "cacheControl": "no-cache, no-store",
+          "sqlstate": null
+        }
+      ],
+      "errors": [
+        {
+          "label": "anon: no table privilege on an application table",
+          "method": "GET",
+          "path": "/companies",
+          "status": 401,
+          "cacheControl": null,
+          "sqlstate": "42501"
+        },
+        {
+          "label": "RLS WITH CHECK violation on INSERT",
+          "method": "POST",
+          "path": "/proof_cache_rows",
+          "status": 403,
+          "cacheControl": null,
+          "sqlstate": "42501"
+        },
+        {
+          "label": "anon: no table privilege (token-material table)",
+          "method": "GET",
+          "path": "/qbo_disconnect_operations",
+          "status": 401,
+          "cacheControl": null,
+          "sqlstate": "42501"
+        },
+        {
+          "label": "authenticated: no table privilege",
+          "method": "GET",
+          "path": "/qbo_disconnect_operations",
+          "status": 403,
+          "cacheControl": null,
+          "sqlstate": "42501"
+        },
+        {
+          "label": "authenticated: no function privilege (service-only writer)",
+          "method": "POST",
+          "path": "/rpc/qbo_begin_disconnect",
+          "status": 403,
+          "cacheControl": null,
+          "sqlstate": "42501"
+        },
+        {
+          "label": "bad input: invalid uuid in filter",
+          "method": "GET",
+          "path": "/companies",
+          "status": 400,
+          "cacheControl": null,
+          "sqlstate": "22P02"
+        },
+        {
+          "label": "RPC raises an exception",
+          "method": "POST",
+          "path": "/rpc/proof_raise",
+          "status": 400,
+          "cacheControl": null,
+          "sqlstate": "P0001"
+        },
+        {
+          "label": "single object requested, zero rows",
+          "method": "GET",
+          "path": "/companies",
+          "status": 406,
+          "cacheControl": null,
+          "sqlstate": "PGRST116"
+        },
+        {
+          "label": "JWT with a wrong signature",
+          "method": "GET",
+          "path": "/companies",
+          "status": 401,
+          "cacheControl": null,
+          "sqlstate": "PGRST301"
+        },
+        {
+          "label": "expired JWT",
+          "method": "GET",
+          "path": "/companies",
+          "status": 401,
+          "cacheControl": null,
+          "sqlstate": "PGRST303"
+        },
+        {
+          "label": "unknown table (schema cache)",
+          "method": "GET",
+          "path": "/no_such_table",
+          "status": 404,
+          "cacheControl": null,
+          "sqlstate": "PGRST205"
+        },
+        {
+          "label": "unknown RPC (schema cache)",
+          "method": "POST",
+          "path": "/rpc/no_such_function",
+          "status": 404,
+          "cacheControl": null,
+          "sqlstate": "PGRST202"
+        },
+        {
+          "label": "query parse error (unknown operator)",
+          "method": "GET",
+          "path": "/companies",
+          "status": 400,
+          "cacheControl": null,
+          "sqlstate": "PGRST100"
+        },
+        {
+          "label": "method not allowed on RPC",
+          "method": "PUT",
+          "path": "/rpc/proof_echo",
+          "status": 405,
+          "cacheControl": null,
+          "sqlstate": "PGRST101"
+        }
+      ],
+      "rpcSettingOwnHeaders": {
+        "label": "RPC that sets its own response.headers",
+        "method": "POST",
+        "path": "/rpc/proof_sets_own_header",
+        "status": 200,
+        "cacheControl": null,
+        "sqlstate": null
+      }
+    }
+  ],
+  "before": {
+    "postgrest": "PostgREST 14.18",
+    "responses": [
+      {
+        "label": "anon RPC GET (no token)",
+        "method": "GET",
+        "path": "/rpc/proof_echo",
+        "status": 200,
+        "cacheControl": null,
+        "sqlstate": null
+      },
+      {
+        "label": "anon-key JWT RPC POST",
+        "method": "POST",
+        "path": "/rpc/proof_echo",
+        "status": 200,
+        "cacheControl": null,
+        "sqlstate": null
+      },
+      {
+        "label": "authenticated GET own company",
+        "method": "GET",
+        "path": "/companies",
+        "status": 200,
+        "cacheControl": null,
+        "sqlstate": null
+      },
+      {
+        "label": "authenticated HEAD",
+        "method": "HEAD",
+        "path": "/companies",
+        "status": 200,
+        "cacheControl": null,
+        "sqlstate": null
+      },
+      {
+        "label": "service_role GET",
+        "method": "GET",
+        "path": "/companies",
+        "status": 200,
+        "cacheControl": null,
+        "sqlstate": null
+      },
+      {
+        "label": "RPC POST (stable)",
+        "method": "POST",
+        "path": "/rpc/proof_echo",
+        "status": 200,
+        "cacheControl": null,
+        "sqlstate": null
+      },
+      {
+        "label": "RPC GET (stable)",
+        "method": "GET",
+        "path": "/rpc/proof_echo",
+        "status": 200,
+        "cacheControl": null,
+        "sqlstate": null
+      },
+      {
+        "label": "RPC POST real application function",
+        "method": "POST",
+        "path": "/rpc/qbo_pending_disconnect",
+        "status": 200,
+        "cacheControl": null,
+        "sqlstate": null
+      },
+      {
+        "label": "INSERT own row (RLS passes)",
+        "method": "POST",
+        "path": "/proof_cache_rows",
+        "status": 201,
+        "cacheControl": null,
+        "sqlstate": null
+      }
+    ]
+  },
+  "rollback": {
+    "postgrest": "PostgREST 14.18",
+    "responses": [
+      {
+        "label": "anon RPC GET (no token)",
+        "method": "GET",
+        "path": "/rpc/proof_echo",
+        "status": 200,
+        "cacheControl": null,
+        "sqlstate": null
+      },
+      {
+        "label": "anon-key JWT RPC POST",
+        "method": "POST",
+        "path": "/rpc/proof_echo",
+        "status": 200,
+        "cacheControl": null,
+        "sqlstate": null
+      },
+      {
+        "label": "authenticated GET own company",
+        "method": "GET",
+        "path": "/companies",
+        "status": 200,
+        "cacheControl": null,
+        "sqlstate": null
+      },
+      {
+        "label": "authenticated HEAD",
+        "method": "HEAD",
+        "path": "/companies",
+        "status": 200,
+        "cacheControl": null,
+        "sqlstate": null
+      },
+      {
+        "label": "service_role GET",
+        "method": "GET",
+        "path": "/companies",
+        "status": 200,
+        "cacheControl": null,
+        "sqlstate": null
+      },
+      {
+        "label": "RPC POST (stable)",
+        "method": "POST",
+        "path": "/rpc/proof_echo",
+        "status": 200,
+        "cacheControl": null,
+        "sqlstate": null
+      },
+      {
+        "label": "RPC GET (stable)",
+        "method": "GET",
+        "path": "/rpc/proof_echo",
+        "status": 200,
+        "cacheControl": null,
+        "sqlstate": null
+      },
+      {
+        "label": "RPC POST real application function",
+        "method": "POST",
+        "path": "/rpc/qbo_pending_disconnect",
+        "status": 200,
+        "cacheControl": null,
+        "sqlstate": null
+      },
+      {
+        "label": "INSERT own row (RLS passes)",
+        "method": "POST",
+        "path": "/proof_cache_rows",
+        "status": 201,
+        "cacheControl": null,
+        "sqlstate": null
+      }
+    ]
+  }
+}

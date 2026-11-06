@@ -239,6 +239,54 @@ await check("no session - owner, collaborator, bystander, other company, anon, p
   return bucket.data?.public === false && open.length === 0 && pub.status !== 200 && anon.status !== 200 ? true : { public: bucket.data?.public, open, pub: pub.status, anon: anon.status };
 });
 
+startGroup("Cache-Control on the file and API responses (Intuit: no-cache and no-store; intuit-security-r1)");
+// The FINAL file response is what is checked, not only the function's JSON. Measured header values are recorded in results.json either way.
+const measured = {};
+const proxied = async (who, uploadId, companyId) => {
+  const res = await fetch(`${apiUrl}/functions/v1/trial-balance-source-download`, { method: "POST", cache: "no-store",
+    headers: { Authorization: `Bearer ${who?.token ?? anonKey}`, apikey: anonKey, "Content-Type": "application/json" }, body: JSON.stringify({ upload_id: uploadId, company_id: companyId, delivery: "proxied" }) });
+  const isFile = (res.headers.get("content-type") ?? "").startsWith("application/octet-stream");
+  return { status: res.status, headers: Object.fromEntries(res.headers), bytes: isFile ? Buffer.from(await res.arrayBuffer()) : null, body: isFile ? null : await res.json().catch(() => null) };
+};
+await check("proxied delivery (what the app uses): the owner receives the exact bytes from the function itself, with Cache-Control: no-cache, no-store and the fingerprint header; no URL or token is in the response", async () => {
+  const r = await proxied(owner, UA.uploadId, A);
+  const row = await dbRow(UA.uploadId);
+  measured.proxiedFile = { status: r.status, cacheControl: r.headers["cache-control"] ?? null, pragma: r.headers.pragma ?? null, contentType: r.headers["content-type"] ?? null };
+  const text = JSON.stringify(r.headers);
+  return r.status === 200 && r.bytes?.equals(BYTES_A) && r.headers["cache-control"] === "no-cache, no-store" && /attachment/i.test(r.headers["content-disposition"] ?? "")
+    && (r.headers["x-source-sha256"] ?? null) === (row.source_file_hash ?? null) && !/token=|object\/sign/i.test(text) ? true : { status: r.status, headers: r.headers, intact: r.bytes?.equals(BYTES_A) };
+});
+await check("proxied delivery keeps every refusal: no right, another company, injected field, no session - JSON answers with Cache-Control: no-cache, no-store and no bytes", async () => {
+  const out = { bystander: await proxied(bystander, UA.uploadId, A), cross: await proxied(other, UA.uploadId, A), anon: await proxied(null, UA.uploadId, A) };
+  const injected = await callFn(owner, "trial-balance-source-download", { upload_id: UA.uploadId, company_id: A, delivery: "link" });
+  // The anonymous call may be refused by the platform's JWT check before the function runs; only the function's own answers are held to its header.
+  const ok = out.bystander.status === 403 && out.cross.status === 403 && [401, 403].includes(out.anon.status) && injected.status === 400
+    && Object.values(out).every((r) => r.bytes === null) && [out.bystander, out.cross].every((r) => r.headers["cache-control"] === "no-cache, no-store");
+  measured.proxiedRefusals = Object.fromEntries(Object.entries(out).map(([k, r]) => [k, { status: r.status, cacheControl: r.headers["cache-control"] ?? null }]));
+  return ok ? true : Object.fromEntries(Object.entries(out).map(([k, r]) => [k, { status: r.status, cc: r.headers["cache-control"], body: r.body }]));
+});
+await check("RECORDED: the signed Storage object response itself (the link mode, still served for older clients) - its Cache-Control and Expires as measured", async () => {
+  const link = await download(owner, UA.uploadId, A);
+  const res = await fetch(rebase(link.body.url), { cache: "no-store" });
+  await res.arrayBuffer();
+  measured.signedObject = { status: res.status, cacheControl: res.headers.get("cache-control"), expires: res.headers.get("expires"), lastModified: res.headers.get("last-modified") };
+  gaps.push({ id: "SIGNED-OBJECT-RESPONSE-CACHE-HEADERS", observed: measured.signedObject, note: "Storage's own response; not used by the app after intuit-security-r1 (proxied delivery). Older clients that still request a link receive it." });
+  return res.status === 200 ? true : measured.signedObject;
+});
+await check("REST and RPC answers carry Cache-Control: no-cache, no-store once 20261215100000 is applied (successful read and RPC); error answers are RECORDED", async () => {
+  const h = { Authorization: `Bearer ${owner.token}`, apikey: anonKey, "Content-Type": "application/json" };
+  const read = await fetch(`${apiUrl}/rest/v1/companies?select=id&id=eq.${A}`, { headers: h, cache: "no-store" });
+  const rpc = await fetch(`${apiUrl}/rest/v1/rpc/qbo_pending_disconnect`, { method: "POST", headers: h, body: JSON.stringify({ p_company: A }), cache: "no-store" });
+  const denied = await fetch(`${apiUrl}/rest/v1/qbo_disconnect_operations?select=connection_id`, { headers: h, cache: "no-store" });
+  const badInput = await fetch(`${apiUrl}/rest/v1/companies?select=id&id=eq.not-a-uuid`, { headers: h, cache: "no-store" });
+  const auth = await fetch(`${apiUrl}/auth/v1/user`, { headers: { Authorization: `Bearer ${owner.token}`, apikey: anonKey }, cache: "no-store" });
+  await Promise.all([read, rpc, denied, badInput, auth].map((r) => r.arrayBuffer()));
+  measured.api = Object.fromEntries(Object.entries({ read, rpc, denied, badInput, authUser: auth }).map(([k, r]) => [k, { status: r.status, cacheControl: r.headers.get("cache-control") }]));
+  gaps.push({ id: "API-ERROR-AND-AUTH-RESPONSE-CACHE-HEADERS", observed: { denied: measured.api.denied, badInput: measured.api.badInput, authUser: measured.api.authUser },
+    note: "PostgREST discards the pre-request response.headers when the request fails; Supabase Auth (GoTrue) is not PostgREST. Recorded, not asserted." });
+  return read.status === 200 && rpc.status === 200 && read.headers.get("cache-control") === "no-cache, no-store" && rpc.headers.get("cache-control") === "no-cache, no-store" ? true : measured.api;
+});
+
 startGroup("Revoked access and expiry");
 let issuedBeforeRevocation = null;
 await check("the owner revokes the collaborator; the very next request is refused, while the earlier history is untouched", async () => {
@@ -271,7 +319,7 @@ await check("an issued URL stops working after its expiry (waited for, real cloc
   return early.status === 200 && late.status !== 200 ? true : { early: early.status, late: late.status };
 });
 
-fs.writeFileSync(path.join(OUT, "results.json"), JSON.stringify({ results, gaps, boundaries: {
+fs.writeFileSync(path.join(OUT, "results.json"), JSON.stringify({ results, gaps, measuredCacheHeaders: measured, boundaries: {
   real: ["GoTrue sign-in for every person", "PostgREST and RLS", "private Storage and its policies", "trial-balance-source-signer and trial-balance-source-download Edge Functions", "the owner's own grant/revoke RPCs", "a real URL fetch including expiry"],
   operatorActionsByServiceRole: ["create Auth users", "grant the owners a plan", "create the two companies", "remove one stored object", "read database rows to compare the recorded fingerprint"],
   notProven: ["invitations and membership acceptance through the UI", "rollout configuration through the UI", "lapsed-plan behaviour"] }, finishedAt: new Date().toISOString() }, null, 2));

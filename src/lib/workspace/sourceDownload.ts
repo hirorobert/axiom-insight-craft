@@ -3,8 +3,9 @@
  *
  * The bucket is private and no Storage policy lets a browser read workspace objects. The browser asks the
  * trial-balance-source-download Edge Function for an upload it names (with the company it believes owns it); the server
- * authenticates the caller, re-checks their authority on EVERY request and answers with a signed URL that expires within a
- * minute. The browser never chooses a bucket or a path.
+ * authenticates the caller, re-checks their authority on EVERY request, issues a signed URL that expires within a minute, and
+ * (proxied delivery) serves the object's bytes itself with Cache-Control: no-cache, no-store. The browser never chooses a bucket
+ * or a path, and never receives the signed URL.
  *
  * Integrity: when the server has recorded the file's SHA-256 (it does so while processing), the received bytes are hashed
  * here and compared before anything is offered to the user. A mismatch discards the bytes and says so; it is never saved.
@@ -39,9 +40,6 @@ export interface DownloadedSource {
 
 interface FunctionAnswer {
   outcome?: string;
-  url?: string;
-  file_name?: string;
-  sha256?: string | null;
 }
 
 async function readFunctionOutcome(error: unknown): Promise<FunctionAnswer | null> {
@@ -52,55 +50,40 @@ async function readFunctionOutcome(error: unknown): Promise<FunctionAnswer | nul
   }
 }
 
-/** Where signed object URLs live. The function signs for the private trial-balance bucket only. */
-export const SIGNED_OBJECT_PREFIX = "/storage/v1/object/sign/trial-balance-files/";
-
-/**
- * The server signs against ITS OWN view of the project URL (inside a container or behind a proxy that can differ from the one the
- * browser reaches). The signed path and token are what matter, so the request is made against the API origin this app is configured
- * with. Anything that is not a signed object URL for the trial-balance bucket is refused rather than fetched.
- */
-export function rebaseSignedUrl(raw: string, apiBase: string | undefined): string | null {
-  let url: URL;
-  try { url = new URL(raw); } catch { return null; }
-  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
-  if (!url.pathname.startsWith(SIGNED_OBJECT_PREFIX) || !url.searchParams.get("token")) return null;
-  // Inside the prefix: no dot segment, no encoded dot / slash / backslash. The object name is a plain path the server chose.
-  const rest = url.pathname.slice(SIGNED_OBJECT_PREFIX.length);
-  if (rest.length === 0 || /%2e|%2f|%5c|\\/i.test(rest) || rest.split("/").some((seg) => seg === "" || seg === "." || seg === "..")) return null;
-  if (!apiBase) return url.toString();
-  try { return `${new URL(apiBase).origin}${url.pathname}${url.search}`; } catch { return null; }
-}
-
 export async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
   return Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-/** Asks the server for a download of this upload's original file, fetches it and checks it against the recorded SHA-256. */
-export async function fetchOriginalSource(companyId: string, uploadId: string, fetchImpl: typeof fetch = fetch, apiBase: string | undefined = import.meta.env.VITE_SUPABASE_URL): Promise<DownloadedSource> {
-  const answered = await supabase.functions.invoke("trial-balance-source-download", { body: { upload_id: uploadId, company_id: companyId } });
-  const body = (answered.error ? await readFunctionOutcome(answered.error) : answered.data) as FunctionAnswer | null;
-  const outcome = body?.outcome;
-  if (outcome === "forbidden") throw new SourceDownloadError(DOWNLOAD_NO_PERMISSION, "forbidden", false);
-  if (outcome === "unauthenticated") throw new SourceDownloadError("Please sign in again to download this file.", "unauthenticated", false);
-  if (outcome === "unavailable") throw new SourceDownloadError(DOWNLOAD_UNAVAILABLE, "unavailable", false);
-  if (outcome !== "ready" || !body?.url) throw new SourceDownloadError("Could not prepare the download. Please try again.", "failed", true);
-
-  const target = rebaseSignedUrl(body.url, apiBase);
-  if (!target) throw new SourceDownloadError("Could not prepare the download. Please try again.", "failed", true);
-  let response: Response;
-  try {
-    response = await fetchImpl(target);
-  } catch {
+/**
+ * Asks the server for this upload's original file and checks it against the recorded SHA-256.
+ *
+ * The app asks for PROXIED delivery: the function authorizes and records exactly as before, then serves the bytes itself with
+ * Cache-Control: no-cache, no-store. Storage's own signed-object response carries no Cache-Control (measured 2026-11-06), so the
+ * browser never fetches the object from Storage on this path. Requires the trial-balance-source-download version that understands
+ * { delivery: "proxied" } to be deployed BEFORE this frontend is published (docs/release/intuit-security-r1/RECORD.md).
+ */
+export async function fetchOriginalSource(companyId: string, uploadId: string): Promise<DownloadedSource> {
+  const answered = await supabase.functions.invoke("trial-balance-source-download", { body: { upload_id: uploadId, company_id: companyId, delivery: "proxied" } });
+  if (answered.error) {
+    const outcome = (await readFunctionOutcome(answered.error))?.outcome;
+    if (outcome === "forbidden") throw new SourceDownloadError(DOWNLOAD_NO_PERMISSION, "forbidden", false);
+    if (outcome === "unauthenticated") throw new SourceDownloadError("Please sign in again to download this file.", "unauthenticated", false);
+    if (outcome === "unavailable") throw new SourceDownloadError(DOWNLOAD_UNAVAILABLE, "unavailable", false);
     throw new SourceDownloadError("The file could not be downloaded. Please try again.", "failed", true);
   }
-  if (!response.ok) throw new SourceDownloadError("The file could not be downloaded. Please try again.", "failed", true);
-  const bytes = await response.arrayBuffer();
+  // A served file is a Blob (application/octet-stream). Anything else (for example a link answer from an older function) is not saved.
+  const headers = (answered as { response?: Response }).response?.headers;
+  const served = answered.data as Blob | null;
+  if (!headers || !served || typeof served.arrayBuffer !== "function" || typeof (served as { size?: unknown }).size !== "number") {
+    throw new SourceDownloadError("The file could not be downloaded. Please try again.", "failed", true);
+  }
+  const bytes = await served.arrayBuffer();
 
-  const recorded = typeof body.sha256 === "string" && /^[0-9a-f]{64}$/i.test(body.sha256) ? body.sha256.toLowerCase() : null;
+  const header = headers.get("X-Source-Sha256");
+  const recorded = header && /^[0-9a-f]{64}$/i.test(header) ? header.toLowerCase() : null;
   if (recorded && (await sha256Hex(bytes)) !== recorded) throw new SourceDownloadError(DOWNLOAD_INTEGRITY_FAILED, "integrity", true);
-  return { fileName: body.file_name || "trial-balance", blob: new Blob([bytes]), integrity: recorded ? "matched" : "not_recorded", size: bytes.byteLength };
+  return { fileName: headers.get("X-Source-File-Name") || "trial-balance", blob: new Blob([bytes]), integrity: recorded ? "matched" : "not_recorded", size: bytes.byteLength };
 }
 
 /** Hands a verified download to the browser as a file save. */

@@ -118,7 +118,7 @@ export class Page {
       const p = msg.params ?? {};
       if (msg.method === "Network.requestWillBeSent") { this.requests.push(p.request?.url ?? ""); this.methods.set(p.requestId, p.request?.method ?? ""); }
       else if (msg.method === "Network.webSocketCreated") this.requests.push(p.url ?? "");
-      else if (msg.method === "Network.responseReceived") this.responses.push({ url: p.response?.url ?? "", status: p.response?.status ?? 0, method: this.methods.get(p.requestId) ?? "" });
+      else if (msg.method === "Network.responseReceived") this.responses.push({ url: p.response?.url ?? "", status: p.response?.status ?? 0, method: this.methods.get(p.requestId) ?? "", cacheControl: Object.entries(p.response?.headers ?? {}).find(([k]) => k.toLowerCase() === "cache-control")?.[1] ?? null });
       else if (msg.method === "Page.loadEventFired") { const w = this.loadWaiters; this.loadWaiters = []; w.forEach((r) => r()); }
       else if (msg.method === "Runtime.exceptionThrown") this.consoleErrors.push(p.exceptionDetails?.text ?? "exception");
     });
