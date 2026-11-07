@@ -21,6 +21,8 @@ export const meta = { kind: "implementation", name: "cfoclose-readiness-engine",
 export async function evaluate(inputs) {
   return evaluateReadiness(inputs);
 }
+/** Synchronous entry for callers that cannot await (auditRegression.mjs). */
+export const evaluateSync = evaluateReadiness;
 
 /** Map of database contracts to the PostgreSQL proof case that exercises each. */
 const CONTRACT_CASES = {

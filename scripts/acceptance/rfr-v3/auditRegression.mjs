@@ -36,7 +36,8 @@ if (audited) {
   }
 }
 const modelUrl = pathToFileURL(adapterPath ? resolve(adapterPath) : join(dir, "referenceModel.mjs")).href;
-const { evaluate } = await import(modelUrl);
+const mod = await import(modelUrl);
+const evaluate = mod.evaluateSync ?? mod.evaluate;
 const runner = join(dir, "run.mjs");
 
 // ── helpers ─────────────────────────────────────────────────────────────────────────────────────────────────────
