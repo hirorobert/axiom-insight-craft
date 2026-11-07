@@ -1,5 +1,5 @@
 /**
- * Ready for Reporting V3 — acceptance fixtures (rfr-acceptance/1).
+ * Ready for Reporting V3 — acceptance fixtures (rfr-acceptance/2).
  *
  * Every expected value below is written by hand from the specification and the cited source. Nothing in `expected` is
  * computed by the reference model; the runner's self-check fails if the model and these literals disagree.
@@ -48,6 +48,11 @@ const SRC = {
 
 // ── E2 shared pieces (food rations) ─────────────────────────────────────────────────────────────────────────────
 const FOOD = t("33,518,793.00");
+// Source-freshness attestation (D5): a separate, expiring record bound to the reviewed CONTENT, not part of it.
+const NOW = "2026-11-07T10:05:00Z";
+const BOUND = { tb_fingerprint: "tb1", gl_fingerprint: "gl1" };
+const ATTEST = (o = {}) => ({ id: "att-2", pulled_at: "2026-11-07T10:00:00Z", expires_at: "2026-11-07T10:10:00Z", outcome: "confirmed", tb_fingerprint: "tb1", gl_fingerprint: "gl1", bound_content_sha256: "c1", ...o });
+const S1_TB = tb({ "5300": t("12,000,000.00"), "2200": "0" });
 const E2_TB = tb({ "5607": t("138,798,548.00"), "2000": "0", OBE: t("-305,357,378.30"), "1020": t("65,772,218.34") });
 const E2_LEDGER = {
   snapshot: "constructed-gl-1",
@@ -64,14 +69,14 @@ const E2_EVIDENCE = {
   "EV-NMB-001593": ev("bank_statement", { amount: FOOD, ref: "001593", date: "2025-07-02", counterparty: "ENDUIMET RANGERS ASSOCIATION" }, "reproduced"),
   "EV-V02-N13": ev("approved_fs_note", { amount: FOOD, ref: "003/2024.2025" }),
   "EV-PV-001593": ev("payment_voucher", { amount: FOOD, ref: "003/2024.2025" }),
-  "EV-ERA-CONF": ev("supplier_confirmation", { counterparty: "ENDUIMET RANGERS ASSOCIATION" }),
-  "EV-OBE-JNL": ev("opening_journal", { note: "opening journal shows bill 003/2024.2025 loaded to Opening Balance Equity" }),
+  "EV-ERA-CONF": ev("supplier_confirmation", { counterparty: "ENDUIMET RANGERS ASSOCIATION", ref: "003/2024.2025", amount: FOOD }),
+  "EV-OBE-JNL": ev("opening_journal", { account: "2000", amount: FOOD, date: "2025-06-30", ref: "003/2024.2025", note: "opening journal shows bill 003/2024.2025 loaded to Opening Balance Equity" }),
 };
 const E2_DC = {
   amount: FOOD, cheque: "001593", bill: "003/2024.2025", payee: "ENDUIMET RANGERS ASSOCIATION",
   payment_evidence: "EV-NMB-001593", gl_entry_id: "E-001593#1", expense_account: "5607", payable_account: "2000",
   voucher: "EV-PV-001593", supplier_confirmation: "EV-ERA-CONF", approved_fs: "EV-V02-N13",
-  bridge_line: "payables-food", correction_id: "corr:food:003/2024.2025",
+  bridge_line: "payables-food", correction_id: "corr:food:003/2024.2025", cash_account: "1020",
 };
 const E2_BRIDGE = (classified) => ({
   basis: "external_signed_fs",
@@ -113,7 +118,7 @@ export const CASES = [
         { id: "CRDB-USD-0252241325200", ledger_key: "1030", status: "active", statements: [{ file: "crdb-usd", sha: "sha-crdb-usd", from: "2025-07-01", to: "2026-06-30", pages_missing: [], opening: null, rows: [] }] },
       ],
       deposit: { approved_opening: t("200,000,000.00"), movements: [{ amount: t("100,000,000.00"), evidence: "EV-CRDB-PAYOUT", receiving_account: "CRDB-TZS" }], history: [], closing_evidenced: null, request: SRC.CRDB_CONF.ref },
-      evidence: { "EV-CRDB-PAYOUT": ev("bank_statement", { amount: t("100,000,000.00"), ref: "AA25247CKBBX", date: "2026-06-08" }, "reproduced") },
+      evidence: { "EV-CRDB-PAYOUT": ev("bank_statement", { amount: t("100,000,000.00"), ref: "AA25247CKBBX", date: "2026-06-08", account: "CRDB-TZS" }, "reproduced") },
     },
     expected: {
       findings: [
@@ -125,7 +130,7 @@ export const CASES = [
       proposals: [],
       refusals: ["restate_prior_year_deposit", "recognise_additional_deposit_asset"],
       balances: { "1030": t("119,601,778.84"), "1032": "0" },
-      finalization: { held: true, reasons: ["SCOPE_HELD:cash:CRDB-TZS", "SCOPE_HELD:deposits"] },
+      finalization: { held: true, reasons: ["SCOPE_HELD:cash:CRDB-TZS", "SCOPE_HELD:cash:CRDB-USD-0252241325200", "SCOPE_HELD:deposits"] },
       user_sees: "We found a TZS 100,000,000.00 fixed-deposit principal payout on 8 June 2026 into the CRDB TZS account. Last year's approved statements show a TZS 200,000,000.00 deposit. Upload CRDB's deposit certificates or confirmation to explain the other TZS 100,000,000.00. The CRDB TZS account has no account in your ledger: choose which ledger account it is before its balance can be reported.",
       permitted_correction: "none until the deposit history and the ledger account for CRDB TZS are evidenced; no restatement of 2024/25 and no second deposit asset",
     },
@@ -267,15 +272,16 @@ export const CASES = [
   {
     id: "S1", title: "goods received 24 June 2026, invoiced 14 July 2026, not in the ledger", origin: "synthetic", status: "frozen",
     inputs: {
-      period: P, tb: tb({ "5300": t("12,000,000.00"), "2200": "0" }), required_scopes: ["completeness:liabilities"],
+      period: P, tb: S1_TB, required_scopes: ["completeness:liabilities"],
+      ledger: { snapshot: "syn-s1", accounts: { "5300": t("12,000,000.00"), "2200": "0", REST: S1_TB.accounts.REST.closing }, entries: [] },
       cutoff: {
         search: { from: "2026-07-01", to: "2026-08-14", required_to: "2026-08-14", basis: "longest supplier payment term on file (45 days)", sources: ["EV-PAYLIST", "EV-INVREG"] },
-        items: [{ ref: "INV-7781", amount: t("4,250,000.00"), goods_received: "2026-06-24", evidence: "EV-INV-7781", receipt_evidence: "EV-GRN-552", expense_account: "5300", accrual_account: "2200" }],
-        ledger_liabilities: [], bank_reconciliation_clean: true, request: "subsequent payments listing and supplier invoice register to 14 August 2026",
+        items: [{ ref: "INV-7781", grn_ref: "552", amount: t("4,250,000.00"), evidence: "EV-INV-7781", receipt_evidence: "EV-GRN-552", expense_account: "5300", accrual_account: "2200" }],
+        bank_reconciliation_clean: true, request: "subsequent payments listing and supplier invoice register to 14 August 2026",
       },
       evidence: {
         "EV-PAYLIST": ev("subsequent_payments_listing", { date: "2026-08-14" }), "EV-INVREG": ev("supplier_invoice_register", { date: "2026-08-14" }),
-        "EV-INV-7781": ev("supplier_invoice", { amount: t("4,250,000.00"), date: "2026-07-14" }), "EV-GRN-552": ev("goods_received_note", { date: "2026-06-24" }),
+        "EV-INV-7781": ev("supplier_invoice", { amount: t("4,250,000.00"), date: "2026-07-14", ref: "INV-7781" }), "EV-GRN-552": ev("goods_received_note", { date: "2026-06-24", ref: "552" }),
       },
       apply_proposals: ["corr:cutoff:INV-7781"], approvals: [{ id: "corr:cutoff:INV-7781", proposer: "preparer-1", approver: "reviewer-1", approver_caps: ["review_close"] }],
     },
@@ -289,9 +295,9 @@ export const CASES = [
     },
     mutations: [
       { id: "S1-M1", title: "subsequent evidence removed: completeness is incomplete although the bank reconciliation is clean",
-        patch: { cutoff: { search: null, items: [], ledger_liabilities: [], bank_reconciliation_clean: true, request: "subsequent payments listing and supplier invoice register to 14 August 2026" }, apply_proposals: [] },
+        patch: { cutoff: { search: null, items: [], bank_reconciliation_clean: true, request: "subsequent payments listing and supplier invoice register to 14 August 2026" }, apply_proposals: [] },
         expected: { add_findings: [{ rule: "CUTOFF_SEARCH_INCOMPLETE", outcome: "incomplete", scope: "completeness:liabilities" }], scopes: { "completeness:liabilities": "HELD" }, finalization_held: true } },
-      { id: "S1-M2", title: "invoice held but the goods-received date is unevidenced", patch: { evidence: { "EV-PAYLIST": ev("subsequent_payments_listing"), "EV-INVREG": ev("supplier_invoice_register"), "EV-INV-7781": ev("supplier_invoice", { amount: t("4,250,000.00") }) }, apply_proposals: [] },
+      { id: "S1-M2", title: "invoice held but the goods-received date is unevidenced", patch: { evidence: { "EV-PAYLIST": ev("subsequent_payments_listing"), "EV-INVREG": ev("supplier_invoice_register"), "EV-INV-7781": ev("supplier_invoice", { amount: t("4,250,000.00"), date: "2026-07-14", ref: "INV-7781" }) }, apply_proposals: [] },
         expected: { add_findings: [{ rule: "CUTOFF_RECEIPT_DATE_UNEVIDENCED", outcome: "evidence_missing", scope: "completeness:liabilities" }], finalization_held: true } },
     ],
   },
@@ -308,7 +314,7 @@ export const CASES = [
       population: { ledger: ["BANK-A"], statements: ["BANK-A"], banks_requiring_confirmation: ["Bank A"], confirmation_complete: { "Bank A": true } },
       banks: [{ id: "BANK-A", ledger_key: "1010", status: "active", match: { window_days: 5 }, outstanding: [{ entry_id: "C-777", cleared_by: "EV-JUL-STMT", request: "statement for 1-15 July 2026 showing cheque 000777" }],
         statements: [{ file: "bank-a", sha: "sha-a", from: "2025-07-01", to: "2026-06-30", pages_total: 3, pages_missing: [], opening: t("4,000,000.00"), rows: [{ date: "2026-05-10", amount: t("6,000,000.00"), balance: t("10,000,000.00"), ref: "DEP-1" }] }] }],
-      evidence: { "EV-JUL-STMT": ev("bank_statement_subsequent", { amount: t("-1,500,000.00"), ref: "000777", date: "2026-07-03" }, "reproduced") },
+      evidence: { "EV-JUL-STMT": ev("bank_statement_subsequent", { amount: t("-1,500,000.00"), ref: "000777", date: "2026-07-03", account: "BANK-A" }, "reproduced") },
     },
     expected: {
       findings: [{ rule: "TIMING_ITEM_CLEARED", outcome: "pass", scope: "cash:BANK-A" }, { rule: "CASH_TIES_TO_TB", outcome: "pass", scope: "cash:BANK-A" }],
@@ -342,7 +348,7 @@ export const CASES = [
       scopes: { "suspense:1999": "HELD" }, finalization: { held: true, reasons: ["SCOPE_HELD:suspense:1999"] },
       user_sees: "Suspense 1999 ends at zero, but its two entries (2,000,000.00 in March, -2,000,000.00 in May) have no support. Attach what each entry was for.",
     },
-    mutations: [{ id: "S4-M1", title: "both entries supported", patch: { ledger: { snapshot: "syn-4b", accounts: { "1999": "0", REST: "0" }, entries: [{ id: "S-1", date: "2026-03-01", account: "1999", amount: t("2,000,000.00"), links: ["EV-T1"] }, { id: "S-2", date: "2026-05-01", account: "1999", amount: t("-2,000,000.00"), links: ["EV-T2"] }] }, evidence: { "EV-T1": ev("other_document", { amount: t("2,000,000.00") }), "EV-T2": ev("other_document", { amount: t("2,000,000.00") }) } }, expected: { replace_finding: { rule: "ENTRIES_SUPPORTED", outcome: "pass", scope: "suspense:1999" }, scopes: { "suspense:1999": "READY" }, finalization_held: false } }],
+    mutations: [{ id: "S4-M1", title: "both entries supported", patch: { ledger: { snapshot: "syn-4b", accounts: { "1999": "0", REST: "0" }, entries: [{ id: "S-1", date: "2026-03-01", account: "1999", amount: t("2,000,000.00"), links: ["EV-T1"] }, { id: "S-2", date: "2026-05-01", account: "1999", amount: t("-2,000,000.00"), links: ["EV-T2"] }] }, evidence: { "EV-T1": ev("other_document", { amount: t("2,000,000.00"), account: "1999", entry: "S-1" }), "EV-T2": ev("other_document", { amount: t("-2,000,000.00"), account: "1999", entry: "S-2" }) } }, expected: { replace_finding: { rule: "ENTRIES_SUPPORTED", outcome: "pass", scope: "suspense:1999" }, scopes: { "suspense:1999": "READY" }, finalization_held: false } }],
   },
 
   // ═══ S7 / S8 — missing GL and failed tie-out: drafting continues ═════════════════════════════════════════════
@@ -389,9 +395,9 @@ export const CASES = [
   // ═══ S12 — QuickBooks freshness ═══════════════════════════════════════════════════════════════════════════════
   {
     id: "S12", title: "QuickBooks source cannot be re-read at finalization", origin: "synthetic", status: "frozen",
-    inputs: { period: P, tb: tb({}), freshness: { source: "qbo", reconfirmed: null, tb_hash_bound: "h1", tb_hash_now: null } },
+    inputs: { period: P, tb: tb({}), content_sha256_now: "c1", freshness: { source: "qbo", now: NOW, bound: BOUND, attestation: null } },
     expected: { finalization: { held: true, reasons: ["SOURCE_FRESHNESS_UNDETERMINED"] } },
-    mutations: [{ id: "S12-M1", title: "re-read succeeds and nothing changed", patch: { freshness: { source: "qbo", reconfirmed: true, tb_hash_bound: "h1", tb_hash_now: "h1" } }, expected: { finalization_held: false } }],
+    mutations: [{ id: "S12-M1", title: "a fresh attestation bound to the same content and fingerprints", patch: { freshness: { source: "qbo", now: NOW, bound: BOUND, attestation: ATTEST() } }, expected: { finalization_held: false } }],
   },
 
   // ═══ FM1..FM5 — the five ways this design could wrongly clear a pack ═════════════════════════════════════════
@@ -411,7 +417,7 @@ export const CASES = [
   },
   {
     id: "FM3", title: "QuickBooks GL changed after approval while the TB is identical", origin: "synthetic", status: "frozen", failure_mode: 3,
-    inputs: { period: P, tb: tb({}), freshness: { source: "qbo", reconfirmed: true, tb_hash_bound: "tb1", tb_hash_now: "tb1", gl_hash_bound: "gl1", gl_hash_now: "gl2" } },
+    inputs: { period: P, tb: tb({}), content_sha256_now: "c1", freshness: { source: "qbo", now: NOW, bound: BOUND, attestation: ATTEST({ gl_fingerprint: "gl2" }) } },
     expected: { finalization: { held: true, reasons: ["SOURCE_CHANGED:gl"] } },
   },
   {
@@ -420,14 +426,119 @@ export const CASES = [
       ledger: { snapshot: "syn-fm4", accounts: { "1010": t("10,000,000.00"), REST: t("-8,500,000.00") }, entries: [{ id: "C-777", date: "2026-06-28", account: "1010", amount: t("-1,500,000.00"), ref: "000777" }] },
       banks: [{ id: "BANK-A", ledger_key: "1010", status: "active", match: { window_days: 5 }, outstanding: [{ entry_id: "C-777", cleared_by: "EV-AI", request: "statement for 1-15 July 2026 showing cheque 000777" }],
         statements: [{ file: "a", sha: "a", from: "2025-07-01", to: "2026-06-30", pages_missing: [], opening: t("10,000,000.00"), rows: [] }] }],
-      evidence: { "EV-AI": ev("bank_statement_subsequent", { amount: t("-1,500,000.00"), ref: "000777" }, "ai_unconfirmed") } },
+      evidence: { "EV-AI": ev("bank_statement_subsequent", { amount: t("-1,500,000.00"), ref: "000777", date: "2026-07-03", account: "BANK-A" }, "ai_unconfirmed") } },
     expected: { findings: [{ rule: "TIMING_ITEM_UNSUPPORTED", outcome: "evidence_missing", scope: "cash:BANK-A" }], scopes: { "cash:BANK-A": "HELD" }, finalization: { held: true } },
-    mutations: [{ id: "FM4-M1", title: "human-confirmed but a different amount", patch: { evidence: { "EV-AI": ev("bank_statement_subsequent", { amount: t("-1,050,000.00"), ref: "000777" }) } }, expected: { scopes: { "cash:BANK-A": "HELD" }, finalization_held: true } }],
+    mutations: [{ id: "FM4-M1", title: "human-confirmed but a different amount", patch: { evidence: { "EV-AI": ev("bank_statement_subsequent", { amount: t("-1,050,000.00"), ref: "000777", date: "2026-07-03", account: "BANK-A" }) } }, expected: { scopes: { "cash:BANK-A": "HELD" }, finalization_held: true } }],
   },
   lifecycle("FM5", "a same-accounts, same-amount journal with no link to the correction", CORRECTED_TB,
     [{ id: "QBO-JE-990", lines: E2_EFFECT, links: [] }],
     { rest: { failure_mode: 5, expected: { corrections: [{ id: "corr:food:003/2024.2025", state: "candidate_needs_confirmation", adjustment_applied: true }], scopes: { payables: "HELD" }, finalization: { held: true, reasons: ["SCOPE_HELD:payables"] }, user_sees: "A QuickBooks journal has the same effect as your approved correction but does not reference it. Confirm whether it is the correction; until then the pack cannot be finalized." } } }),
 ];
+
+// ═══ Defect regression fixtures (independent review of 8bb3b1f) ═══════════════════════════════════════════════════
+// D1 required checks are derived and need positive proof · D2 one authoritative set of effective corrections ·
+// D4 evidence must state the facts a rule depends on · D5 reviewed content is bound apart from source freshness.
+// (D3, the sandbox runner, is covered by auditRegression.mjs and the runner tests, not by a case.)
+const e2Base = () => structuredClone(CASES.find((c) => c.id === "E2").inputs);
+const OPENING_LINES = [{ account: "OBE", amount: FOOD }, { account: "2000", amount: "-" + FOOD }];
+const FOOD_LINES = [{ account: "2000", amount: FOOD }, { account: "5607", amount: "-" + FOOD }];
+const negate = (lines) => lines.map((l) => ({ ...l, amount: l.amount.startsWith("-") ? l.amount.slice(1) : "-" + l.amount }));
+const D = (id, title, defect, inputs, expected, mutations) => ({ id, title, origin: "ewma_constructed", status: "draft", defect, constructed: ["see E2"], sources: [SRC.TB_V2, SRC.QBO_GL], inputs, expected, ...(mutations ? { mutations } : {}) });
+
+CASES.push(
+  // ── D1: required checks are derived on the server and each needs positive proof ────────────────────────────────
+  {
+    id: "D1-TB-ONLY", title: "a balanced, validated TB alone clears nothing", origin: "synthetic", status: "frozen", defect: "D1",
+    inputs: { period: P, tb: tb({ "1010": t("8,500,000.00") }), scope_facts: { banks: ["BANK-A"], opening_lines: ["cash"], payables_settlement: true, liabilities_completeness: true } },
+    expected: {
+      draft_eligible: true, evidence_upload_allowed: true,
+      required_scopes: ["cash:BANK-A", "completeness:liabilities", "opening:cash", "pack", "payables", "rule_pack"],
+      scopes: { "cash:BANK-A": "HELD", "completeness:liabilities": "HELD", "opening:cash": "HELD", payables: "HELD", pack: "READY", rule_pack: "READY" },
+      scope_reasons: { "opening:cash": ["NOT_EVALUATED"] },
+      finalization: { held: true, reasons: ["SCOPE_HELD:cash:BANK-A", "SCOPE_HELD:completeness:liabilities", "SCOPE_HELD:opening:cash", "SCOPE_HELD:payables"] },
+      user_sees: "Your trial balance is valid, so you can draft. Cash, opening balances, payables and unrecorded liabilities have not been checked yet, so the pack cannot be finalized.",
+    },
+  },
+  {
+    id: "D1-UNEVALUATED-BANK", title: "a bank account is in scope, its statements cover the year, but the cash tie was never performed", origin: "synthetic", status: "frozen", defect: "D1",
+    inputs: { period: P, tb: tb({ "1010": t("8,500,000.00") }),
+      ledger: { snapshot: "syn-d1", accounts: { "1010": t("8,500,000.00"), REST: t("-8,500,000.00") }, entries: [] },
+      banks: [{ id: "BANK-A", ledger_key: "1010", status: "active", statements: [{ file: "a", sha: "sa", from: P.start, to: P.end, pages_missing: [], opening: t("8,500,000.00"), rows: [] }] }] },
+    expected: { required_scopes: ["cash:BANK-A", "ledger", "pack", "rule_pack"], scopes: { "cash:BANK-A": "HELD", ledger: "READY" }, scope_reasons: { "cash:BANK-A": ["NOT_EVALUATED"] }, finalization: { held: true, reasons: ["SCOPE_HELD:cash:BANK-A"] } },
+  },
+  {
+    id: "D1-DECLARED-CANNOT-SHRINK", title: "the caller's required list can add scopes but cannot remove a derived one", origin: "synthetic", status: "frozen", defect: "D1",
+    inputs: { period: P, tb: tb({ "1010": t("8,500,000.00") }), scope_facts: { banks: ["BANK-A"] }, required_scopes: [] },
+    expected: { required_scopes: ["cash:BANK-A", "pack", "rule_pack"], finalization: { held: true, reasons: ["SCOPE_HELD:cash:BANK-A"] } },
+  },
+
+  // ── D2: one authoritative set of effective corrections ────────────────────────────────────────────────────────
+  D("D2-DUP-PERSISTED", "the opening correction is also persisted as a separate adjustment: a duplicate effect, neither counts, readiness holds", "D2",
+    { ...e2Base(), reporting_adjustments: [{ id: "adj-persisted-opening", approved: true, lines: OPENING_LINES }] },
+    { findings: [{ rule: "CORRECTION_DUPLICATE_EFFECT", outcome: "confirmed", scope: "pack" }, { rule: "CORRECTION_DUPLICATE_EFFECT", outcome: "confirmed", scope: "opening:payables-food" }, { rule: "CORRECTION_POSTCONDITION_FAILED", outcome: "confirmed", scope: "payables" }],
+      scopes: { payables: "HELD" }, applied_adjustments: ["corr:food:003/2024.2025"], balances: { "2000": "3351879300", "5607": t("105,279,755.00"), OBE: t("-305,357,378.30") }, finalization: { held: true } }),
+  D("D2-DUPLICATE-SUBMISSION", "the same persisted adjustment submitted twice counts once", "D2",
+    { period: P, tb: tb({ "5300": t("5,000.00"), "2200": t("-2,000.00") }), reporting_adjustments: [{ id: "corr:dup", approved: true, lines: [{ account: "5300", amount: t("1,000.00") }, { account: "2200", amount: t("-1,000.00") }] }, { id: "corr:dup", approved: true, lines: [{ account: "5300", amount: t("1,000.00") }, { account: "2200", amount: t("-1,000.00") }] }] },
+    { findings: [{ rule: "CORRECTION_DUPLICATE_IGNORED", outcome: "pass", scope: "pack" }], applied_adjustments: ["corr:dup"], balances: { "5300": t("6,000.00"), "2200": t("-3,000.00") }, finalization: { held: false, reasons: [] } }),
+  D("D2-RETRY", "the approval of both E2 corrections is retried: the balances are exactly those of E2", "D2",
+    (() => { const b = e2Base(); b.apply_proposals = [...b.apply_proposals, ...b.apply_proposals]; b.approvals = [...b.approvals, ...b.approvals]; return b; })(),
+    { scopes: { payables: "READY" }, applied_adjustments: ["corr:food:003/2024.2025", "corr:opening:payables-food"], balances: { "5607": t("105,279,755.00"), "2000": "0", OBE: t("-271,838,585.30"), "1020": t("65,772,218.34") }, finalization: { held: false, reasons: [] } }),
+  D("D2-IDENTITY-CONFLICT", "one correction identity persisted with a different effect than the approved proposal", "D2",
+    { ...e2Base(), reporting_adjustments: [{ id: "corr:food:003/2024.2025", approved: true, lines: [{ account: "OBE", amount: FOOD }, { account: "5607", amount: "-" + FOOD }] }] },
+    { findings: [{ rule: "CORRECTION_IDENTITY_CONFLICT", outcome: "confirmed", scope: "payables" }], scopes: { payables: "HELD" }, applied_adjustments: ["corr:opening:payables-food"], finalization: { held: true } }),
+  D("D2-ONLY-RECLASS", "only the reclassification is approved: the payable would be left a debit, so it cannot clear", "D2",
+    (() => { const b = e2Base(); b.apply_proposals = ["corr:food:003/2024.2025"]; return b; })(),
+    { findings: [{ rule: "CORRECTION_POSTCONDITION_FAILED", outcome: "confirmed", scope: "payables" }], scopes: { payables: "HELD" }, balances: { "2000": "3351879300", "5607": t("105,279,755.00") }, finalization: { held: true } }),
+  D("D2-REVERSAL", "an approved reversal of the reclassification removes both; the expense returns and the opening stays", "D2",
+    { ...e2Base(), reporting_adjustments: [{ id: "rev-food", reverses: "corr:food:003/2024.2025", approved: true, lines: negate(FOOD_LINES) }] },
+    { findings: [{ rule: "CORRECTION_REVERSED", outcome: "pass", scope: "payables" }, { rule: "CORRECTION_POSTCONDITION_FAILED", outcome: "confirmed", scope: "payables" }], scopes: { payables: "HELD" }, applied_adjustments: ["corr:opening:payables-food"], balances: { "5607": t("138,798,548.00"), "2000": "-3351879300" }, finalization: { held: true } }),
+);
+
+// D4 — evidence must state the facts the rule depends on
+const caseById = (id) => CASES.find((c) => c.id === id);
+caseById("S1").mutations.push(
+  { id: "S1-M3", title: "D4: an invoice with no date cannot satisfy the subsequent-period window", patch: { evidence: { ...caseById("S1").inputs.evidence, "EV-INV-7781": ev("supplier_invoice", { amount: t("4,250,000.00"), ref: "INV-7781" }) }, apply_proposals: [] },
+    expected: { add_findings: [{ rule: "CUTOFF_INVOICE_UNEVIDENCED", outcome: "evidence_missing", scope: "completeness:liabilities" }], scopes: { "completeness:liabilities": "HELD" }, proposals_exclude: ["corr:cutoff:INV-7781"], finalization_held: true } },
+  { id: "S1-M4", title: "D4: a goods-received note with no date is not evidence of receipt before year end", patch: { evidence: { ...caseById("S1").inputs.evidence, "EV-GRN-552": ev("goods_received_note", { ref: "552" }) }, apply_proposals: [] },
+    expected: { add_findings: [{ rule: "CUTOFF_RECEIPT_DATE_UNEVIDENCED", outcome: "evidence_missing", scope: "completeness:liabilities" }], proposals_exclude: ["corr:cutoff:INV-7781"], finalization_held: true } },
+  { id: "S1-M5", title: "D4: an invoice dated before year end is not a subsequent-period invoice", patch: { evidence: { ...caseById("S1").inputs.evidence, "EV-INV-7781": ev("supplier_invoice", { amount: t("4,250,000.00"), date: "2026-06-20", ref: "INV-7781" }) }, apply_proposals: [] },
+    expected: { add_findings: [{ rule: "CUTOFF_INVOICE_UNEVIDENCED", outcome: "evidence_missing", scope: "completeness:liabilities" }], finalization_held: true } },
+);
+const s10Cls = (docFacts, extraction = "human_confirmed", kind = "opening_journal") => ({
+  opening_bridge: { basis: "external_signed_fs", lines: [{ line: "cash", approved: t("8,000,000.00"), accounts: ["1010"], level: "account", classification: { kind: "mapping", evidence: ["EV-X"] } }] },
+  evidence: { "EV-X": ev(kind, docFacts, extraction) },
+});
+const unevid = { add_findings: [{ rule: "OPENING_CLASSIFICATION_UNEVIDENCED", outcome: "evidence_missing", scope: "opening:cash" }], scopes: { "opening:cash": "HELD" }, refusals_include: ["approve_without_evidence"], finalization_held: true };
+caseById("S10").mutations = [
+  { id: "S10-M1", title: "D4: the right kind of document that states nothing about the difference", patch: s10Cls({}), expected: unevid },
+  { id: "S10-M2", title: "D4: the right kind of document naming a different amount", patch: s10Cls({ amount: t("500,000.00"), account: "1010", date: "2025-06-30" }), expected: unevid },
+  { id: "S10-M3", title: "D4: a reproduced document with no relevant facts (extraction status is not relevance)", patch: s10Cls({ note: "looks right" }, "reproduced"), expected: unevid },
+  { id: "S10-M4", title: "D4: right amount and account but no date", patch: s10Cls({ amount: t("1,000,000.00"), account: "1010" }), expected: unevid },
+  { id: "S10-M5", title: "D4: the document is for another account", patch: s10Cls({ amount: t("1,000,000.00"), account: "1020", date: "2025-06-30" }), expected: unevid },
+  { id: "S10-M6", title: "D4 control: amount, account and date all stated", patch: s10Cls({ amount: t("1,000,000.00"), account: "1010", date: "2025-06-30" }), expected: { add_findings: [{ rule: "OPENING_DIFFERENCE_EXPLAINED", outcome: "pass", scope: "opening:cash" }], scopes: { "opening:cash": "READY" }, finalization_held: false } },
+];
+caseById("E2").mutations.push(
+  { id: "E2-M4", title: "D4: the opening journal names a different amount, so the opening difference is not evidenced", patch: { evidence: { ...E2_EVIDENCE, "EV-OBE-JNL": ev("opening_journal", { account: "2000", amount: t("3,351,879.30"), date: "2025-06-30", ref: "003/2024.2025" }) } },
+    expected: { add_findings: [{ rule: "OPENING_CLASSIFICATION_UNEVIDENCED", outcome: "evidence_missing", scope: "opening:payables-food" }], scopes: { payables: "HELD", "opening:payables-food": "HELD" }, finalization_held: true } },
+  { id: "E2-M5", title: "D4: the payee confirmation does not name the bill or the amount", patch: { evidence: { ...E2_EVIDENCE, "EV-ERA-CONF": ev("supplier_confirmation", { counterparty: "ENDUIMET RANGERS ASSOCIATION" }) } },
+    expected: { replace_finding: { rule: "OPENING_PAYABLE_CHARGED_TO_EXPENSE", outcome: "suspected", scope: "payables" }, proposals_exclude: ["corr:food:003/2024.2025"], scopes: { payables: "HELD" }, finalization_held: true } },
+);
+
+// D5 — the review is bound to CONTENT; source freshness is a separate expiring attestation bound to that content
+CASES.push({
+  id: "D5-RENEWED", title: "identical books: a renewed attestation clears finalization without a new review", origin: "synthetic", status: "frozen", defect: "D5",
+  inputs: { period: P, tb: tb({}), content_sha256_now: "c1", review: { reviewed_content_sha256: "c1" }, freshness: { source: "qbo", now: NOW, bound: BOUND, attestation: ATTEST() } },
+  expected: { finalization: { held: false, reasons: [] }, user_sees: "Source re-read at 10:00. Edits made in QuickBooks after that moment are not detected by this check." },
+  mutations: [
+    { id: "D5-M1", title: "the attestation has expired", patch: { freshness: { source: "qbo", now: "2026-11-07T10:11:00Z", bound: BOUND, attestation: ATTEST() } }, expected: { finalization_held: true, finalization_reasons: ["SOURCE_FRESHNESS_STALE"] } },
+    { id: "D5-M2", title: "the books changed: re-review is required even though the attestation is fresh for the new content", patch: { content_sha256_now: "c2", freshness: { source: "qbo", now: NOW, bound: BOUND, attestation: ATTEST({ bound_content_sha256: "c2" }) } }, expected: { finalization_held: true, finalization_reasons: ["REVIEW_STALE"] } },
+    { id: "D5-M3", title: "the attestation was made for different content", patch: { freshness: { source: "qbo", now: NOW, bound: BOUND, attestation: ATTEST({ bound_content_sha256: "c0" }) } }, expected: { finalization_held: true, finalization_reasons: ["SOURCE_FRESHNESS_MISMATCH"] } },
+    { id: "D5-M4", title: "an attestation valid for longer than the permitted window is refused", patch: { freshness: { source: "qbo", now: NOW, bound: BOUND, attestation: ATTEST({ expires_at: "2026-11-07T11:00:00Z" }) } }, expected: { finalization_held: true, finalization_reasons: ["SOURCE_FRESHNESS_INVALID"] } },
+    { id: "D5-M5", title: "an export-bound workspace needs no attestation", patch: { freshness: { source: "export" } }, expected: { finalization_held: false } },
+    { id: "D5-M6", title: "no review was recorded", patch: { review: null }, expected: { finalization_held: true, finalization_reasons: ["REVIEW_MISSING"] } },
+    { id: "D5-M7", title: "the pull says the books changed", patch: { freshness: { source: "qbo", now: NOW, bound: BOUND, attestation: ATTEST({ outcome: "changed", tb_fingerprint: "tb9" }) } }, expected: { finalization_held: true, finalization_reasons: ["SOURCE_CHANGED"] } },
+  ],
+});
 
 // Implementation-only contracts (no reference-model evaluation: they need a database or a live source).
 export const IMPLEMENTATION_CONTRACTS = [

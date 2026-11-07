@@ -78,7 +78,7 @@ const E2_LEDGER = { snapshot: "g1", accounts: { "5607": "0", "2000": "0", OBE: t
 const E2_EV = {
   "EV-NMB": ev("bank_statement", { amount: FOOD, ref: "001593", date: "2025-07-02", counterparty: "ENDUIMET RANGERS ASSOCIATION" }, "reproduced"),
   "EV-V02": ev("approved_fs_note", { amount: FOOD, ref: "003/2024.2025" }), "EV-PV": ev("payment_voucher", { amount: FOOD, ref: "003/2024.2025" }),
-  "EV-ERA": ev("supplier_confirmation", { counterparty: "ENDUIMET RANGERS ASSOCIATION" }), "EV-OBE": ev("opening_journal", { note: "bill 003/2024.2025 loaded to OBE" }),
+  "EV-ERA": ev("supplier_confirmation", { counterparty: "ENDUIMET RANGERS ASSOCIATION", ref: "003/2024.2025", amount: FOOD }), "EV-OBE": ev("opening_journal", { account: "2000", amount: FOOD, date: "2025-06-30", ref: "003/2024.2025" }),
 };
 const e2 = (extra = {}) => ({
   period: P, tb: E2_TB, ledger: E2_LEDGER, gl_dependent_scopes: ["payables"], required_scopes: ["payables", "opening:payables-food", "ledger"], evidence: E2_EV,
@@ -111,12 +111,21 @@ check("D2-b", "D2", "the same persisted adjustment submitted twice is counted on
 });
 
 // ── D4: evidence passes without the facts a rule requires ───────────────────────────────────────────────────────
+const S1_TB = tb({ "5300": t("12,000,000.00"), "2200": "0" });
 const s1 = (invoiceFacts, grnFacts) => ({
-  period: P, tb: tb({ "5300": t("12,000,000.00"), "2200": "0" }), required_scopes: ["completeness:liabilities"],
+  period: P, tb: S1_TB, required_scopes: ["completeness:liabilities"],
+  ledger: { snapshot: "s1", accounts: { "5300": t("12,000,000.00"), "2200": "0", REST: S1_TB.accounts.REST.closing }, entries: [] },
   cutoff: { search: { from: "2026-07-01", to: "2026-08-14", required_to: "2026-08-14", sources: ["EV-PAYLIST", "EV-INVREG"] },
-    items: [{ ref: "INV-7781", amount: t("4,250,000.00"), goods_received: "2026-06-24", evidence: "EV-INV", receipt_evidence: "EV-GRN", expense_account: "5300", accrual_account: "2200" }], ledger_liabilities: [], bank_reconciliation_clean: true },
+    items: [{ ref: "INV-7781", grn_ref: "552", amount: t("4,250,000.00"), goods_received: "2026-06-24", evidence: "EV-INV", receipt_evidence: "EV-GRN", expense_account: "5300", accrual_account: "2200" }], ledger_liabilities: [], bank_reconciliation_clean: true },
   evidence: { "EV-PAYLIST": ev("subsequent_payments_listing", { date: "2026-08-14" }), "EV-INVREG": ev("supplier_invoice_register", { date: "2026-08-14" }), "EV-INV": ev("supplier_invoice", invoiceFacts), "EV-GRN": ev("goods_received_note", grnFacts) },
   apply_proposals: ["corr:cutoff:INV-7781"], approvals: [{ id: "corr:cutoff:INV-7781", proposer: "preparer-1", approver: "reviewer-1", approver_caps: ["review_close"] }] });
+check("D4-control", "D4", "control: a dated invoice after year end and a dated goods-received note before it are accepted and accrued", () => {
+  const r = evaluate(s1({ amount: t("4,250,000.00"), date: "2026-07-14", ref: "INV-7781" }, { date: "2026-06-24", ref: "552" }));
+  const e = [];
+  if (notReady(r, "completeness:liabilities")) e.push(`control held: ${r.finalization?.reasons}`);
+  if (!r.applied_adjustments?.includes("corr:cutoff:INV-7781")) e.push("control correction not applied");
+  return e;
+});
 check("D4-a", "D4", "an invoice with no date must not satisfy the subsequent-period date window", () => {
   const r = evaluate(s1({ amount: t("4,250,000.00") }, { date: "2026-06-24" }));
   const e = [];
