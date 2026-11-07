@@ -288,10 +288,12 @@ export function evaluateReadiness(I: ReadinessInput, pack: RulePack = PILOT_RULE
     else if (eqNets(observed, effect)) state = "verified_in_source";
     else if ([...observed.values()].every((v) => v === 0n)) state = "corrected_then_reversed";
     else state = "partial_or_different";
+    // A partial source fix is completed when applied corrections that supersede it carry exactly the residual.
+    if (state === "partial_or_different" && cv.completed_by && eqNets(nonZero(residualMap(effect, observed)), nonZero(netByAccount(cv.completed_by)))) state = "completed_by_residual";
     const applied = state === "not_corrected_in_source" || state === "candidate_needs_confirmation" ? cv.adjustment_approved === true : false;
     const residual = state === "partial_or_different" ? diffNets(effect, observed) : null;
     corrections.push({ id: cv.id, state, adjustment_applied: applied, residual });
-    const ok = state === "verified_in_source" || (state === "not_corrected_in_source" && cv.adjustment_approved === true);
+    const ok = state === "verified_in_source" || state === "completed_by_residual" || (state === "not_corrected_in_source" && cv.adjustment_approved === true);
     add(`CORRECTION_${state.toUpperCase()}`, ok ? "pass" : "suspected", cv.scope, { detail: { correction: cv.id, previous: cv.previous_state ?? null, residual } });
   }
 
@@ -365,6 +367,12 @@ export function evaluateReadiness(I: ReadinessInput, pack: RulePack = PILOT_RULE
   };
 }
 
+function nonZero(m: Map<string, bigint>): Map<string, bigint> { return new Map([...m].filter(([, v]) => v !== 0n)); }
+function residualMap(want: Map<string, bigint>, got: Map<string, bigint>): Map<string, bigint> {
+  const m = new Map<string, bigint>();
+  for (const k of new Set([...want.keys(), ...got.keys()])) { const d = (want.get(k) ?? 0n) - (got.get(k) ?? 0n); if (d !== 0n) m.set(k, d); }
+  return m;
+}
 function eqNets(a: Map<string, bigint>, b: Map<string, bigint>): boolean {
   for (const k of new Set([...a.keys(), ...b.keys()])) if ((a.get(k) ?? 0n) !== (b.get(k) ?? 0n)) return false;
   return true;

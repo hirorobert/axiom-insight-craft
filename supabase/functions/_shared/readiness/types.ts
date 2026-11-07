@@ -47,6 +47,8 @@ export interface AdjustmentRow { id: string; correction_id?: string; approved?: 
 export interface Approval { id: string; proposer: string; approver: string; approver_caps?: string[] }
 export interface CorrectionVerification {
   id: string; scope: string; effect: Line[]; anchor: string[]; adjustment_approved?: boolean; previous_state?: string | null;
+  /** Net effect of the applied corrections that supersede this one (a partial source fix completed by a residual). */
+  completed_by?: Line[];
   snapshot: { id: string; postings: { id: string; lines: Line[]; links?: string[] }[] };
 }
 

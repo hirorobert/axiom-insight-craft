@@ -216,6 +216,31 @@ export const CASES = [
     [{ id: "QBO-DEP-912", lines: [{ account: "1020", amount: FOOD }, { account: "5607", amount: "-" + FOOD }], links: [] }],
     { rest: { expected: { corrections: [{ id: "corr:food:003/2024.2025", state: "not_corrected_in_source", adjustment_applied: true }], applied_adjustments: ["corr:food:003/2024.2025"], balances: { "5607": t("71,760,962.00"), OBE: t("-271,838,585.30") }, scopes: { payables: "READY" }, finalization: { held: false, reasons: [] } } } }),
 
+  // E2-L6/L7: a PARTIAL source fix completed (or not) by a residual correction that supersedes the original.
+  ...(() => {
+    const RID = "corr:food:003/2024.2025:residual";
+    const RES = [{ account: "OBE", amount: t("13,518,793.00") }, { account: "5607", amount: t("-13,518,793.00") }];
+    const part = tb({ "5607": t("118,798,548.00"), "2000": "0", OBE: t("-285,357,378.30"), "1020": t("65,772,218.34") });
+    const post = [{ id: "QBO-JE-883", lines: [{ account: "OBE", amount: t("20,000,000.00") }, { account: "5607", amount: t("-20,000,000.00") }], links: ["003/2024.2025"] }];
+    const mk = (id, title, res, expected) => ({
+      id, title, origin: "ewma_constructed", status: "draft", category: "correction_lifecycle", constructed: ["QuickBooks journal in the later snapshot"], sources: [SRC.TB_V2, SRC.QBO_GL],
+      inputs: {
+        period: P, tb: part, required_scopes: ["payables"], reporting_adjustments: [{ id: RID, approved: true, lines: res }],
+        correction_verification: [
+          { id: "corr:food:003/2024.2025", scope: "payables", effect: E2_EFFECT, anchor: E2_ANCHOR, adjustment_approved: false, completed_by: res, snapshot: { id: `snap-${id}`, postings: post } },
+          { id: RID, scope: "payables", effect: res, anchor: [RID], adjustment_approved: true, snapshot: { id: `snap-${id}`, postings: post } },
+        ],
+      },
+      expected,
+    });
+    return [
+      mk("E2-L6", "partial QuickBooks fix (20,000,000.00) completed by an approved residual correction of 13,518,793.00", RES,
+        { corrections: [{ id: "corr:food:003/2024.2025", state: "completed_by_residual", adjustment_applied: false }, { id: RID, state: "not_corrected_in_source", adjustment_applied: true }], scopes: { payables: "READY" }, applied_adjustments: [RID], balances: { "5607": t("105,279,755.00"), OBE: t("-271,838,585.30") }, finalization: { held: false, reasons: [] } }),
+      mk("E2-L7", "partial QuickBooks fix and a residual of the WRONG amount: the correction stays incomplete", [{ account: "OBE", amount: t("10,000,000.00") }, { account: "5607", amount: t("-10,000,000.00") }],
+        { corrections: [{ id: "corr:food:003/2024.2025", state: "partial_or_different", adjustment_applied: false, residual: { OBE: t("13,518,793.00"), "5607": t("-13,518,793.00") } }], scopes: { payables: "HELD" }, finalization: { held: true, reasons: ["SCOPE_HELD:payables"] } }),
+    ];
+  })(),
+
   // ═══ E3 — Opening Balance Equity 821,968,164.19 ═══════════════════════════════════════════════════════════════
   {
     id: "E3", title: "Opening Balance Equity: TZS 821,968,164.19 is an arithmetic reconstruction, not verified content", origin: "ewma", status: "draft",

@@ -27,7 +27,7 @@ export const PILOT_RULE_PACK: RulePack = {
     if (scope.startsWith("opening:")) return ["OPENING_AGREES", "OPENING_DIFFERENCE_EXPLAINED"];
     if (scope.startsWith("suspense:")) return ["ENTRIES_SUPPORTED"];
     if (scope === "completeness:liabilities") return ["CUTOFF_SEARCH_COMPLETE"];
-    if (scope === "payables") return ["CORRECTION_VERIFIED_IN_SOURCE", "CORRECTION_NOT_CORRECTED_IN_SOURCE", "OPENING_PAYABLE_SETTLEMENT_TESTED"];
+    if (scope === "payables") return ["CORRECTION_VERIFIED_IN_SOURCE", "CORRECTION_COMPLETED_BY_RESIDUAL", "CORRECTION_NOT_CORRECTED_IN_SOURCE", "OPENING_PAYABLE_SETTLEMENT_TESTED"];
     if (scope === "pack") return ["EVIDENCE_SINGLE_USE_OK"];
     if (scope === "rule_pack") return ["CITATIONS_VERIFIED"];
     return [];

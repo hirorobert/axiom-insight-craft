@@ -80,7 +80,7 @@ export const RULE_PACK = {
     if (scope.startsWith("opening:")) return ["OPENING_AGREES", "OPENING_DIFFERENCE_EXPLAINED"];
     if (scope.startsWith("suspense:")) return ["ENTRIES_SUPPORTED"];
     if (scope === "completeness:liabilities") return ["CUTOFF_SEARCH_COMPLETE"];
-    if (scope === "payables") return ["CORRECTION_VERIFIED_IN_SOURCE", "CORRECTION_NOT_CORRECTED_IN_SOURCE", "OPENING_PAYABLE_SETTLEMENT_TESTED"];
+    if (scope === "payables") return ["CORRECTION_VERIFIED_IN_SOURCE", "CORRECTION_COMPLETED_BY_RESIDUAL", "CORRECTION_NOT_CORRECTED_IN_SOURCE", "OPENING_PAYABLE_SETTLEMENT_TESTED"];
     if (scope === "pack") return ["EVIDENCE_SINGLE_USE_OK"];
     if (scope === "rule_pack") return ["CITATIONS_VERIFIED"];
     return [];
@@ -385,10 +385,16 @@ export function evaluate(inputs) {
     else if (eqMap(observed, effect)) state = "verified_in_source";
     else if ([...observed.values()].every((v) => v === 0n)) state = "corrected_then_reversed";
     else state = "partial_or_different";
+    // A partial source fix is completed when applied corrections that supersede it carry exactly the residual.
+    if (state === "partial_or_different" && cv.completed_by) {
+      const resid = new Map(effect);
+      for (const [k, v] of observed) resid.set(k, (resid.get(k) ?? 0n) - v);
+      if (eqMap(new Map([...resid].filter(([, v]) => v !== 0n)), netOf(cv.completed_by))) state = "completed_by_residual";
+    }
     const prev = cv.previous_state ?? null;
     const adjustmentApplied = state === "not_corrected_in_source" || state === "candidate_needs_confirmation" ? cv.adjustment_approved === true : false;
     corrections.push({ id: cv.id, state, adjustment_applied: adjustmentApplied, residual: state === "partial_or_different" ? diffMap(effect, observed) : null });
-    const ok = state === "verified_in_source" || (state === "not_corrected_in_source" && cv.adjustment_approved === true);
+    const ok = state === "verified_in_source" || state === "completed_by_residual" || (state === "not_corrected_in_source" && cv.adjustment_approved === true);
     add(`CORRECTION_${state.toUpperCase()}`, ok ? "pass" : "suspected", cv.scope, { detail: { correction: cv.id, previous: prev, residual: corrections.at(-1).residual } });
   }
 
@@ -523,6 +529,7 @@ export function effectiveCorrections(rows, verification = []) {
   return { effective: live, conflicts };
 }
 
+function netOf(lines) { const m = new Map(); for (const l of lines) m.set(l.account, (m.get(l.account) ?? 0n) + BigInt(l.amount)); return new Map([...m].filter(([, v]) => v !== 0n)); }
 function sameEffect(lines, effect) { const m = new Map(); for (const l of lines) m.set(l.account, (m.get(l.account) ?? 0n) + BigInt(l.amount)); return eqMap(m, effect); }
 function eqMap(a, b) { const ks = new Set([...a.keys(), ...b.keys()]); for (const k of ks) if ((a.get(k) ?? 0n) !== (b.get(k) ?? 0n)) return false; return true; }
 function diffMap(want, got) { const o = {}; for (const k of new Set([...want.keys(), ...got.keys()])) { const d = (want.get(k) ?? 0n) - (got.get(k) ?? 0n); if (d !== 0n) o[k] = d.toString(); } return o; }
