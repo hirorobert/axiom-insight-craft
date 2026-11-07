@@ -544,29 +544,29 @@ BEGIN
   IF v_scope.id IS NULL THEN RETURN v_out; END IF;             -- not opted in: nothing changes
   v_digest := public.rfr_content_digest(p_company_id, v_year);
   SELECT * INTO v_run FROM public.rfr_runs r WHERE r.company_id = p_company_id AND r.period_year = v_year ORDER BY r.seq DESC LIMIT 1;
-  IF v_run.id IS NULL THEN RETURN v_out || 'RFR_NOT_EVALUATED'; END IF;
-  IF v_run.content_sha256 <> v_digest THEN RETURN v_out || 'RFR_MANIFEST_STALE'; END IF;
+  IF v_run.id IS NULL THEN RETURN array_append(v_out, 'RFR_NOT_EVALUATED'); END IF;
+  IF v_run.content_sha256 <> v_digest THEN RETURN array_append(v_out, 'RFR_MANIFEST_STALE'); END IF;
   FOREACH v_s IN ARRAY v_run.required_scopes LOOP
     IF COALESCE(v_run.scopes->>v_s, 'ABSENT') <> 'READY' THEN v_out := v_out || ('RFR_SCOPE_HELD:' || v_s); END IF;
   END LOOP;
-  IF NOT v_run.balances_agree THEN v_out := v_out || 'RFR_ADJUSTED_TB_DIVERGES'; END IF;
-  IF (v_run.finalization->'reasons') ? 'TB_NOT_VALIDATED' THEN v_out := v_out || 'RFR_TB_NOT_VALIDATED'; END IF;
+  IF NOT v_run.balances_agree THEN v_out := array_append(v_out, 'RFR_ADJUSTED_TB_DIVERGES'); END IF;
+  IF (v_run.finalization->'reasons') ? 'TB_NOT_VALIDATED' THEN v_out := array_append(v_out, 'RFR_TB_NOT_VALIDATED'); END IF;
 
   -- The final stage (the version is already REVIEWED): the review binds THIS content, and QuickBooks-bound inputs need a fresh attestation.
   SELECT p.state INTO v_state FROM public.financial_statement_publications p WHERE p.report_id = p_report_id AND p.report_version = p_version ORDER BY p.seq DESC LIMIT 1;
   IF v_state = 'REVIEWED' THEN
     SELECT * INTO v_rev FROM public.rfr_reviews rv WHERE rv.report_id = p_report_id AND rv.report_version = p_version ORDER BY rv.seq DESC LIMIT 1;
-    IF v_rev.id IS NULL THEN v_out := v_out || 'RFR_REVIEW_MISSING';
-    ELSIF v_rev.content_sha256 <> v_digest THEN v_out := v_out || 'RFR_REVIEW_STALE'; END IF;
+    IF v_rev.id IS NULL THEN v_out := array_append(v_out, 'RFR_REVIEW_MISSING');
+    ELSIF v_rev.content_sha256 <> v_digest THEN v_out := array_append(v_out, 'RFR_REVIEW_STALE'); END IF;
     SELECT * INTO b FROM public._rfr_bound_fingerprints(p_company_id, v_year);
     IF b.qbo_bound THEN
       SELECT * INTO v_att FROM public.rfr_source_attestations a WHERE a.company_id = p_company_id AND a.period_year = v_year ORDER BY a.seq DESC LIMIT 1;
-      IF v_att.id IS NULL THEN v_out := v_out || 'RFR_SOURCE_FRESHNESS_UNDETERMINED';
-      ELSIF v_att.outcome <> 'confirmed' THEN v_out := v_out || 'RFR_SOURCE_CHANGED';
-      ELSIF b.tb_fingerprint IS NOT NULL AND v_att.tb_fingerprint IS DISTINCT FROM b.tb_fingerprint THEN v_out := v_out || 'RFR_SOURCE_CHANGED:tb';
-      ELSIF b.gl_fingerprint IS NOT NULL AND v_att.gl_fingerprint IS DISTINCT FROM b.gl_fingerprint THEN v_out := v_out || 'RFR_SOURCE_CHANGED:gl';
-      ELSIF v_att.expires_at <= clock_timestamp() THEN v_out := v_out || 'RFR_SOURCE_FRESHNESS_STALE';
-      ELSIF v_att.bound_content_sha256 <> v_digest THEN v_out := v_out || 'RFR_SOURCE_FRESHNESS_MISMATCH'; END IF;
+      IF v_att.id IS NULL THEN v_out := array_append(v_out, 'RFR_SOURCE_FRESHNESS_UNDETERMINED');
+      ELSIF v_att.outcome <> 'confirmed' THEN v_out := array_append(v_out, 'RFR_SOURCE_CHANGED');
+      ELSIF b.tb_fingerprint IS NOT NULL AND v_att.tb_fingerprint IS DISTINCT FROM b.tb_fingerprint THEN v_out := array_append(v_out, 'RFR_SOURCE_CHANGED:tb');
+      ELSIF b.gl_fingerprint IS NOT NULL AND v_att.gl_fingerprint IS DISTINCT FROM b.gl_fingerprint THEN v_out := array_append(v_out, 'RFR_SOURCE_CHANGED:gl');
+      ELSIF v_att.expires_at <= clock_timestamp() THEN v_out := array_append(v_out, 'RFR_SOURCE_FRESHNESS_STALE');
+      ELSIF v_att.bound_content_sha256 <> v_digest THEN v_out := array_append(v_out, 'RFR_SOURCE_FRESHNESS_MISMATCH'); END IF;
     END IF;
   END IF;
   RETURN v_out;
