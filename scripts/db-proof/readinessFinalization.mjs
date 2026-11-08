@@ -243,8 +243,9 @@ async function main() {
   });
 
   await kase("c7.bound-evidence-retained", "the inputs bound by the FINAL manifest stay retrievable and unchangeable after the evidence is withdrawn and replaced; the manifest is immutable and names the content it bound", async () => {
-    const bound = (await db.admin.query("SELECT id, family, key, payload_sha256 FROM public.rfr_inputs WHERE company_id=$1 AND period_year=$2 AND key='EV-1' ORDER BY seq", [A, Y])).rows;
-    const w = (await asU(U.preparer, "SELECT public.rfr_withdraw_input($1,$2,'evidence','EV-1','Replacing the evidence after issue',$3) r", [A, Y, uuid()])).r;
+    // Inputs that existed when the FINAL was issued (EV-1 and its later withdrawal by the lock probe are history rows too).
+    const bound = (await db.admin.query("SELECT i.id, i.family, i.key, i.payload_sha256 FROM public.rfr_inputs i WHERE i.company_id=$1 AND i.period_year=$2 AND i.key IN ('EV-1','EV-2') ORDER BY i.seq", [A, Y])).rows;
+    const w = (await asU(U.preparer, "SELECT public.rfr_withdraw_input($1,$2,'evidence','EV-2','Replacing the evidence after issue',$3) r", [A, Y, uuid()])).r;
     const re = await regEvidence(U.preparer, A, "EV-1", { amount: "999" });
     const after = (await db.admin.query("SELECT id, payload_sha256 FROM public.rfr_inputs WHERE id = ANY($1::uuid[])", [bound.map((b) => b.id)])).rows;
     const upd = await refusal(() => db.admin.query("UPDATE public.rfr_inputs SET payload='{}'::jsonb WHERE id=$1", [bound[0].id]));
@@ -274,7 +275,7 @@ async function main() {
     glFp = (await db.one("SELECT payload_sha256 FROM public.rfr_inputs WHERE company_id=$1 AND key='gl'", [w2.A])).payload_sha256;
     const r = await runReadinessCheck(serviceRpc, w2.A, Y);
     L = await w2.reviewed("q1");
-    const nb = (await db.asRole("service_role", null, "SELECT * FROM public._rfr_bound_fingerprints($1,$2)", [w2.A, Y]))[0];
+    const nb = (await db.admin.query("SELECT * FROM public._rfr_bound_fingerprints($1,$2)", [w2.A, Y])).rows[0];
     return reg.outcome === "recorded" && r.outcome === "recorded" && r.result.scopes.ledger === "READY" && nb.qbo_bound === true && nb.gl_fingerprint === glFp ? true : { reg, r: r.outcome, scopes: r.result?.scopes, nb };
   });
   const dg = () => db.one("SELECT public.rfr_content_digest($1,$2) d", [w2.A, Y]).then((r) => r.d);
