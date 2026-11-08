@@ -21,8 +21,7 @@ in the **new V2 form (`subtotal-casting` 1.1.0, canonical rule pack 2.3.0)**, tr
 * the schema refuses a declaration on a line with no children or for a period the line has no value of its own;
 * rule pack **1.0.0 and 2.2.0 are untouched** (`subtotal-casting` 1.0.0 ignores the declaration), so every recorded evaluation and receipt is still reproducible byte for byte.
 
-Also carried here (it is part of the same closure and was not separable): `signoff.ts` reads a missing comparative that carries no dates (`{state: "missing", periodYear}`), which the first-period legacy-workspace
-scenarios of #256 need to prepare a version at all. It was authored in #256 (`dba4fcf`) without regenerating the bundle; it belongs here with the regenerated bundle and the migration below.
+Also carried here (it is part of the same closure and was not separable): `signoff.ts` reads a missing comparative that carries no dates (`{state: "missing", periodYear}`). It was authored in #256 (`dba4fcf`) without regenerating the bundle and has been moved out of #256/#257 to here. #256's first-period proofs do not depend on it (their harness supplies null dates on a MISSING comparative only); **this PR proves the product client needs no wrapper**: `missingComparativeDates.test.ts` (3 tests) and a CI step that runs the first-period proof with `FIRST_PERIOD_PRODUCT_CLIENT=1` (54/54).
 
 ## One coordinated release (why a second compiler identity)
 
