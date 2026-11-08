@@ -1,0 +1,5 @@
+Line,Account codes,Amount,Level,Source
+cash,1020,88050597.63,account,"Approved FY2024/25 statements, cash at bank (constructed)"
+equipment,1500,40000000.00,account,"Approved FY2024/25 statements, equipment at cost (constructed)"
+payables-food,2000,-33518793.00,subledger,"Approved FY2024/25 statements, payables note, bill 003/2024.2025"
+remaining,9999,177306780.67,account,"Approved FY2024/25 statements, remaining balances (constructed)"
