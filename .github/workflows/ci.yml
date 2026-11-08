@@ -1448,7 +1448,7 @@ jobs:
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/first_period_proof
         run: |
           createdb first_period_proof
-          bun scripts/db-proof/firstPeriodGovernedReview.mjs 2>&1 | grep -v '^[PTB'
+          bun scripts/db-proof/firstPeriodGovernedReview.mjs 2>&1 | grep -v '^\[PTB'
           test ${PIPESTATUS[0]} -eq 0
 
       - name: First-period regression run without the migration (it MUST fail - its failure is the old-certificate bypass)
@@ -1464,7 +1464,7 @@ jobs:
           bun scripts/db-proof/firstPeriodGovernedReview.mjs > first-period-absent.log 2>&1
           code=$?
           set -e
-          grep -v '^[PTB' first-period-absent.log || true
+          grep -v '^\[PTB' first-period-absent.log || true
           test "$code" -ne 0
 
       - name: Ready for Reporting acceptance - runner self-check, audit regressions on the model and the engine, and the engine through the acceptance adapter
