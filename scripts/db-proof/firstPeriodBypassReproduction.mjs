@@ -7,6 +7,7 @@
 import { EVIDENCE_FY2026, FY2026, applyChain, certifier, chainFiles, clientDb, csv, DECISIONS_1_2_0, makeWorld, openDatabase, prepareReporting, uuid, WORDS_1_2_0 } from "./lib/reportingKit.mjs";
 import { ingestEvidence } from "../../src/lib/financialEvidence/intake.ts";
 import { signoffClient } from "../../src/lib/reporting/signoff.ts";
+import { withMissingComparativeDates } from "./lib/firstPeriodKit.mjs";
 import { prepareReportVersion } from "../../src/lib/reporting/prepareVersion.ts";
 
 const out = [];
@@ -35,7 +36,7 @@ try {
   // The ONLY trial balance CFOClose holds for this company is FY2026; the entity itself has existed since 2018.
   const up = await k.upload(N, Y, csv(FY2026)); await k.review(N, up); await k.certify(N, up);
   await prepareReporting(db, W, k, { year: Y, uploads: false, comparativesApproved: false });
-  const as = (uid) => { const d = clientDb(db, uid); return { d, c: signoffClient(d) }; };
+  const as = (uid) => { const d = withMissingComparativeDates(clientDb(db, uid)); return { d, c: signoffClient(d) }; };
   const pre = as(U.preparer), partner = as(U.partner), owner = as(U.owner);
   const parse = (type) => {
     const r = ingestEvidence({ companyId: N, evidenceType: type, periodRole: "CURRENT", reportingPeriodId: `FY${Y}`, currency: "TZS", scale: 2, text: EVIDENCE_FY2026[type], fileName: `${type.toLowerCase()}-${Y}.csv`, periodStart: `${Y}-01-01`, periodEnd: `${Y}-12-31` });
