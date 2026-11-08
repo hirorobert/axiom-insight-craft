@@ -22,7 +22,7 @@ export interface EvidenceNeed {
   /** Facts that must merely be stated. */
   present?: string[];
 }
-export type Probative = { ok: true } | { ok: false; why: string };
+export type Probative = { ok: boolean; why?: string };
 
 const stated = (v: string | undefined | null): v is string => v !== undefined && v !== null && v !== "";
 const anyOf = (x: string | string[]) => (Array.isArray(x) ? x : [x]);

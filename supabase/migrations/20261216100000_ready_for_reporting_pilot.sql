@@ -644,15 +644,27 @@ DECLARE
   v_digest text;
   b record;
   v_att public.rfr_source_attestations;
+  v_cert uuid;
+  v_upload uuid;
+  v_per record;
+  v_period jsonb;
 BEGIN
   IF NOT public.close_review_readable(p_company_id) THEN RETURN jsonb_build_object('state', 'unavailable'); END IF;
+  SELECT c.id, c.upload_id INTO v_cert, v_upload FROM public.get_authoritative_certification(p_company_id, p_period_year) c;
+  IF v_cert IS NULL THEN RETURN jsonb_build_object('state', 'no_authority'); END IF;
+  -- The reporting period is the certified trial balance's own: the page never guesses one.
+  SELECT fp.reporting_start, fp.reporting_end, fp.reporting_currency, cr.exponent INTO v_per
+    FROM public.trial_balance_uploads u JOIN public.fiscal_periods fp ON fp.id = u.period_id JOIN public.currency_registry cr ON cr.code = fp.reporting_currency WHERE u.id = v_upload;
+  IF v_per.reporting_start IS NULL OR v_per.reporting_end IS NULL THEN RETURN jsonb_build_object('state', 'period_unknown'); END IF;
+  v_period := jsonb_build_object('start', v_per.reporting_start, 'end', v_per.reporting_end, 'currency', v_per.reporting_currency, 'exponent', v_per.exponent);
   v_scope := public._rfr_scope(p_company_id, p_period_year);
-  IF v_scope.id IS NULL THEN RETURN jsonb_build_object('state', 'not_enabled'); END IF;
+  IF v_scope.id IS NULL THEN RETURN jsonb_build_object('state', 'not_enabled', 'period', v_period); END IF;
   v_digest := public.rfr_content_digest(p_company_id, p_period_year);
   SELECT * INTO v_run FROM public.rfr_runs r WHERE r.company_id = p_company_id AND r.period_year = p_period_year ORDER BY r.seq DESC LIMIT 1;
   SELECT * INTO b FROM public._rfr_bound_fingerprints(p_company_id, p_period_year);
   SELECT * INTO v_att FROM public.rfr_source_attestations a WHERE a.company_id = p_company_id AND a.period_year = p_period_year ORDER BY a.seq DESC LIMIT 1;
   RETURN jsonb_build_object('state', CASE WHEN v_run.id IS NULL THEN 'not_evaluated' WHEN v_run.content_sha256 <> v_digest THEN 'stale' ELSE 'current' END,
+    'period', v_period,
     'scope', jsonb_build_object('rulePackId', v_scope.rule_pack_id, 'rulePackVersion', v_scope.rule_pack_version, 'facts', v_scope.facts),
     'contentSha256', v_digest,
     'run', CASE WHEN v_run.id IS NULL THEN NULL ELSE jsonb_build_object('id', v_run.id, 'at', v_run.created_at, 'contentSha256', v_run.content_sha256, 'balancesAgree', v_run.balances_agree, 'result', v_run.result) END,
