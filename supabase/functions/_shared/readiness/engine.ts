@@ -47,10 +47,14 @@ export function evaluateReadiness(I: ReadinessInput, pack: RulePack = PILOT_RULE
   } else {
     const L = I.ledger;
     const bad: Record<string, unknown>[] = [];
-    for (const k of new Set([...Object.keys(L.accounts), ...Object.keys(tbAccounts)])) {
-      if (!(k in L.accounts) || !(k in tbAccounts)) { bad.push({ account: k, reason: "population" }); continue; }
-      const closing = big(L.accounts[k]) + sum(L.entries.filter((e) => e.account === k).map((e) => e.amount));
-      if (closing !== big(tbAccounts[k].closing)) bad.push({ account: k, reason: "amount", ledger: str(closing), tb: tbAccounts[k].closing });
+    for (const k of new Set([...Object.keys(L.accounts), ...Object.keys(tbAccounts), ...L.entries.map((e) => e.account)])) {
+      // An account on one side only ties when its closing is exactly zero (a trial balance may omit a zero account). An account
+      // with entries but no stated opening is never assumed to open at zero.
+      const moves = L.entries.filter((e) => e.account === k).map((e) => e.amount);
+      if (!(k in L.accounts) && moves.length) { bad.push({ account: k, reason: "population" }); continue; }
+      const closing = (k in L.accounts ? big(L.accounts[k]) : 0n) + sum(moves);
+      const tb = k in tbAccounts ? big(tbAccounts[k].closing) : 0n;
+      if (closing !== tb) bad.push({ account: k, reason: !(k in L.accounts) || !(k in tbAccounts) ? "population" : "amount", ledger: str(closing), tb: str(tb) });
     }
     if (L.scope_limited) add("LEDGER_SCOPE_LIMITED", "pass", "ledger", { detail: { note: "fixture ledger covers only the accounts listed" } });
     if (bad.length) {
@@ -241,6 +245,37 @@ export function evaluateReadiness(I: ReadinessInput, pack: RulePack = PILOT_RULE
     if (C.bank_reconciliation_clean) add("BANK_RECONCILIATION_CLEAN_NOT_COMPLETENESS", "pass", scope, { detail: { note: "a clean bank reconciliation does not test unrecorded liabilities" } });
   }
 
+  // ── 12. Correction lifecycle across source snapshots ────────────────────────────────────────────────────────
+  const corrections: CorrectionState[] = [];
+  /** Postings of the source ledger that ARE a correction's verified fix: they are not a second settlement of anything. */
+  const fixedPostings = new Set<string>();
+  const sourceFixLines = new Map<string, Line[]>(); // posting id -> its lines, for the post-condition arithmetic (counted once)
+  const seenCv = new Set<string>();
+  for (const cv of I.correction_verification ?? []) {
+    const key = `${cv.id}|${cv.snapshot.id}`;
+    if (seenCv.has(key)) continue; // a repeated import of the same snapshot is the same observation
+    seenCv.add(key);
+    const effect = netByAccount(cv.effect);
+    // The original posting of the double charge mentions the bill too; it is the error, never the correction.
+    const originals = new Set<string>(I.double_charge ? [I.double_charge.gl_entry_id.split("#")[0]] : []);
+    const linked = cv.snapshot.postings.filter((p) => !originals.has(p.id) && (p.links ?? []).some((x) => cv.anchor.includes(x)));
+    const unlinkedSame = cv.snapshot.postings.filter((p) => !linked.includes(p) && eqNets(netByAccount(p.lines), effect));
+    const observed = netByAccount(linked.flatMap((p) => p.lines));
+    let state: string;
+    if (!linked.length) state = unlinkedSame.length ? "candidate_needs_confirmation" : "not_corrected_in_source";
+    else if (eqNets(observed, effect)) state = "verified_in_source";
+    else if ([...observed.values()].every((v) => v === 0n)) state = "corrected_then_reversed";
+    else state = "partial_or_different";
+    // A partial source fix is completed when applied corrections that supersede it carry exactly the residual.
+    if (state === "partial_or_different" && cv.completed_by && eqNets(nonZero(residualMap(effect, observed)), nonZero(netByAccount(cv.completed_by)))) state = "completed_by_residual";
+    const applied = state === "not_corrected_in_source" || state === "candidate_needs_confirmation" ? cv.adjustment_approved === true : false;
+    const residual = state === "partial_or_different" ? diffNets(effect, observed) : null;
+    corrections.push({ id: cv.id, state, adjustment_applied: applied, residual });
+    if (state === "verified_in_source" || state === "completed_by_residual") for (const p of linked) { fixedPostings.add(p.id); sourceFixLines.set(p.id, p.lines); }
+    const ok = state === "verified_in_source" || state === "completed_by_residual" || (state === "not_corrected_in_source" && cv.adjustment_approved === true);
+    add(`CORRECTION_${state.toUpperCase()}`, ok ? "pass" : "suspected", cv.scope, { detail: { correction: cv.id, previous: cv.previous_state ?? null, residual } });
+  }
+
   // ── 11. An approved opening payable settled by a payment charged to expense ─────────────────────────────────
   const X = I.double_charge;
   if (X) {
@@ -251,7 +286,7 @@ export function evaluateReadiness(I: ReadinessInput, pack: RulePack = PILOT_RULE
     const voucher = probative(ev[X.voucher], { kind: "payment_voucher", amount: X.amount, ref: X.bill });
     const supplier = probative(ev[X.supplier_confirmation], { kind: ["supplier_statement", "supplier_confirmation"], counterparty: X.payee, ref: X.bill, amount: X.amount });
     const approved = probative(ev[X.approved_fs], { kind: "approved_fs_note", amount: X.amount, ref: X.bill });
-    const otherSettlement = (I.ledger?.entries ?? []).some((e) => e.ref !== X.cheque && (e.links ?? []).includes(X.bill));
+    const otherSettlement = (I.ledger?.entries ?? []).some((e) => e.ref !== X.cheque && (e.links ?? []).includes(X.bill) && !fixedPostings.has(e.id.split("#")[0]));
     const bridge = (I.opening_bridge?.lines ?? []).find((l) => l.line === X.bridge_line);
     const bridgeOk = findings.some((f) => f.scope === `opening:${X.bridge_line}` && f.rule === "OPENING_DIFFERENCE_EXPLAINED");
     const missing: string[] = [];
@@ -270,31 +305,6 @@ export function evaluateReadiness(I: ReadinessInput, pack: RulePack = PILOT_RULE
   }
   for (const p of I.opening_bridge?.proposals ?? []) {
     if (findings.some((f) => f.scope === `opening:${p.line}` && f.rule === "OPENING_DIFFERENCE_EXPLAINED")) proposals.push({ id: p.id, scope: `opening:${p.line}`, lines: p.lines });
-  }
-
-  // ── 12. Correction lifecycle across source snapshots ────────────────────────────────────────────────────────
-  const corrections: CorrectionState[] = [];
-  const seenCv = new Set<string>();
-  for (const cv of I.correction_verification ?? []) {
-    const key = `${cv.id}|${cv.snapshot.id}`;
-    if (seenCv.has(key)) continue; // a repeated import of the same snapshot is the same observation
-    seenCv.add(key);
-    const effect = netByAccount(cv.effect);
-    const linked = cv.snapshot.postings.filter((p) => (p.links ?? []).some((x) => cv.anchor.includes(x)));
-    const unlinkedSame = cv.snapshot.postings.filter((p) => !linked.includes(p) && eqNets(netByAccount(p.lines), effect));
-    const observed = netByAccount(linked.flatMap((p) => p.lines));
-    let state: string;
-    if (!linked.length) state = unlinkedSame.length ? "candidate_needs_confirmation" : "not_corrected_in_source";
-    else if (eqNets(observed, effect)) state = "verified_in_source";
-    else if ([...observed.values()].every((v) => v === 0n)) state = "corrected_then_reversed";
-    else state = "partial_or_different";
-    // A partial source fix is completed when applied corrections that supersede it carry exactly the residual.
-    if (state === "partial_or_different" && cv.completed_by && eqNets(nonZero(residualMap(effect, observed)), nonZero(netByAccount(cv.completed_by)))) state = "completed_by_residual";
-    const applied = state === "not_corrected_in_source" || state === "candidate_needs_confirmation" ? cv.adjustment_approved === true : false;
-    const residual = state === "partial_or_different" ? diffNets(effect, observed) : null;
-    corrections.push({ id: cv.id, state, adjustment_applied: applied, residual });
-    const ok = state === "verified_in_source" || state === "completed_by_residual" || (state === "not_corrected_in_source" && cv.adjustment_approved === true);
-    add(`CORRECTION_${state.toUpperCase()}`, ok ? "pass" : "suspected", cv.scope, { detail: { correction: cv.id, previous: cv.previous_state ?? null, residual } });
   }
 
   // ── 13. Reviewer decisions never stand in for evidence ──────────────────────────────────────────────────────
@@ -325,8 +335,10 @@ export function evaluateReadiness(I: ReadinessInput, pack: RulePack = PILOT_RULE
   // Post-conditions of the food-rations correction: the payable nets to zero, the expense falls by exactly the payment, cash is untouched.
   let postOk = true;
   if (X) {
-    const net = (acct: string) => sum(effective.flatMap((e) => e.lines).filter((l) => l.account === acct).map((l) => l.amount));
-    if (effective.some((e) => e.lines.some((l) => l.account === X.payable_account || l.account === X.expense_account))) {
+    // The correction's whole effect = the applied corrections PLUS the part of the fix the source ledger already carries.
+    const all = [...effective.flatMap((e) => e.lines), ...[...sourceFixLines.values()].flat()];
+    const net = (acct: string) => sum(all.filter((l) => l.account === acct).map((l) => l.amount));
+    if (all.some((l) => l.account === X.payable_account || l.account === X.expense_account)) {
       const problems: Record<string, string>[] = [];
       if (net(X.payable_account) !== 0n) problems.push({ payable_net: str(net(X.payable_account)), expected: "0" });
       if (net(X.expense_account) !== -big(X.amount)) problems.push({ expense_net: str(net(X.expense_account)), expected: str(-big(X.amount)) });
@@ -334,7 +346,9 @@ export function evaluateReadiness(I: ReadinessInput, pack: RulePack = PILOT_RULE
       if (problems.length) { postOk = false; add("CORRECTION_POSTCONDITION_FAILED", "confirmed", "payables", { detail: { problems } }); }
     }
   }
-  for (const f of findings) if (f.resolves && appliedIds.has(f.resolves) && postOk) f.resolved_by = f.resolves;
+  // A finding is resolved by an applied correction (post-conditions holding) OR by a fix the source ledger already carries.
+  const sourceFixed = (id: string) => corrections.some((c) => c.id === id && (c.state === "verified_in_source" || c.state === "completed_by_residual"));
+  for (const f of findings) if (f.resolves && ((appliedIds.has(f.resolves) && postOk) || sourceFixed(f.resolves))) f.resolved_by = f.resolves;
 
   // ── 16. Scopes: nothing starts READY (D1) ───────────────────────────────────────────────────────────────────
   const holding = (f: Finding) => f.outcome !== "pass" && !f.resolved_by;

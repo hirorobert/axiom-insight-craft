@@ -111,3 +111,25 @@ describe("the food-rations correction, exact effect", () => {
     expect(r.finalization).toEqual({ held: false, reasons: [] });
   });
 });
+
+describe("a double charge corrected in the source ledger (reimport path)", () => {
+  it("is resolved by the verified source fix, with nothing applied and balances equal to the corrected books", () => {
+    const base = structuredClone(cases.find((x) => x.id === "E2")!.inputs) as ReadinessInput;
+    // The books were corrected in QuickBooks: one journal Dr OBE / Cr 5607 for the bill, already inside the corrected TB.
+    const eff = [{ account: "OBE", amount: t("33,518,793.00") }, { account: "5607", amount: t("-33,518,793.00") }];
+    base.tb!.accounts["5607"].closing = t("105,279,755.00");
+    base.tb!.accounts.OBE.closing = t("-271,838,585.30");
+    base.ledger!.entries.push({ id: "QBO-JE-881#1", date: "2026-06-30", account: "OBE", amount: eff[0].amount, ref: "QBO-JE-881" }, { id: "QBO-JE-881#2", date: "2026-06-30", account: "5607", amount: eff[1].amount, ref: "QBO-JE-881" });
+    base.ledger!.accounts.OBE = t("-305,357,378.30");
+    base.ledger!.accounts["5607"] = "0";
+    base.apply_proposals = []; base.approvals = [];
+    base.correction_verification = [{ id: "corr:food:003/2024.2025", scope: "payables", effect: eff, anchor: ["003/2024.2025"], adjustment_approved: false,
+      snapshot: { id: "s1", postings: [{ id: "QBO-JE-881", lines: eff, links: ["003/2024.2025"] }] } }];
+    // The opening bridge no longer needs its own proposal: the source fix covers the net effect.
+    const r = evaluateReadiness(base);
+    expect(r.corrections[0].state).toBe("verified_in_source");
+    expect(r.findings.find((f) => f.rule === "OPENING_PAYABLE_CHARGED_TO_EXPENSE")?.resolved_by).toBe("corr:food:003/2024.2025");
+    expect(r.scopes.payables).toBe("READY");
+    expect(r.applied_adjustments).toEqual([]);
+  });
+});

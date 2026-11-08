@@ -22,6 +22,8 @@ import { ingestEvidence } from "../../src/lib/financialEvidence/intake.ts";
 import { signoffClient } from "../../src/lib/reporting/signoff.ts";
 import { prepareReportVersion } from "../../src/lib/reporting/prepareVersion.ts";
 import { runReadinessCheck } from "../../supabase/functions/_shared/readiness/index.ts";
+import { glAccountCell, PILOT_ACCOUNTS, pilotFiles } from "../../src/lib/readiness/pilot/pilotData.ts";
+import { buildPilotRegistrations, pilotAccountKeyOf, pilotExtras } from "../../src/lib/readiness/pilot/pilotRegistrations.ts";
 
 const FILE = "20261216100000_ready_for_reporting_pilot.sql";
 const MODE = "present";
@@ -320,6 +322,163 @@ async function main() {
     const life = await refusal(() => db.admin.query("INSERT INTO public.rfr_source_attestations (company_id, period_year, outcome, bound_content_sha256, pulled_at, expires_at) VALUES ($1,$2,'confirmed',$3, now(), now() + interval '11 minutes')", [w2.A, Y, "0".repeat(64)]));
     const notBound = (await db.asRole("service_role", null, "SELECT public.rfr_record_source_attestation($1,$2,NULL,NULL,now()) r", [A, Y]))[0].r;
     return /^23514:/.test(life ?? "") && notBound.outcome === "not_qbo_bound" ? true : { life, notBound };
+  });
+
+  // ═════════════════════════════════════ World 3: the pilot through the real adjustment functions — exact balances ═════════════════════════════════════
+  group("World 3");
+  const BILL = "003/2024.2025", FOOD = "3351879300";
+  const FILES = pilotFiles();
+  const CLASS = { "1020": ["current_assets", "balance_sheet", "debit"], "1500": ["non_current_assets", "balance_sheet", "debit"], "2000": ["current_liabilities", "balance_sheet", "credit"], "2200": ["current_liabilities", "balance_sheet", "credit"],
+    "3050": ["equity", "balance_sheet", "credit"], "4000": ["revenue", "income_statement", "credit"], "5300": ["operating_expenses", "income_statement", "debit"], "5607": ["operating_expenses", "income_statement", "debit"], "9999": ["operating_expenses", "income_statement", "debit"] };
+  const ROWS = PILOT_ACCOUNTS.map((a) => [a.code, a.name, ...CLASS[a.code], "", "", "", ""]);
+  const line = (key, d, c) => ({ accountKey: key, debitMinor: d, creditMinor: c });
+  const OPEN = { id: "corr:opening:payables-food", scope: "opening:payables-food", anchor: [BILL], bundle: `bundle:food:${BILL}`, lines: [line("3050", FOOD, "0"), line("2000", "0", FOOD)] };
+  const FOODC = { id: `corr:food:${BILL}`, scope: "payables", anchor: [BILL, "001593"], bundle: `bundle:food:${BILL}`, lines: [line("2000", FOOD, "0"), line("5607", "0", FOOD)] };
+  const net = (lines) => lines.map((l) => [l.accountKey, BigInt(l.debitMinor) - BigInt(l.creditMinor)]);
+  const exactTb = (csvText) => { const m = {}; for (const r of csvText.trim().split("\n").slice(1)) { const [code, , d, c] = r.split(","); const p = (x) => { if (!x) return 0n; const [w, f = ""] = x.split("."); return BigInt(w + f.padEnd(2, "0")); }; m[code] = p(d) - p(c); } return m; };
+  const expectFrom = (base, ...sets) => { const m = { ...base }; for (const lines of sets) for (const [k, v] of net(lines)) m[k] = (m[k] ?? 0n) + v; return Object.fromEntries(Object.entries(m).map(([k, v]) => [k, v.toString()])); };
+  /** A TB with the journal the accountant posted in QuickBooks already inside it, and the General Ledger carrying that journal. */
+  const withSourceJournal = (amount, id) => {
+    const cents = amount; const a = (n) => `${n / 100n}.${String(n % 100n).padStart(2, "0")}`;
+    const tb = FILES.tb.replace(/^5607,Food ration,138798548\.00,$/m, `5607,Food ration,${a(13879854800n - cents)},`).replace(/^3050,Opening Balance Equity,,305357378\.30$/m, `3050,Opening Balance Equity,,${a(30535737830n - cents)}`);
+    const memo = `Correction of bill ${BILL} charged to food ration`;
+    const gl = FILES.gl.trimEnd() + "\n" + [`${glAccountCell("3050")},2026-06-30,Journal Entry,${id},1,,,${memo},${a(cents)},`, `${glAccountCell("5607")},2026-06-30,Journal Entry,${id},2,,,${memo},,${a(cents)}`].join("\n") + "\n";
+    return { tb, gl };
+  };
+  const layerOf = (w) => db.asRole("authenticated", w.U.owner, "SELECT account_key, (adjusted_debit_minor - adjusted_credit_minor)::text AS n FROM public.close_review_adjusted_trial_balance($1,$2)", [w.A, Y]).then((rows) => Object.fromEntries(rows.map((r) => [r.account_key, r.n])));
+  const sameBalances = (got, want) => { const ks = new Set([...Object.keys(got), ...Object.keys(want)]); return [...ks].every((k) => BigInt(got[k] ?? "0") === BigInt(want[k] ?? "0")); };
+
+  async function pilotWorld(label, files = { tb: FILES.tb, gl: FILES.gl }) {
+    const W = await makeWorld(db);
+    const { U, A } = W;
+    await W.rollout(A, true);
+    const k = await certifier(db, U);
+    let periodId = null, current = null;
+    // A reimport is a corrected file for the SAME period: the product retires the active upload first (remove_trial_balance_upload).
+    const upload = async (tbText) => {
+      if (current) { const v = (await db.one("SELECT version FROM public.trial_balance_uploads WHERE id=$1", [current])).version; await asU(U.owner, "SELECT * FROM public.remove_trial_balance_upload($1,$2,'Replaced by the corrected export')", [current, v]); }
+      const u = await k.upload(A, Y, tbText, { start: "2025-07-01", end: "2026-06-30", periodId }); periodId = u.periodId; current = u.id; await k.review(A, u, ROWS); return k.certify(A, u);
+    };
+    await upload(files.tb);
+    const extras = pilotExtras();
+    const scope = (await asU(U.preparer, "SELECT public.rfr_set_scope($1,$2,$3,$4,$5::jsonb,'Enable readiness for the pilot') r", [A, Y, ...SCOPE, JSON.stringify(extras.scopeFacts)])).r;
+    if (scope.outcome !== "recorded") throw new Error(`scope: ${JSON.stringify(scope)}`);
+    const built = (gl) => buildPilotRegistrations({ files: { ...FILES, gl }, accountKeyOf: pilotAccountKeyOf, extras }).registrations;
+    const register = async (gl) => { for (const r of built(gl)) { const o = (await asU(U.preparer, "SELECT public.rfr_register_input($1,$2,$3,$4,$5::jsonb,'export_file',$6,$7) r", [A, Y, r.family, r.key, JSON.stringify(r.payload), r.file_sha256, uuid()])).r; if (!["recorded", "unchanged"].includes(o.outcome)) throw new Error(`register ${r.family}/${r.key}: ${JSON.stringify(o)}`); } };
+    await register(files.gl);
+    const propose = (uid, c, req = uuid(), extra = {}) => asU(uid, "SELECT public.rfr_propose_correction($1,$2,$3,$4,$5::text[],$6,$7,$8::jsonb,$9,$10,$11,$12) r", [A, Y, c.id, c.scope, c.anchor, `Correct ${c.id}`, "Frozen export evidence", JSON.stringify(c.lines), req, extra.reverses ?? null, extra.bundle ?? c.bundle, extra.supersedes ?? null]).then((r) => r.r);
+    const decide = (uid, adj, decision = "approve", req = uuid()) => asU(uid, "SELECT public.close_review_decide_adjustment($1,$2,'Decided in the proof',false,$3) r", [adj, decision, req]).then((r) => r.r);
+    const revalidate = (uid, adj, decision, req = uuid()) => asU(uid, "SELECT public.close_review_revalidate_adjustment($1,$2,'Corrected in QuickBooks and verified on reimport',false,$3) r", [adj, decision, req]).then((r) => r.r);
+    const check = () => runReadinessCheck(serviceRpc, A, Y);
+    const adjCount = (cid) => db.count("SELECT count(*) n FROM public.rfr_corrections WHERE company_id=$1 AND correction_id=$2", [A, cid]);
+    return { W, U, A, k, upload, register, propose, decide, revalidate, check, adjCount };
+  }
+  let p3;
+  const base0 = exactTb(FILES.tb);
+  await kase("setup.world3", "the pilot's trial balance is certified, the frozen exports are registered through the browser's functions, and the engine reports the confirmed double charge with exactly the two proposals", async () => {
+    p3 = await pilotWorld("a");
+    const r = await p3.check();
+    const f = r.result.findings.find((x) => x.rule === "OPENING_PAYABLE_CHARGED_TO_EXPENSE");
+    return r.outcome === "recorded" && f.outcome === "confirmed" && r.result.proposals.map((p) => p.id).sort().join() === [FOODC.id, OPEN.id].sort().join() && r.balancesAgree === true
+      && sameBalances(await layerOf(p3), expectFrom(base0)) ? true : { r: r.outcome, f, proposals: r.result?.proposals?.map((p) => p.id) };
+  });
+  await kase("b1.duplicate-and-retry-count-once", "the same correction submitted twice (new request id, then the same one again) is ONE adjustment; approval retried is a replay; the adjusted trial balance is exact and equals the engine's", async () => {
+    const o1 = await p3.propose(p3.U.preparer, OPEN), o2 = await p3.propose(p3.U.preparer, OPEN), o3 = await p3.propose(p3.U.preparer, OPEN);
+    const f1 = await p3.propose(p3.U.preparer, FOODC), f2 = await p3.propose(p3.U.preparer, FOODC);
+    const req = uuid();
+    const a1 = await p3.decide(p3.U.partner, o1.adjustmentId, "approve", req), a2 = await p3.decide(p3.U.partner, o1.adjustmentId, "approve", req);
+    const b1 = await p3.decide(p3.U.partner, f1.adjustmentId);
+    const r = await p3.check();
+    const layer = await layerOf(p3);
+    const want = expectFrom(base0, OPEN.lines, FOODC.lines);
+    return o1.outcome === "proposed" && o2.outcome === "already_proposed" && o3.outcome === "already_proposed" && f1.outcome === "proposed" && f2.outcome === "already_proposed"
+      && (await p3.adjCount(OPEN.id)) === 1 && (await p3.adjCount(FOODC.id)) === 1 && a1.outcome === "recorded" && a2.outcome === "recorded" && a2.replay === true && b1.outcome === "recorded"
+      && sameBalances(layer, want) && layer["2000"] === "0" && layer["5607"] === "10527975500" && layer["3050"] === "-27183858530" && layer["1020"] === "6577221834"
+      && r.outcome === "recorded" && r.balancesAgree === true && sameBalances(r.result.balances, want) && r.result.scopes.payables === "READY" && r.result.finalization.held === false ? true
+      : { o: [o1.outcome, o2.outcome, o3.outcome], f: [f1.outcome, f2.outcome], a: [a1, a2, b1], layer, scopes: r.result?.scopes, reasons: r.result?.finalization };
+  });
+  await kase("b2.bypass-duplicate-is-detected-then-reversed", "an adjustment proposed OUTSIDE the correction path with the same effect doubles the layer; the engine holds (duplicate effect, layer diverges); reversing it restores the exact balances", async () => {
+    const want = expectFrom(base0, OPEN.lines, FOODC.lines);
+    const dup = (await asU(p3.U.preparer, "SELECT public.close_review_propose_adjustment($1,$2,'Same effect proposed again by another route','Frozen export evidence',$3::jsonb,'{}'::uuid[],$4) r", [p3.A, Y, JSON.stringify(OPEN.lines), uuid()])).r;
+    await p3.decide(p3.U.partner, dup.adjustmentId);
+    const doubled = await layerOf(p3);
+    const held = await p3.check();
+    const rev = (await asU(p3.U.preparer, "SELECT public.close_review_propose_adjustment($1,$2,'Reverse the duplicate','Frozen export evidence',NULL,'{}'::uuid[],$3,$4) r", [p3.A, Y, uuid(), dup.adjustmentId])).r;
+    await p3.decide(p3.U.partner, rev.adjustmentId);
+    const back = await layerOf(p3);
+    const ok = await p3.check();
+    return dup.outcome === "proposed" && doubled["3050"] === "-23831979230" && held.balancesAgree === false && held.result.finalization.held === true
+      && held.result.findings.some((f) => f.rule === "CORRECTION_DUPLICATE_EFFECT") && rev.outcome === "proposed" && sameBalances(back, want) && ok.balancesAgree === true && ok.result.finalization.held === false ? true
+      : { dup: dup.outcome, doubled3050: doubled["3050"], agree: held.balancesAgree, rules: held.result?.findings?.map((f) => f.rule).filter((r) => /CORRECTION/.test(r)), rev: rev.outcome, back, okAgree: ok.balancesAgree, okHeld: ok.result?.finalization };
+  });
+  await kase("b3.reversal-restores-and-holds", "an approved reversal of the reclassification takes the expense back and leaves the payable a credit: exact balances, the engine agrees with the layer, and the scope holds", async () => {
+    const f = await db.one("SELECT adjustment_id FROM public.rfr_corrections WHERE company_id=$1 AND correction_id=$2", [p3.A, FOODC.id]);
+    const rev = await p3.propose(p3.U.preparer, { id: "rev:food", scope: "payables", anchor: [BILL], bundle: null, lines: [] }, uuid(), { reverses: FOODC.id, bundle: null });
+    await p3.decide(p3.U.partner, rev.adjustmentId);
+    const layer = await layerOf(p3);
+    const r = await p3.check();
+    const want = expectFrom(base0, OPEN.lines);
+    return f && rev.outcome === "proposed" && sameBalances(layer, want) && layer["2000"] === `-${FOOD}` && layer["5607"] === "13879854800"
+      && r.balancesAgree === true && r.result.scopes.payables === "HELD" && r.result.finalization.held === true ? true : { rev, layer2000: layer["2000"], agree: r.balancesAgree, payables: r.result?.scopes?.payables };
+  });
+
+  let p3c;
+  await kase("b4.concurrent-proposal-and-approval-count-once", "two people propose the same correction at the same moment, then approve it at the same moment: one adjustment, one approval, exact balances", async () => {
+    p3c = await pilotWorld("c");
+    const [x, y] = await Promise.all([p3c.propose(p3c.U.preparer, OPEN), p3c.propose(p3c.U.owner, OPEN)]);
+    const outcomes = [x.outcome, y.outcome].sort();
+    const adjId = x.adjustmentId ?? y.adjustmentId;
+    const [d1, d2] = await Promise.all([p3c.decide(p3c.U.partner, adjId), p3c.decide(p3c.U.owner, adjId)]);
+    const approvals = await db.count("SELECT count(*) n FROM public.close_review_events WHERE subject_kind='adjustment' AND subject_id=$1 AND event_type='adjustment_approved'", [adjId]);
+    const f = await p3c.propose(p3c.U.preparer, FOODC); await p3c.decide(p3c.U.partner, f.adjustmentId);
+    const layer = await layerOf(p3c);
+    const r = await p3c.check();
+    return outcomes.join() === "already_proposed,proposed" && (await p3c.adjCount(OPEN.id)) === 1 && [d1.outcome, d2.outcome].sort().join() === "already_decided,recorded" && approvals === 1
+      && sameBalances(layer, expectFrom(base0, OPEN.lines, FOODC.lines)) && r.balancesAgree === true && r.result.finalization.held === false ? true : { outcomes, d: [d1, d2], approvals, layer, r: r.result?.finalization };
+  });
+
+  let p3d;
+  await kase("b5.reimport-after-source-fix", "the correction is made in QuickBooks and the books are re-imported: the adjustments stop applying until a reviewer decides, the layer equals the corrected books exactly, the engine verifies the fix in the ledger, and retiring the adjustments leaves the same balances", async () => {
+    p3d = await pilotWorld("d");
+    const o = await p3d.propose(p3d.U.preparer, OPEN), f = await p3d.propose(p3d.U.preparer, FOODC);
+    await p3d.decide(p3d.U.partner, o.adjustmentId); await p3d.decide(p3d.U.partner, f.adjustmentId);
+    const before = await layerOf(p3d);
+    const fixed = withSourceJournal(BigInt(FOOD), "QBO-JE-881");
+    await p3d.upload(fixed.tb); await p3d.register(fixed.gl);
+    const corrected = exactTb(fixed.tb);
+    const afterReimport = await layerOf(p3d);
+    const summary = (await asU(p3d.U.owner, "SELECT public.close_review_adjustments_summary($1,$2) r", [p3d.A, Y])).r;
+    const r1 = await p3d.check();
+    const d1 = await p3d.revalidate(p3d.U.partner, o.adjustmentId, "decline"), d2 = await p3d.revalidate(p3d.U.partner, f.adjustmentId, "decline");
+    const afterRetire = await layerOf(p3d);
+    const r2 = await p3d.check();
+    const states = r2.result?.corrections?.map((c) => c.state).sort().join();
+    return sameBalances(before, expectFrom(base0, OPEN.lines, FOODC.lines)) && sameBalances(afterReimport, Object.fromEntries(Object.entries(corrected).map(([k, v]) => [k, v.toString()]))) && summary.requiresRevalidation === 2
+      && r1.result.scopes.payables === "READY" && r1.balancesAgree === true && d1.outcome === "recorded" && d2.outcome === "recorded"
+      && sameBalances(afterRetire, afterReimport) && r2.balancesAgree === true && r2.result.scopes.payables === "READY" && r2.result.finalization.held === false && states === "verified_in_source,verified_in_source" ? true
+      : { reval: summary.requiresRevalidation, afterReimport5607: afterReimport["5607"], r1: [r1.result?.scopes, r1.balancesAgree], d: [d1.outcome, d2.outcome], r2: [r2.result?.scopes, r2.balancesAgree, r2.result?.finalization], states };
+  });
+
+  await kase("b6.partial-source-correction-then-residual", "QuickBooks corrects only part of it: nothing is double counted, the engine holds and states the residual exactly; after the originals are declined and a residual correction is approved, the balances are exact and the engine is ready", async () => {
+    const w = await pilotWorld("e");
+    const o = await w.propose(w.U.preparer, OPEN), f = await w.propose(w.U.preparer, FOODC);
+    await w.decide(w.U.partner, o.adjustmentId); await w.decide(w.U.partner, f.adjustmentId);
+    const part = withSourceJournal(2000000000n, "QBO-JE-883");
+    await w.upload(part.tb); await w.register(part.gl);
+    const tb2 = exactTb(part.tb);
+    const layer1 = await layerOf(w);
+    const r1 = await w.check();
+    const cs = r1.result.corrections.find((c) => c.state === "partial_or_different");
+    await w.revalidate(w.U.partner, o.adjustmentId, "decline"); await w.revalidate(w.U.partner, f.adjustmentId, "decline");
+    const RESID = "1351879300";
+    const R = { id: `corr:food:${BILL}:residual`, scope: "payables", anchor: [`residual:${BILL}`], bundle: `bundle:residual:${BILL}`, lines: [line("3050", RESID, "0"), line("5607", "0", RESID)] };
+    const rp = await w.propose(w.U.preparer, R, uuid(), { supersedes: `bundle:food:${BILL}` });
+    await w.decide(w.U.partner, rp.adjustmentId);
+    const layer2 = await layerOf(w);
+    const r2 = await w.check();
+    return sameBalances(layer1, Object.fromEntries(Object.entries(tb2).map(([k, v]) => [k, v.toString()]))) && cs && cs.residual?.["3050"] === RESID && cs.residual?.["5607"] === `-${RESID}` && r1.result.scopes.payables === "HELD"
+      && rp.outcome === "proposed" && sameBalances(layer2, expectFrom(base0, OPEN.lines, FOODC.lines)) && layer2["5607"] === "10527975500" && r2.balancesAgree === true && r2.result.scopes.payables === "READY" && r2.result.finalization.held === false ? true
+      : { residual: cs?.residual, scopes1: r1.result?.scopes, rp: rp.outcome, layer2_5607: layer2["5607"], agree: r2.balancesAgree, scopes2: r2.result?.scopes, reasons: r2.result?.finalization, states: r2.result?.corrections };
   });
 
   const missing = CASES.map((c) => c.id).filter((id) => !recorded.some((r) => r.id === id));

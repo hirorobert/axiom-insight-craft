@@ -184,14 +184,14 @@ export async function certifier(db, U) {
   const decisionsAuthority = (await db.one("SELECT to_regprocedure('public.tb_current_finding_decisions(uuid)') IS NOT NULL AS ok")).ok;
   const ptb = (await loadFunctionTree(REPO, "process-trial-balance", decisionsAuthority ? {}
     : { functionsDir: functionsAtCommit(REPO, GENERATION_6_COMMIT, "process-trial-balance") })).handler;
-  const upload = async (company, y, text, { currency = "TZS", start = `${y}-01-01`, end = `${y}-12-31` } = {}) => {
-    const pid = (await db.one("INSERT INTO public.fiscal_periods (company_id, fiscal_year_end, period_label, created_by, reporting_currency, reporting_start, reporting_end) VALUES ($1,$2,$3,$4,$5,$6,$2) RETURNING id",
+  const upload = async (company, y, text, { currency = "TZS", start = `${y}-01-01`, end = `${y}-12-31`, periodId = null } = {}) => {
+    const pid = periodId ?? (await db.one("INSERT INTO public.fiscal_periods (company_id, fiscal_year_end, period_label, created_by, reporting_currency, reporting_start, reporting_end) VALUES ($1,$2,$3,$4,$5,$6,$2) RETURNING id",
       [company, end, `FY${y}`, U.owner, currency, start])).id;
     const filePath = `${U.owner}/${uuid()}.csv`;
     const id = (await db.one(`INSERT INTO public.trial_balance_uploads (file_name, file_path, file_size, status, company_id, period_year, period_id, user_id)
       VALUES ('tb.csv',$1,$2,'processing',$3,$4,$5,$6) RETURNING id`, [filePath, text.length, company, y, pid, U.owner])).id;
     shim.storage.set(`trial-balance-files/${filePath}`, new TextEncoder().encode(text));
-    return { id, year: y };
+    return { id, year: y, periodId: pid };
   };
   const decisions = (rows = TB) => rows.map(([code, name, cls, st, nb]) => ({ account_code: code, account_name: name, proposal_type: "NONE",
     decision_action: "USER_MANUAL_CLASSIFICATION", statement: st, classification: cls, normal_balance: nb, is_cash_account: code === "1000" }));

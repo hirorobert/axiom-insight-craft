@@ -23,4 +23,11 @@ export const CASES = Object.freeze([
   { id: "f4.qbo-attestation-for-other-content-holds", kind: "freshness", modes: ["present"] },
   { id: "f5.identical-books-renew-without-rereview", kind: "freshness", modes: ["present"] },
   { id: "f6.attestation-life-and-authority", kind: "freshness", modes: ["present"] },
+  { id: "setup.world3", kind: "setup", modes: ["present"] },
+  { id: "b1.duplicate-and-retry-count-once", kind: "balances", modes: ["present"] },
+  { id: "b2.bypass-duplicate-is-detected-then-reversed", kind: "balances", modes: ["present"] },
+  { id: "b3.reversal-restores-and-holds", kind: "balances", modes: ["present"] },
+  { id: "b4.concurrent-proposal-and-approval-count-once", kind: "balances", modes: ["present"] },
+  { id: "b5.reimport-after-source-fix", kind: "balances", modes: ["present"] },
+  { id: "b6.partial-source-correction-then-residual", kind: "balances", modes: ["present"] },
 ]);
