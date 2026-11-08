@@ -107,6 +107,10 @@ export function composedStatements(c: Composition, comparativeDates: { readonly 
     return [...detailLines, {
       lineId: `line:${l.section}:${l.lineId}`, label: l.label, concept: l.lineId, role: detailLines.length > 0 ? "SUBTOTAL" : "DETAIL", normalBalance: normal, isContra: false,
       factBindings: bindings((p) => lineFactId(p, l.section, l.lineId)).filter((b) => facts.some((f) => f.factId === b.factId)), castingChildLineIds: detailLines.map((d) => d.lineId),
+      // The line's figure for a period is the database's exact sum of the rows it presents for that period (an account absent from a
+      // complete certified trial balance has no balance; a restatement restates the comparative only). A child with no row in a
+      // period it has a figure for therefore contributed nothing there: declared nil, no new fact, nothing added up here.
+      ...(detailLines.length > 0 ? { castingNilPeriodIds: periods.filter((p) => (p === "current" ? l.current : l.comparative) != null).map(periodId) } : {}),
     }];
   };
   const totalsComplete = (p: Period) => c.totals[p]?.state === "complete";

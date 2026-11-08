@@ -643,6 +643,11 @@ describe("database inertness — schema and functions", () => {
     modified.add("src/lib/readiness/client.ts");
     modified.add("src/components/readiness/CheckBooksView.tsx");
     modified.add("src/lib/financialStatementsWorkspace/firstPeriodNextActions.ts");
+    // Compiler follow-up (restated comparative and one-period lines cast): a second reviewed compiler identity, accepted by ONE forward migration; AUTHORED, NOT APPLIED.
+    added.add("supabase/migrations/20261220100000_statement_compiler_casting_declaration.sql");
+    added.add("src/lib/statements/castingNil.test.ts");
+    for (const f of ["src/lib/canonicalStatement/types.ts", "src/lib/canonicalStatement/validation.ts", "src/lib/canonicalStatement/rules/subtotalCasting.ts", "src/lib/canonicalStatement/rules/rulePack.ts",
+      "src/lib/statements/canonicalDocument.ts", "supabase/functions/_shared/statementCompiler.generated.mjs", "supabase/functions/_shared/statementCompiler.manifest.mjs"]) modified.add(f);
     modified.add("supabase/functions/_shared/readiness/engine.ts");
     modified.add("src/lib/readiness/present.ts");
     for (const file of ["supabase/functions/qbo-oauth-callback/index.ts", "supabase/functions/trial-balance-draft/index.ts", "supabase/functions/trial-balance-source-download/index.ts",

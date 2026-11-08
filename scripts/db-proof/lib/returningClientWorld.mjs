@@ -37,7 +37,7 @@ export const LEDGER = {
   2026: { 1000: D(19600), 1100: D(4300), 1200: D(2200), 1500: D(20000), 1510: C(8000), 2000: C(3100), 2100: C(900), 2500: C(8000), 3000: C(10000), 3100: C(11000), 4000: C(30000), 4100: C(500), 5000: D(14000), 6000: D(5500), 6100: D(2400), 6200: D(2000), 6300: D(600), 7000: D(900) },
 };
 
-export const rowsFor = (year) => ACCOUNTS.map(([code, name, cls, st, nb]) => [code, name, cls, st, nb, ...LEDGER[year][code]]);
+export const rowsFor = (year) => ACCOUNTS.filter(([code]) => LEDGER[year][code]).map(([code, name, cls, st, nb]) => [code, name, cls, st, nb, ...LEDGER[year][code]]);
 export const tbCsv = (year) => "Account code,Account name,Debit,Credit\n" + rowsFor(year).map((r) => `${r[0]},${r[1]},${r[5]},${r[6]}`).join("\n") + "\n";
 export const ASSIGN_RC = {
   1000: "sfp.cash_and_cash_equivalents", 1100: "sfp.trade_and_other_receivables", 1200: "sfp.inventories", 1500: "sfp.property_plant_and_equipment", 1510: "sfp.property_plant_and_equipment",

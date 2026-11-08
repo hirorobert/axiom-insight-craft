@@ -6,7 +6,7 @@ import type { RulePackIdentity } from "../types";
 import type { Clock, RuleContext, RuleDefinition } from "./ruleEngine";
 import { runRulePack } from "./ruleEngine";
 import { financialPositionEquationRule } from "./financialPositionEquation";
-import { subtotalCastingRule } from "./subtotalCasting";
+import { subtotalCastingRule, subtotalCastingRuleV2 } from "./subtotalCasting";
 import { noteToFaceReconciliationRule } from "./noteToFaceReconciliation";
 import { comparativePeriodAlignmentRule } from "./comparativePeriodAlignment";
 import { currencyScaleConsistencyRule } from "./currencyScaleConsistency";
@@ -46,12 +46,12 @@ export const CANONICAL_RULE_PACK_V1_RULES: readonly RuleDefinition[] = [
  */
 export const CANONICAL_RULE_PACK_V2: RulePackIdentity = {
   rulePackId: "canonical-statement-rules",
-  rulePackVersion: "2.2.0",
+  rulePackVersion: "2.3.0",
 };
 
-export const CANONICAL_RULE_PACK_V2_RULES: readonly RuleDefinition[] = [...CANONICAL_RULE_PACK_V1_RULES.map((r) => (r === cashFlowClosingReconciliationRule ? cashPerimeterReconciliationRule : r)), equityClosingTieRule, equityProfitTieRule, scheduleCastingRule, cashLedgerRollforwardRule];
+export const CANONICAL_RULE_PACK_V2_RULES: readonly RuleDefinition[] = [...CANONICAL_RULE_PACK_V1_RULES.map((r) => (r === cashFlowClosingReconciliationRule ? cashPerimeterReconciliationRule : r === subtotalCastingRule ? subtotalCastingRuleV2 : r)), equityClosingTieRule, equityProfitTieRule, scheduleCastingRule, cashLedgerRollforwardRule];
 
-export const ENGINE_VERSION_V2 = "2.2.0";
+export const ENGINE_VERSION_V2 = "2.3.0";
 
 export function runCanonicalRulePackV2(ctx: RuleContext, clock?: Clock) {
   return runRulePack(CANONICAL_RULE_PACK_V2, CANONICAL_RULE_PACK_V2_RULES, ctx, ENGINE_VERSION_V2, clock);

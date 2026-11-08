@@ -100,15 +100,19 @@
     },
     {
       "file": "scripts/buildStatementCompiler.mjs",
-      "sha256": "8f3a4f36832c697309768973b8a6f09e7cc110b936fb55de7bdb48c64356c0a9",
+      "sha256": "07f1080b0fa0ca7ef270d05a3f6be8e4dbf0f9f50ec985bf46e823fc39323215",
       "matches": [
         {
-          "line": 15,
-          "text": "const migration = fs.readFileSync(path.join(root, 'supabase/migrations/20261123100000_fs_server_compilation.sql'), 'utf8');"
+          "line": 17,
+          "text": "// The digest is accepted by the database only through the migrations that pin it: the original receipt table (20261123100000, applied; it pins the"
         },
         {
-          "line": 18,
-          "text": "if (!fs.existsSync(manifestPath) || fs.readFileSync(manifestPath, 'utf8') !== manifest || !migration.includes(`compiler_sha256 = '${digest}'`)) throw Error('STATEMENT_COMPILER_MANIFEST_DRIFT: regenerate and review the pending migration compiler digest');"
+          "line": 19,
+          "text": "const migration = fs.readFileSync(path.join(root, 'supabase/migrations/20261123100000_fs_server_compilation.sql'), 'utf8')"
+        },
+        {
+          "line": 23,
+          "text": "if (!fs.existsSync(manifestPath) || fs.readFileSync(manifestPath, 'utf8') !== manifest || !migration.includes(`'${digest}'`)) throw Error('STATEMENT_COMPILER_MANIFEST_DRIFT: regenerate and review the pending migration compiler digest');"
         }
       ]
     }

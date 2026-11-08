@@ -47,8 +47,8 @@ export const KNOWN_CLOSURES = Object.freeze({
   // 20261123100000 (server compilation): the FULL function closure. Not the embedded compiler bundle digest (49fc0852…), which
   // the migration pins separately; a matching compiler digest alone never proves this closure is deployed.
   "compile-financial-report": Object.freeze({
-    required: { sha256: "745c8170099329911db55ee2ee20f5a989c0ae2a10003be0860c8cb679e4db59", source: "merged 27f48f7 (PR #191 + PR #192 combined candidate): server compilation with the re-pinned compiler 49fc0852…" },
-    known: [],
+    required: { sha256: "bc7c3a62103bae4614cfa173f323a775a57d8f58fe9731e7541d0d1db030d2c8", source: "compiler follow-up (restated comparatives and one-period lines cast; compiler 112c5847…, rule pack 2.3.0): needs 20261220100000 applied first" },
+    known: [{ sha256: "745c8170099329911db55ee2ee20f5a989c0ae2a10003be0860c8cb679e4db59", source: "merged 27f48f7 (PR #191 + PR #192 combined candidate): server compilation with the compiler 49fc0852…; still accepted by the database after 20261220100000, but cannot sign a restated comparative or a one-period line" }],
   }),
   "trial-balance-storage-cleanup": Object.freeze({
     required: { sha256: "04ebf148992f85b0b224215bfacb36bcd6a1342f822346c0e018594bfc410b7f", source: "main since 80384d1 (PR #76): knows source_shared" },

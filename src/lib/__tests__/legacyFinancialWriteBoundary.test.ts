@@ -88,7 +88,7 @@ describe("CF-03 database boundary: 20261212100000 retires every client write pat
   const sql = read(join(MIGRATIONS, MIGRATION));
 
   it("preserves the exact tail: source access, CF-03, QuickBooks storage and readiness, then the API cache-header hook", () => {
-    expect(files.slice(-9)).toEqual(["20261211100000_source_access_authority_repairs.sql", MIGRATION, "20261213100000_qbo_connector_storage.sql", "20261214100000_qbo_readiness_controls.sql", "20261215100000_api_cache_control_headers.sql", "20261216100000_ready_for_reporting_pilot.sql", "20261217100000_first_period_governed_review.sql", "20261218100000_issued_comparative_schedules.sql", "20261219100000_rfr_prior_pack_basis.sql"]);
+    expect(files.slice(-10)).toEqual(["20261211100000_source_access_authority_repairs.sql", MIGRATION, "20261213100000_qbo_connector_storage.sql", "20261214100000_qbo_readiness_controls.sql", "20261215100000_api_cache_control_headers.sql", "20261216100000_ready_for_reporting_pilot.sql", "20261217100000_first_period_governed_review.sql", "20261218100000_issued_comparative_schedules.sql", "20261219100000_rfr_prior_pack_basis.sql", "20261220100000_statement_compiler_casting_declaration.sql"]);
   });
 
   it("drops exactly the eleven client write policies the chain created (every INSERT/UPDATE/DELETE policy on these tables)", () => {

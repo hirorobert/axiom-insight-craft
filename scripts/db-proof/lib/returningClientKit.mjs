@@ -51,8 +51,9 @@ export function toolkit(db, W, k, companyName = COMPANY_NAME) {
     if (r.outcome !== "PARSED") throw new Error(`${type}/${role} rejected: ${JSON.stringify(r).slice(0, 400)}`);
     return r.batch;
   };
-  const allEvidence = (A, year, opts) => {
+  const allEvidence = (A, year, opts, patch) => {
     const set = evidenceFor(year, opts);
+    if (patch) patch(set);
     return [...["TRANSACTION_LEDGER", "EQUITY_MOVEMENTS", "CASH_ACCOUNT_MAP"].map((t) => parse(A, year, t, "CURRENT", set)), ...["TRANSACTION_LEDGER", "EQUITY_MOVEMENTS", "PRIOR_PERIOD_STATEMENTS"].map((t) => parse(A, year, t, "COMPARATIVE", set))];
   };
   const attempt = (A, year, rid, ev = []) => prepareReportVersion(pre.d, pre.c, { companyId: A, periodYear: year, legalName: companyName, reportId: rid, newEvidence: ev, idempotencyKey: `attempt-${uuid()}`, evaluatedAt: `${year + 1}-02-02T09:00:00.000Z` });
