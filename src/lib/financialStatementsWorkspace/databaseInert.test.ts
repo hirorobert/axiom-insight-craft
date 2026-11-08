@@ -1003,7 +1003,7 @@ describe("database inertness — the workspace code cannot mutate a database", (
     const offenders: string[] = [];
     for (const f of workspaceSources) {
       if (TRANSPORT_FILES.has(rel(f))) continue; // audited separately below
-      if (rel(f) === "dev-harness/bridgeBackend.ts" || rel(f) === "dev-harness/reporting/bridgeDb.ts" || rel(f) === "dev-harness/returning/bridgeClient.ts") continue; // loopback-only dev tools, audited below
+      if (rel(f) === "dev-harness/bridgeBackend.ts" || rel(f) === "dev-harness/reporting/bridgeDb.ts" || rel(f) === "dev-harness/returning/bridgeClient.ts" || rel(f) === "dev-harness/returning/bridgeSupabase.ts") continue; // loopback-only dev tools, audited below
       if (SYNTHETIC_JOURNEY_HARNESS.has(rel(f))) continue; // in-memory synthetic backend, audited below
       const src = stripComments(fs.readFileSync(f, "utf8"));
       for (const [re, what] of forbidden) if (re.test(src)) offenders.push(`${rel(f)}: ${what}`);
@@ -1050,6 +1050,11 @@ describe("database inertness — the workspace code cannot mutate a database", (
     const reportingBridge = stripComments(fs.readFileSync(path.join(ROOT, "dev-harness/reporting/bridgeDb.ts"), "utf8"));
     expect(reportingBridge).toMatch(/assertLoopback\(bridge\);\n {2}const post/);
     expect(reportingBridge).toMatch(/host !== "127\.0\.0\.1" && host !== "localhost"/);
+    // the returning-client start harness replaces the Supabase client by a stand-in that talks ONLY to the loopback bridge (dev-only, never part of a build)
+    const startShim = stripComments(fs.readFileSync(path.join(ROOT, "dev-harness/returning/bridgeSupabase.ts"), "utf8"));
+    expect(startShim).toMatch(/assertLoopback\(BRIDGE\)/);
+    expect(startShim).not.toMatch(/@supabase\/supabase-js|createClient|service_role|VITE_/i);
+    expect(stripComments(fs.readFileSync(path.join(ROOT, "dev-harness/returning/startMain.tsx"), "utf8"))).toMatch(/if \(!import\.meta\.env\.DEV\)/);
     const adapter = stripComments(fs.readFileSync(path.join(ROOT, "src/lib/financialStatementsWorkspace/supabaseFsBackend.ts"), "utf8"));
     expect(adapter).toMatch(/return gate \? new FsRpcTransport\(supabaseFsBackend\) : null/);
   });

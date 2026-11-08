@@ -17,8 +17,13 @@ import { Browser } from "./cdp.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const OUT = path.resolve(process.argv[2] ?? path.join(REPO, "returning-journey-evidence"));
-const BRIDGE_PORT = process.env.RETURNING_BRIDGE_PORT ?? "54996";
-const HARNESS_PORT = process.env.RETURNING_HARNESS_PORT ?? "8092";
+// --start: the journey begins at the REAL Trial Balance Review page (the owner uploads the new year's trial balance there) and the opening position is
+// DERIVED from the prior FINAL pack ("Use last year's FINAL pack"); nothing about last year is typed or exported. Default: the earlier journey
+// (FY2026 already certified; last year's approved figure supplied as a file).
+const START = process.argv.includes("--start");
+const SCOPE = START ? "opening:acct-2000" : "opening:payables";
+const BRIDGE_PORT = process.env.RETURNING_BRIDGE_PORT ?? (START ? "54997" : "54996");
+const HARNESS_PORT = process.env.RETURNING_HARNESS_PORT ?? (START ? "8095" : "8092");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -39,8 +44,8 @@ function start(cmd, args, env, ready) {
   return { child, seen };
 }
 
-const bridge = start("bun", ["scripts/db-proof/serveReturning.mjs"], { RETURNING_BRIDGE_PORT: BRIDGE_PORT, RETURNING_STOP_ON_STDIN_END: "1" }, (o) => { const m = o.match(/READY (\{.*\})/); return m ? JSON.parse(m[1]) : null; });
-const vite = start("bunx", ["vite", "--config", "dev-harness/returning/vite.config.ts"], { RETURNING_HARNESS_PORT: HARNESS_PORT }, (o) => /ready in/.test(o));
+const bridge = start("bun", ["scripts/db-proof/serveReturning.mjs"], { RETURNING_BRIDGE_PORT: BRIDGE_PORT, RETURNING_STOP_ON_STDIN_END: "1", ...(START ? { RETURNING_SCENE: "start", RETURNING_LOG: "1" } : {}) }, (o) => { const m = o.match(/READY (\{.*\})/); return m ? JSON.parse(m[1]) : null; });
+const vite = start("bunx", ["vite", "--config", START ? "dev-harness/returning/vite.start.config.ts" : "dev-harness/returning/vite.config.ts"], { RETURNING_HARNESS_PORT: HARNESS_PORT, RETURNING_START_PORT: HARNESS_PORT }, (o) => /ready in/.test(o));
 let browser;
 try {
   const ready = await bridge.seen;
@@ -48,7 +53,7 @@ try {
   const seed = await (await fetch(`${ready.bridge}/seed`, { method: "POST", headers: { "x-sim-user": "owner" }, body: "{}" })).json();
   const facts = async () => (await fetch(`${ready.bridge}/proof/facts`, { method: "POST", headers: { "x-sim-user": "owner" }, body: "{}" })).json();
   browser = await Browser.launch();
-  const url = (as, hash) => `http://127.0.0.1:${HARNESS_PORT}/dev-harness/returning/index.html?bridge=${encodeURIComponent(ready.bridge)}&as=${as}#${hash}`;
+  const url = (as, hash) => `http://127.0.0.1:${HARNESS_PORT}/dev-harness/returning/${START ? "start" : "index"}.html?bridge=${encodeURIComponent(ready.bridge)}&as=${as}#${hash}`;
   const pages = {};
   const open = async (as) => { const ctx = await browser.newContext(); const p = await ctx.newPage(); await p.setViewport(1280, 1000); pages[as] = p; return p; };
   const shot = (p, name) => p.screenshot(path.join(OUT, `${name}.png`));
@@ -62,6 +67,36 @@ try {
   };
   const preparer = await open("preparer"), partner = await open("partner"), owner = await open("owner");
 
+  if (START) {
+    console.log("\n== The REAL Trial Balance Review page: the owner uploads the new year's trial balance, once");
+    await check("the owner opens the real Trial Balance Review page for FY2026 in the engagement the account home opened, chooses trial-balance-2026.csv and presses Upload and check: the file goes reserve -> signed URL -> storage -> register, and the REAL process-trial-balance handler checks it", async () => {
+      const before = await facts();
+      await go(owner, "owner", `/workspace/${seed.companyId}/2026/trial-balance/review`, "Upload the trial balance for this period");
+      await owner.waitForSelector('input[type="file"]');
+      await sleep(800);
+      await owner.setFiles('input[type="file"]', [seed.files.tb]);
+      await owner.waitForText("Upload and check", { timeout: 20000 });
+      await shot(owner, "00a-file-chosen");
+      await owner.click({ text: "Upload and check" });
+      const deadline = Date.now() + 90000;
+      let f = before;
+      while (Date.now() < deadline) { f = await facts(); if (f.uploadRows.some((u) => u.status === "complete")) break; await sleep(1000); }
+      await sleep(2500);
+      const t = await body(owner);
+      await shot(owner, "00b-after-upload");
+      globalThis.__tbText = t;
+      return before.uploadsN === 0 && f.uploadsN === 1 && f.uploadRows[0].lifecycle_state === "active_processed" && /^workspaces\//.test(f.uploadRows[0].file_path) && f.engagements >= 1 ? true : { before: before.uploadsN, rows: f.uploadRows, engagements: f.engagements, t: t.slice(0, 700) };
+    });
+    await check("the page itself reports the trial balance as checked (no failure notice, no second upload offered while it is current)", async () => {
+      const t = globalThis.__tbText;
+      return !/could not be completed|Stopped/.test(t) ? true : { t: t.slice(0, 900) };
+    });
+    await check("fixture step (not a page): the steps after the trial balance that have their own journeys - Close Review findings explained, notes, evidence and a first draft version - are recorded by the bridge", async () => {
+      const r = await (await fetch(`${ready.bridge}/proof/finish-prepare`, { method: "POST", headers: { "x-sim-user": "owner" }, body: "{}" })).json();
+      return r.draftReportVersion >= 1 ? (seed.draftReportId = r.draftReportId, true) : r;
+    });
+  }
+
   console.log("\n== Check my books, in the same engagement (no second trial balance upload)");
   await check("the engagement already holds three certified trial balances (one upload per year) and the FY2025 pack is FINAL; Check my books says it has not been started for FY2026", async () => {
     try { await go(preparer, "preparer", "/close/books", "Not started for this period"); }
@@ -71,9 +106,9 @@ try {
     await shot(preparer, "01-not-started");
     return f.uploadsN === 1 && f.pubs.filter((x) => x.state === "FINAL").length === 1 && /Check my books/.test(t) ? true : { uploadsN: f.uploadsN, pubs: f.pubs };
   });
-  await check("the preparer starts checking: only the opening line to agree to last year's approved figure is chosen; the form then asks for the files", async () => {
+  await check(START ? "the preparer starts checking with NO opening line typed (the scope comes from last year's pack in the next step); the form then asks for the files" : "the preparer starts checking: only the opening line to agree to last year's approved figure is chosen; the form then asks for the files", async () => {
     const linesId = await preparer.evaluate(() => { const l = [...document.querySelectorAll("label")].find((x) => /Opening balance lines/.test(x.innerText)); return l?.getAttribute("for") ?? null; });
-    await preparer.fill(`[id="${linesId}"]`, "payables");
+    if (!START) await preparer.fill(`[id="${linesId}"]`, "payables");
     for (const cb of await preparer.evaluate(() => [...document.querySelectorAll('form input[type="checkbox"]')].map((c, i) => (c.checked ? i : -1)).filter((i) => i >= 0))) {
       await preparer.evaluate((i) => document.querySelectorAll('form input[type="checkbox"]')[i].click(), cb);
     }
@@ -82,13 +117,21 @@ try {
     await shot(preparer, "02-started");
     return true;
   });
-  await check("the four files an accountant holds are chosen (QuickBooks general ledger, last year's approved closing figure from the FINAL pack, the document register, the settings) and imported", async () => {
+  await check(START ? "only the QuickBooks general ledger is imported; then 'Use last year's FINAL pack' reads the approved opening position from the prior FINAL pack itself (report, version, document hash and input hash cited) - no approved-figures file, no document register, no settings file" : "the four files an accountant holds are chosen (QuickBooks general ledger, last year's approved closing figure from the FINAL pack, the document register, the settings) and imported", async () => {
     await preparer.waitForSelector('input[type="file"]');
     await sleep(500);
     await preparer.evaluate(() => { const names = ["gl", "approved", "evidence", "settings", "bank"]; [...document.querySelectorAll('input[type="file"]')].forEach((el, i) => el.setAttribute("data-slot", names[i])); });
-    for (const slot of ["gl", "approved", "evidence", "settings"]) await preparer.setFiles(`input[data-slot="${slot}"]`, [seed.files[slot]]);
+    for (const slot of START ? ["gl"] : ["gl", "approved", "evidence", "settings"]) await preparer.setFiles(`input[data-slot="${slot}"]`, [seed.files[slot]]);
     await preparer.click({ text: "Import the files" });
     await preparer.waitForText("Now check your books", { timeout: 45000 });
+    if (START) {
+      // Last year's approved position is READ FROM THE PRIOR FINAL PACK by the server - no export, no typed figure, no settings file.
+      await preparer.click('[data-testid="use-prior-pack"]');
+      await preparer.waitForText("Read last year's approved position from its FINAL pack", { timeout: 45000 });
+      const f = await facts();
+      await shot(preparer, "03-imported");
+      return f.priorBasis?.startsWith(`prior_final:${seed.priorReportId}@v${seed.priorReportVersion};doc:`) ? true : { basis: f.priorBasis };
+    }
     await shot(preparer, "03-imported");
     return /Imported 3 items|Imported 4 items/.test(await body(preparer)) ? true : (await body(preparer)).slice(0, 500);
   });
@@ -99,7 +142,7 @@ try {
     const t = await body(preparer);
     await shot(preparer, "04-one-finding");
     const articles = await preparer.evaluate(() => document.querySelectorAll("article").length);
-    return articles === 1 && /1 check needs attention/.test(t) && /100\.00/.test(t) && /Review the opening correction/.test(t) && /opening:payables: Needs attention/.test(t) && /pack: Ready/.test(t) && /ledger: Ready/.test(t) ? true : { articles, t: t.slice(0, 900) };
+    return articles === 1 && /1 check needs attention/.test(t) && /100\.00/.test(t) && /Review the opening correction/.test(t) && new RegExp(SCOPE + ": Needs attention").test(t) && (START || /pack: Ready/.test(t)) && /ledger: Ready/.test(t) ? true : { articles, t: t.slice(0, 900) };
   });
   await check("the preparer proposes the correction for review (one adjustment: Dr opening equity 100.00 / Cr payables 100.00); pressing it again proposes nothing more", async () => {
     await preparer.click({ text: "Propose for review" });
@@ -164,11 +207,13 @@ try {
     // The statements page shows the current and comparative columns (minor units rendered with two decimals).
     const pay = /Trade and other payables\s+3,200\.00\s+3,200\.00/.test(t);
     const profit = /Profit or loss for the period\s+5,100\.00\s+5,000\.00/.test(t);
+    globalThis.__preview = { pay: t.match(/Trade and other payables\s+3,200\.00\s+3,200\.00/)?.[0], profit: t.match(/Profit or loss for the period\s+5,100\.00\s+5,000\.00/)?.[0] };
     return pay && profit ? true : { pay, profit, na, sample: t.slice(0, 900) };
   });
   await check("the partner marks the new version REVIEWED (confirmation with reason); the owner approves it FINAL; the version is sealed", async () => {
     await go(partner, "partner", "/signoff", "Version");
     const v = await partner.evaluate(() => (document.body.innerText.match(/Version (\d+)/) ?? [])[1] ?? null);
+    globalThis.__version = v;
     await partner.click('[data-testid="sign-reviewed"]');
     await confirmDialog(partner, "Reviewed against the issued FY2025 pack and the approved correction");
     await partner.waitForText("is reviewed.", { timeout: 60000 });
@@ -186,7 +231,19 @@ try {
     const mine = f.bindings.filter((b) => b.report_id === seed.draftReportId);
     const states = new Set(mine.map((b) => b.state));
     const ids = new Set(mine.map((b) => b.dependencies_sha256)), cmp = new Set(mine.map((b) => b.cmp));
-    return states.has("REVIEWED") && states.has("FINAL") && ids.size === 1 && cmp.size === 1 && f.manifest?.contract === "rfr-finalization-manifest/1" && f.manifest.scopes["opening:payables"] === "READY" && f.layer["2000"] === "-320000" ? true : { states: [...states], ids: ids.size, cmp: cmp.size, manifest: f.manifest?.scopes };
+    return states.has("REVIEWED") && states.has("FINAL") && ids.size === 1 && cmp.size === 1 && f.manifest?.contract === "rfr-finalization-manifest/1" && f.manifest.scopes[SCOPE] === "READY" && f.layer["2000"] === "-320000" ? true : { states: [...states], ids: ids.size, cmp: cmp.size, manifest: f.manifest?.scopes };
+  });
+  await check("the FINAL version shows the SAME exact figures as the preview it came from (payables 3,200.00 in both columns; profit 5,100.00 current / 5,000.00 comparative), the same approved comparative identity on every binding, and the books hold ONE FY2026 upload, ONE approved correction and ONE adjustment", async () => {
+    await go(owner, "owner", `/statements?v=${globalThis.__version}`, "Statement of Financial Position");
+    await sleep(1500);
+    const t = await body(owner);
+    await shot(owner, "11-final-statements");
+    const pay = t.match(/Trade and other payables\s+3,200\.00\s+3,200\.00/)?.[0], profit = t.match(/Profit or loss for the period\s+5,100\.00\s+5,000\.00/)?.[0];
+    const f = await facts();
+    const mine = f.bindings.filter((b) => b.report_id === seed.draftReportId);
+    const cmp = new Set(mine.map((b) => b.cmp));
+    return pay && profit && pay === globalThis.__preview?.pay && profit === globalThis.__preview?.profit && cmp.size === 1 && [...cmp][0] && f.uploadsN === 1 && f.corrections === 1 && f.adjN === 1
+      ? true : { pay, profit, preview: globalThis.__preview, cmp: [...cmp], uploadsN: f.uploadsN, corrections: f.corrections, adjN: f.adjN };
   });
   await check("no request left the machine: every request this journey made went to loopback", async () => (() => { const all = Object.values(pages).flatMap((pg) => pg.requests); const off = all.filter((u) => /^https?:/.test(u) && !/^https?:\/\/(127\.0\.0\.1|localhost|fonts\.googleapis\.com|fonts\.gstatic\.com)[:/]/.test(u)); return off.length === 0 && all.length > 0 ? true : { total: all.length, off: off.slice(0, 5) }; })());
 }

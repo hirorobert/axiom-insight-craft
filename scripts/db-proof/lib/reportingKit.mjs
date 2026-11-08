@@ -16,7 +16,9 @@ const PRODUCTION_REF = "bvyivmmfjejbmqoydezk";
 const PG_CRON_FILE = "20260810044930_fcf7b034-7dc7-445d-a77d-99be66c3c4f4.sql";
 const MODULES_DIR = process.env.DB_PROOF_MODULES_DIR;
 const req = createRequire(MODULES_DIR ? path.join(path.resolve(MODULES_DIR), "noop.js") : import.meta.url);
-const { Pool, Client } = req("pg");
+const { Pool, Client, types: pgTypes } = req("pg");
+// PostgREST answers a DATE as the text 'YYYY-MM-DD'; node-pg would build a local-midnight Date (and shift the day through JSON). rawDates asks for the text.
+const rawDateTypes = { getTypeParser: (oid, format) => (oid === 1082 ? (v) => v : pgTypes.getTypeParser(oid, format)) };
 export const uuid = () => crypto.randomUUID();
 
 // ── Results ──────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -66,12 +68,12 @@ export async function openDatabase(name) {
   const admin = new Client({ connectionString: url }); await admin.connect();
   const pool = new Pool({ connectionString: url, max: 30 });
   // readOnly: the transaction PostgREST opens for a STABLE or IMMUTABLE function (BEGIN READ ONLY).
-  const asRole = async (role, uid, sql, params, { readOnly = false } = {}) => {
+  const asRole = async (role, uid, sql, params, { readOnly = false, rawDates = false } = {}) => {
     const c = await pool.connect();
     try {
       await c.query(readOnly ? "BEGIN READ ONLY" : "BEGIN"); await c.query(`SET LOCAL ROLE ${role}`);
       await c.query("SELECT set_config('request.jwt.claim.role',$1,true), set_config('request.jwt.claim.sub',$2,true)", [role, uid ?? ""]);
-      const r = await c.query(sql, params); await c.query("COMMIT"); return r.rows;
+      const r = await c.query(rawDates ? { text: sql, values: params, types: rawDateTypes } : sql, rawDates ? undefined : params); await c.query("COMMIT"); return r.rows;
     } catch (e) { try { await c.query("ROLLBACK"); } catch { /* */ } throw e; } finally { c.release(); }
   };
   const db = {

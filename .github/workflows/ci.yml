@@ -1670,6 +1670,23 @@ jobs:
           path: returning-journey-evidence
           if-no-files-found: ignore
 
+      - name: Returning-client browser journey from the REAL Trial Balance Review page (the owner uploads the new year's trial balance there - reserve, signed URL, storage, register and the real process-trial-balance handler over a loopback bridge to a throwaway database - then ONE Check my books, the opening position READ FROM THE PRIOR FINAL PACK with no exported figure, one finding, one correction approved by a second person, the comparative, preview, REVIEWED and FINAL with the same exact figures; loopback only, identity simulated)
+        if: ${{ !cancelled() }}
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/returning_start_harness
+        run: |
+          createdb returning_start_harness
+          node scripts/browser-acceptance/returningClientJourney.mjs returning-start-evidence --start
+
+      - name: Upload the returning-client start journey evidence (screenshots, results)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: returning-start-evidence
+          path: returning-start-evidence
+          if-no-files-found: ignore
+
       - name: Equipment preparation browser journey (headless Chrome drives the real Schedules page over the loopback bridge as a preparer - the recorded one-class schedule loaded with nothing assumed, two classes rolled forward through cost and accumulated depreciation, a typo left as an exact difference, the depreciation tied to its expense line, only the applicable questions asked, three whole notes recorded with every class and the answers in one transaction and reconciled by the server, a concurrent three-class schedule refused by name with every edit retained and the new class loaded, a viewer refused, 1280 and 375 px)
         env:
           DB_PROOF_MODE: external
