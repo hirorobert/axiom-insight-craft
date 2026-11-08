@@ -28,7 +28,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { EVIDENCE_FY2025_COMPARATIVE, EVIDENCE_FY2026, FY2025, FY2026, applyChain, applyChainBefore, assignmentPairs, ASSIGN, certifier, chainFiles, clientDb, csv, makeWorld, migrationText, openDatabase, prepareReporting, reporter, REPO, uuid } from "./lib/reportingKit.mjs";
-import { blockersOf, decide, recordEvidence, sha, status as fpStatus, submitClaim, verifyGenuineFirstPeriod } from "./lib/firstPeriodKit.mjs";
+import { blockersOf, decide, recordEvidence, sha, status as fpStatus, submitClaim, verifyGenuineFirstPeriod, withMissingComparativeDates } from "./lib/firstPeriodKit.mjs";
 import { ingestEvidence } from "../../src/lib/financialEvidence/intake.ts";
 import { signoffClient } from "../../src/lib/reporting/signoff.ts";
 import { prepareReportVersion } from "../../src/lib/reporting/prepareVersion.ts";
@@ -61,7 +61,7 @@ async function main() {
   await W.rollout(A, true);
   const k = await certifier(db, U);
   const asU = (uid, sql, p) => db.asUser(uid, sql, p);
-  const as = (uid) => { const d = clientDb(db, uid); return { d, c: signoffClient(d) }; };
+  const as = (uid) => { const d = withMissingComparativeDates(clientDb(db, uid)); return { d, c: signoffClient(d) }; };
   const pre = as(U.preparer), partner = as(U.partner), owner = as(U.owner);
   const parse = (company, type, role = "CURRENT") => {
     const y = role === "CURRENT" ? Y : Y - 1;

@@ -6,6 +6,22 @@ import { uuid } from "./reportingKit.mjs";
 
 export const sha = (s) => crypto.createHash("sha256").update(String(s)).digest("hex");
 
+/**
+ * The browser client reads fs_reporting_input through a schema that requires dates on a comparative; a first period has none ({state:"missing", periodYear}).
+ * That limitation is in the pinned statement-compiler closure (src/lib/reporting/signoff.ts), so correcting it is a compiler release (its own PR). These proofs
+ * test the SERVER's first-period controls, which need a saved version in a first-period workspace; this wrapper supplies the dates as null on a missing
+ * comparative, in the HARNESS only, so the unchanged client can prepare that version. It adds nothing else and never touches a present comparative.
+ */
+export function withMissingComparativeDates(d) {
+  return { ...d, rpc: async (fn, args) => {
+    const r = await d.rpc(fn, args);
+    if (fn === "fs_reporting_input" && r.data && r.data.comparative && r.data.comparative.state === "missing") {
+      r.data.comparative = { reportingStart: null, reportingEnd: null, ...r.data.comparative };
+    }
+    return r;
+  } };
+}
+
 /** Records one evidence revision as `uid`. */
 export async function recordEvidence(db, uid, company, year, kind, reference, { issuedOn = "2026-06-01", asserted, document = reference, note = null, retract = false } = {}) {
   return (await db.asUser(uid, "SELECT public.fs_record_first_period_evidence($1,$2,$3,$4,$5::date,$6::date,$7,$8,$9,$10) r",
