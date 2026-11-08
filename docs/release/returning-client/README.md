@@ -11,6 +11,22 @@
 | 2 | The same economic item booked in QuickBooks **another way** (as current-year expense) and not linked to the correction was silently ignored. | `engine.ts`: for an *opening* correction an unlinked, non-cash journal that repeats its amount on a moved account is `candidate_needs_confirmation` (the scope stays open). A **linked** journal plus an approved residual treatment is `completed_by_residual`. Other scopes keep the exact-effect rule (acceptance case E2-L5 still passes). |
 | 3 | Statements **issued outside CFOClose** could be restated, but nothing tied the restatement to what was issued (its anchor was a free-text reference). | Migration `20261218100000_issued_comparative_schedules.sql` (authored, not applied): a hash-addressed issued-comparative record (document hash, structured schedule, per-line adjustment evidence), a restatement **derived** from it and handed to the existing two-person workflow, a reconciliation, and a sign-off blocker `COMPARATIVE_NOT_AS_ISSUED_EXTERNAL`. |
 
+## Browser journey (`scripts/browser-acceptance/returningClientJourney.mjs`, 13 assertions, headless Chrome, source A)
+
+The REAL Check my books view, the REAL Close Review adjustments view and the REAL reporting workbench, over a loopback bridge to a disposable PostgreSQL
+(`scripts/db-proof/serveReturning.mjs`, harness `dev-harness/returning`), driven with real mouse and keyboard as a preparer, a partner and the owner **in one
+engagement**: three certified years (one upload each; FY2026 still has exactly one upload at the end) and the FY2025 pack FINAL in CFOClose → start checking → pick the
+four files (QuickBooks general ledger, last year's approved closing figure, document register, settings) → **one** Check my books click: one check needs attention, TZS 100.00, one next
+action, pack / rule pack / ledger Ready → Propose for review (the proposer is not offered Approve) → the partner approves in Adjustments → Check my books again: every required check ready,
+payable -320000 / 3100 -1090000 / 6100 240000 (minor units, read from the database), a second press changes nothing → the partner approves the comparative → the preparer saves a new
+version (existing builder and server compiler) → the preview shows payables 3,200.00 | 3,200.00 and profit 5,100.00 | 5,000.00 → REVIEWED (partner) → FINAL (owner) → every binding of the
+FY2026 report carries one dependencies identity and one comparative status, and the manifest binds the readiness run. Every request stayed on loopback (plus the Inter font CSS/woff2 GETs).
+Found by the journey and fixed: the Check my books page did not offer **Propose for review** for the new finding (its presenter did not attach the correction).
+
+**What this browser run does NOT cover (stated):** the production app shell and GoTrue sign-in (identities are simulated); the **Trial Balance Review page** (its harness is an in-memory synthetic backend
+that cannot share an engagement with the PostgreSQL bridge — the starting point of the requested journey is therefore represented by the already-certified trial balances, not driven through that page);
+source B in the browser; the QuickBooks link cases in the browser (database proof only); Edge Function deployment (the function is played in process by the bridge).
+
 ## Proof (`scripts/db-proof/returningClientJourney.mjs`, 30 assertions, embedded PostgreSQL 18.4)
 
 Real server path only: the real trial-balance engine certifies each year **once**; Close Review proposes and a different person approves; the prior pack goes REVIEWED → FINAL
@@ -52,8 +68,8 @@ changes the content digest, the review goes stale (`RFR_REVIEW_STALE`) and FINAL
 2. **DEFECT-FS-NEW-ACCOUNT-COMPARATIVE-CASTING-001 (registered earlier, PR #215).** An account that exists in one period only blocks sign-off, so the accrual is booked on two existing two-period
    accounts (6100 Professional fees, 2000 Trade payables). A dedicated accrual account cannot be used until that is fixed. A line that exists in one period only also needs the registered explicit-nil row
    (the FY2026 evidence carries nil loan-repayment and dividend rows).
-3. **Browser journey: not run end to end.** See the PR description. The existing harnesses cannot put Trial Balance Review, Check my books and the report preview on one disposable backend:
-   Trial Balance Review runs on an in-memory synthetic backend, the reporting pages on the PostgreSQL bridge.
+3. **Browser journey: source A runs end to end from Check my books; the Trial Balance Review page is not part of it and source B / QuickBooks are not run in the browser.** The existing Trial Balance Review harness is an in-memory synthetic backend;
+   putting that page on the PostgreSQL bridge (storage, upload, mapping review) is its own piece of work.
 4. **QuickBooks sandbox: NOT_RUN.** No authenticated sandbox company or recorded run exists (the connector is off); the QuickBooks cases use constructed ledger exports with the journal link in the posting.
 5. **External document intake.** The issued document is bound by its SHA-256 and the adjustment evidence by reference and hash; **no file upload, storage or reading of the issued PDF exists**, so a reviewer
    still agrees the schedule to the document by eye (the approval is recorded). The approved prior-year figure for source A is still supplied to Check my books by the importer/settings (the bridge input);

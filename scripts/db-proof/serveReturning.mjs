@@ -117,6 +117,11 @@ const server = http.createServer(async (req, res) => {
     if (u.pathname.startsWith("/rpc/")) {
       const fn = u.pathname.slice(5);
       if (!RPC.test(fn)) return reply(400, { error: { code: "42883", message: "function not exposed" } });
+      if (fn === "close_review_adjusted_trial_balance") {
+        // A set-returning function answers an ARRAY of rows over PostgREST (clientDb.rpc returns the first row only); minor-unit columns are text.
+        const rows = await db.asRole("authenticated", uid, "SELECT account_key, account_code, account_name, classification, certified_debit_minor::text AS certified_debit_minor, certified_credit_minor::text AS certified_credit_minor, adjustment_debit_minor::text AS adjustment_debit_minor, adjustment_credit_minor::text AS adjustment_credit_minor, adjusted_debit_minor::text AS adjusted_debit_minor, adjusted_credit_minor::text AS adjusted_credit_minor FROM public.close_review_adjusted_trial_balance($1,$2)", [body.p_company_id, body.p_period_year]);
+        return reply(200, rows);
+      }
       const r = await clientDb(db, uid).rpc(fn, body);
       return reply(r.error ? 400 : 200, r.error ? { error: r.error } : r.data);
     }

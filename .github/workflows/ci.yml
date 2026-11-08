@@ -1653,6 +1653,22 @@ jobs:
           path: reporting-journey-evidence
           if-no-files-found: ignore
 
+      - name: Returning-client browser journey (headless Chrome drives the real Check my books, Close Review adjustments and reporting views over a loopback bridge to a throwaway database as preparer, partner and owner - one engagement, one trial balance upload per year, the prior pack FINAL in CFOClose with an approved accrual of 100.00, the one finding and its correction approved by a second person, every check ready, the comparative approved, the report saved, REVIEWED and FINAL with the exact figures; loopback only)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/returning_harness
+        run: |
+          createdb returning_harness
+          node scripts/browser-acceptance/returningClientJourney.mjs returning-journey-evidence
+
+      - name: Upload the returning-client journey evidence (screenshots, results)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: returning-journey-evidence
+          path: returning-journey-evidence
+          if-no-files-found: ignore
+
       - name: Equipment preparation browser journey (headless Chrome drives the real Schedules page over the loopback bridge as a preparer - the recorded one-class schedule loaded with nothing assumed, two classes rolled forward through cost and accumulated depreciation, a typo left as an exact difference, the depreciation tied to its expense line, only the applicable questions asked, three whole notes recorded with every class and the answers in one transaction and reconciled by the server, a concurrent three-class schedule refused by name with every edit retained and the new class loaded, a viewer refused, 1280 and 375 px)
         env:
           DB_PROOF_MODE: external

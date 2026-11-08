@@ -33,6 +33,9 @@ describe("a returning client's unposted prior-year adjustment", () => {
     expect(issues).toHaveLength(1);
     expect(issues[0].nextAction.kind).toBe("review_correction");
     expect(issues[0].headline).toMatch(/100\.00/);
+    // The page can only offer "Propose for review" when the issue carries the correction (found by the browser journey).
+    expect(issues[0].correction?.id).toBe("corr:opening:payables");
+    expect(issues[0].correction?.lines).toEqual([{ account: "3100", amount: "10000" }, { account: "2000", amount: "-10000" }]);
   });
 
   it("is resolved only when its correction is effective, and then exactly once", () => {

@@ -787,7 +787,7 @@ describe("database inertness — schema and functions", () => {
       // The reporting workbench: its loopback-only real-PostgreSQL proof, the loopback bridge for the dev harness (a
       // throwaway database; reads and the reporting functions only) and the headless-browser journey over it. No deploy
       // behaviour.
-      "scripts/db-proof/reportingWorkbench.mjs", "scripts/db-proof/serveReporting.mjs", "scripts/browser-acceptance/reportingJourney.mjs",
+      "scripts/db-proof/reportingWorkbench.mjs", "scripts/db-proof/serveReporting.mjs", "scripts/browser-acceptance/reportingJourney.mjs", "scripts/db-proof/serveReturning.mjs", "scripts/browser-acceptance/returningClientJourney.mjs",
       "scripts/db-proof/reportingClosure.mjs",
       // The reporting release: its loopback-only mixed-version / forward-recovery proof, the read-only deployed-bundle
       // verifier (hashes a downloaded tree; executes nothing) and the review-package renderer (writes docs only).
