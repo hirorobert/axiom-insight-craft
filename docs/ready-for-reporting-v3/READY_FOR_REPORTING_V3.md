@@ -133,7 +133,7 @@ ranges and proving the union reproduces the TB; this is **[SANDBOX]**, not assum
 |---|---|---|
 | A. Prior CFOClose pack | The prior year's FINAL (the explicit `fs_report_authority` row) and its account-level composition **[REPO]** | Account |
 | B. Approved statements produced elsewhere | Signed approved FS (statement lines) + final TB + audit adjustments schedule + supporting schedules (debtors, creditors, deposit certificates, bank reconciliations) | Line by default; account where a final TB maps lines to accounts; sub-ledger or item only where that schedule is held |
-| C. First reporting period | `fs_first_period_declarations` **[REPO]**: genuinely first period only; refused when any earlier TB exists | Opening is nil by declaration |
+| C. First reporting period | A verified first-period review (`fs_first_period_claims` / `fs_first_period_decisions`, 20261217100000, **[REPO] authored, not applied**): structured facts, cited immutable evidence revisions, a different approver, bound to the entity, the period dates and the rule version; a legacy `fs_first_period_declarations` row is a claim only | Comparatives only. The opening is **not** nil by declaration: it needs its own verified support (nil with evidence, or pre-bookkeeping activity reconciled item by item) |
 | D. Migration (another system, or QuickBooks opening balances loaded to Opening Balance Equity) | Path A or B for the authority, plus the migration journal(s) at entry level | Entry, once the opening journal is held |
 
 Each issued statement line is mapped to its underlying ledger accounts (`line → accounts[]`, versioned, reviewed).

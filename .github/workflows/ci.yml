@@ -1440,6 +1440,33 @@ jobs:
           grep -v '^\[PTB' proof-results/readinessFinalization.present.log || true
           node scripts/ci/validateProofResult.mjs proof-results/readinessFinalization.present.json --manifest scripts/db-proof/readinessFinalization.manifest.mjs --mode present --exit-code "$code"
 
+      - name: First-period governed review proof (20261217100000 - the exception is a verified decision bound to the entity, the server's period dates, immutable evidence revisions and the rule version, not a declaration; the old-certificate bypass refused; a genuine first period, legitimate activity before bookkeeping began, unresolved dormancy, a verified first period with unsupported openings and contradictory evidence after approval through the real server path; the valid comparative path, the server-compilation splice and the readiness pilot unchanged; the rollout preflight read-only; evidence and decision changes racing with sign-off in both orderings)
+        if: ${{ !cancelled() }}
+        shell: bash
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/first_period_proof
+        run: |
+          createdb first_period_proof
+          bun scripts/db-proof/firstPeriodGovernedReview.mjs 2>&1 | grep -v '^[PTB'
+          test ${PIPESTATUS[0]} -eq 0
+
+      - name: First-period regression run without the migration (it MUST fail - its failure is the old-certificate bypass)
+        if: ${{ !cancelled() }}
+        shell: bash
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/first_period_absent_proof
+          FIRST_PERIOD_GATE_ABSENT: "1"
+        run: |
+          createdb first_period_absent_proof
+          set +e
+          bun scripts/db-proof/firstPeriodGovernedReview.mjs > first-period-absent.log 2>&1
+          code=$?
+          set -e
+          grep -v '^[PTB' first-period-absent.log || true
+          test "$code" -ne 0
+
       - name: Ready for Reporting acceptance - runner self-check, audit regressions on the model and the engine, and the engine through the acceptance adapter
         if: ${{ !cancelled() }}
         shell: bash

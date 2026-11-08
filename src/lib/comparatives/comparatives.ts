@@ -41,7 +41,7 @@ export const COMPARATIVE_WORDS: Readonly<Record<ComparativeState, { readonly tit
   different_currency: { title: "Different currency", detail: "The prior year is in another currency; translation is not supported yet, so it cannot be approved.", satisfiesRequirement: false },
   reference_only: { title: "Reference only", detail: "Prior-year statements are held as evidence only; they are shown for reference and never count as approved comparatives.", satisfiesRequirement: false },
   missing: { title: "Missing", detail: "There is no authoritative prior-year trial balance; comparatives are required.", satisfiesRequirement: false },
-  first_period_exception: { title: "First reporting period", detail: "An approved first-period declaration is in force; no comparatives are required.", satisfiesRequirement: true },
+  first_period_exception: { title: "First reporting period", detail: "A verified first-period review is in force; no comparatives are required. Opening balances still need their own support.", satisfiesRequirement: true },
 };
 
 export interface RestatementLine { lineId: string; section: string; deltaMinor: string }

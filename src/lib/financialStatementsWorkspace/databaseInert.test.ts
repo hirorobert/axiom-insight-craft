@@ -631,6 +631,10 @@ describe("database inertness — schema and functions", () => {
     added.add("supabase/functions/rfr-check-books/index.ts");
     for (const f of ["types", "money", "evidence", "rulePack", "corrections", "finalization", "engine", "load", "index"]) added.add(`supabase/functions/_shared/readiness/${f}.ts`);
     modified.add("supabase/config.toml");
+    // First-period governed review (docs/release/first-period-governed-review): ONE forward-only migration (the exception becomes a verified, bound decision; the
+    // blockers function is spliced, not copied) and the browser client's tolerance for a comparative with no dates. AUTHORED, NOT APPLIED.
+    added.add("supabase/migrations/20261217100000_first_period_governed_review.sql");
+    modified.add("src/lib/reporting/signoff.ts");
     for (const file of ["supabase/functions/qbo-oauth-callback/index.ts", "supabase/functions/trial-balance-draft/index.ts", "supabase/functions/trial-balance-source-download/index.ts",
       "supabase/functions/trial-balance-source-signer/index.ts", "supabase/functions/_shared/sourceDownload.ts"]) modified.add(file);
     expect(unreviewedChanges(changed, { added, modified, removed })).toEqual([]);
@@ -943,6 +947,9 @@ describe("database inertness — schema and functions", () => {
     for (const f of ["implementation.mjs"]) allowed.add(`scripts/acceptance/rfr-v3/adapters/${f}`);
     for (const f of ["auditRegression", "cases", "compare", "referenceModel", "run", "sandboxProof"]) allowed.add(`scripts/acceptance/rfr-v3/${f}.mjs`);
     for (const f of ["readinessFinalization.manifest", "readinessFinalization"]) allowed.add(`scripts/db-proof/${f}.mjs`);
+    // First-period governed review: its loopback-only real-PostgreSQL proof, the shared helper, the old-rule bypass reproduction and the two earlier proofs whose first-period
+    // expectations changed (a declaration is a claim; only a verified review is the exception). No deploy behaviour.
+    for (const f of ["firstPeriodGovernedReview", "firstPeriodBypassReproduction", "lib/firstPeriodKit", "comparatives", "closeReviewAuthority"]) allowed.add(`scripts/db-proof/${f}.mjs`);
     allowed.add("scripts/readiness/writePilotFixtures.mjs");
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
