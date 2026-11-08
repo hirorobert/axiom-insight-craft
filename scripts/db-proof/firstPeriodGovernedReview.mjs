@@ -50,7 +50,7 @@ async function main() {
   db = await openDatabase("firstperiod_proof");
   group(ABSENT ? "Replay WITHOUT the migration (regression run: the cases below must fail)" : "Replay (the chain before the migration)");
   await check(`the chain before ${FILE} applies`, async () => (await applyChainBefore(db, FILE)) ?? true);
-  await check(`${FILE} is the last file of the current chain (stacked on the pilot head 20261216100000)`, async () => chainFiles().at(-1) === FILE && chainFiles().at(-2) === "20261216100000_ready_for_reporting_pilot.sql" ? true : chainFiles().slice(-3));
+  await check(`${FILE} directly follows the pilot head 20261216100000 in the current chain`, async () => chainFiles()[chainFiles().indexOf(FILE) - 1] === "20261216100000_ready_for_reporting_pilot.sql" ? true : chainFiles().slice(-4));
 
   const W = await makeWorld(db);
   const { U, A } = W;

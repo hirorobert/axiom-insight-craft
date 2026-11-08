@@ -1467,6 +1467,17 @@ jobs:
           grep -v '^[PTB' first-period-absent.log || true
           test "$code" -ne 0
 
+      - name: Returning-client journey proof (20261218100000 and the readiness engine - the prior pack finalised in CFOClose with an approved accrual of 100.00, the supported opening correction held until applied, exact preview and FINAL figures, the same journal later booked in QuickBooks as current-year expense linked or unlinked, a ledger edit that changes no total, retries; statements issued outside CFOClose as a hash-bound comparative source stopped only at the registered restated-comparative casting gap)
+        if: ${{ !cancelled() }}
+        shell: bash
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/returning_client_proof
+        run: |
+          createdb returning_client_proof
+          bun scripts/db-proof/returningClientJourney.mjs 2>&1 | grep -v '^\[PTB'
+          test ${PIPESTATUS[0]} -eq 0
+
       - name: Ready for Reporting acceptance - runner self-check, audit regressions on the model and the engine, and the engine through the acceptance adapter
         if: ${{ !cancelled() }}
         shell: bash

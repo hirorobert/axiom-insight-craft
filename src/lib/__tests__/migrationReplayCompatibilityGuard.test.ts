@@ -291,7 +291,8 @@ describe("migration directory integrity", () => {
     // 210 -> 211: intuit-security-r1 API Cache-Control pre-request hook, registered but not installed.
     // 211 -> 212: Ready for Reporting pilot (opt-in readiness gate on FINAL), authored and not applied.
     // 212 -> 213: first-period governed review (the exception is a verified decision, not a declaration), authored and not applied.
-    expect(files.length).toBe(213);
+    // 213 -> 214: statements issued outside CFOClose become a reviewed, hash-bound source of the comparative, authored and not applied.
+    expect(files.length).toBe(214);
   });
 });
 
