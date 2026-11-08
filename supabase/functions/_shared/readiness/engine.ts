@@ -195,6 +195,15 @@ export function evaluateReadiness(I: ReadinessInput, pack: RulePack = PILOT_RULE
       refusals.push({ action: "approve_without_evidence", code: "APPROVAL_IS_NOT_EVIDENCE" }); continue;
     }
     if (cls.kind === "possible_prior_period_error") { add("PRIOR_PERIOD_ERROR_ROUTED", "suspected", scope, { detail: { route: "restatement proposal (as-reported comparative kept)" } }); continue; }
+    // An approved adjustment the source ledger never carried is not merely explained: the reported opening position must include
+    // it. The difference holds the scope until a correction for it is effective (or the ledger carries a verified fix), so an
+    // unresolved required difference blocks FINAL. With no proposal on the line it holds with nothing to apply.
+    if (cls.kind === "unposted_audit_adjustment") {
+      const prop = (I.opening_bridge?.proposals ?? []).find((p) => p.line === l.line);
+      add("OPENING_ADJUSTMENT_UNPOSTED", "confirmed", scope, { accounts: l.accounts, ...(prop ? { resolves: prop.id } : {}), detail: { difference: str(diff), kind: cls.kind, approved: l.approved, ledger_opening: ledgerOpening } });
+      if (prop) proposals.push({ id: prop.id, scope, lines: prop.lines });
+      continue;
+    }
     add("OPENING_DIFFERENCE_EXPLAINED", "pass", scope, { detail: { kind: cls.kind, difference: str(diff) } });
   }
 
@@ -259,7 +268,22 @@ export function evaluateReadiness(I: ReadinessInput, pack: RulePack = PILOT_RULE
     // The original posting of the double charge mentions the bill too; it is the error, never the correction.
     const originals = new Set<string>(I.double_charge ? [I.double_charge.gl_entry_id.split("#")[0]] : []);
     const linked = cv.snapshot.postings.filter((p) => !originals.has(p.id) && (p.links ?? []).some((x) => cv.anchor.includes(x)));
-    const unlinkedSame = cv.snapshot.postings.filter((p) => !linked.includes(p) && eqNets(netByAccount(p.lines), effect));
+    // An unlinked posting is a candidate for the same correction when it has the same net effect, OR repeats the correction's exact
+    // amount on one of the accounts the correction moves (a journal booked another way - e.g. as current-year expense). It is never
+    // read as the correction without a verified link, and never ignored: the scope stays open until a reviewer links or rejects it.
+    const unlinkedSame = cv.snapshot.postings.filter((p) => {
+      if (linked.includes(p) || originals.has(p.id)) return false;
+      const net = netByAccount(p.lines);
+      if (eqNets(net, effect)) return true;
+      // Only for a correction of the OPENING position (scope "opening:..."): a current-year journal that repeats its amount on a
+      // moved account is the same economic item booked another way. Other scopes keep the exact-effect rule (a refund banked to cash
+      // that shares one amount with a correction is a different thing, proved by the acceptance case E2-L5).
+      if (!cv.scope.startsWith("opening:")) return false;
+      // A posting that moves cash is settled by the bank checks.
+      const cash = new Set<string>([...(I.banks ?? []).map((b) => b.ledger_key).filter((x): x is string => !!x), ...(I.double_charge?.cash_account ? [I.double_charge.cash_account] : [])]);
+      if (p.lines.some((l) => cash.has(l.account))) return false;
+      return [...effect].some(([acct, amt]) => amt !== 0n && net.get(acct) === amt);
+    });
     const observed = netByAccount(linked.flatMap((p) => p.lines));
     let state: string;
     if (!linked.length) state = unlinkedSame.length ? "candidate_needs_confirmation" : "not_corrected_in_source";
@@ -304,7 +328,7 @@ export function evaluateReadiness(I: ReadinessInput, pack: RulePack = PILOT_RULE
     }
   }
   for (const p of I.opening_bridge?.proposals ?? []) {
-    if (findings.some((f) => f.scope === `opening:${p.line}` && f.rule === "OPENING_DIFFERENCE_EXPLAINED")) proposals.push({ id: p.id, scope: `opening:${p.line}`, lines: p.lines });
+    if (findings.some((f) => f.scope === `opening:${p.line}` && f.rule === "OPENING_DIFFERENCE_EXPLAINED") && !proposals.some((q) => q.id === p.id)) proposals.push({ id: p.id, scope: `opening:${p.line}`, lines: p.lines });
   }
 
   // ── 13. Reviewer decisions never stand in for evidence ──────────────────────────────────────────────────────
