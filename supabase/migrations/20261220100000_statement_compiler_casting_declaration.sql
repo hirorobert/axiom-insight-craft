@@ -34,6 +34,9 @@ BEGIN
     RAISE EXCEPTION 'PREFLIGHT: 20261123100000 (server compilation) is not installed' USING ERRCODE = 'PT422';
   END IF;
 
+  -- Already installed (a replay, or a proof that applied it early): nothing to do. Anything half-installed fails the postcondition below.
+  IF position(v_new IN pg_get_functiondef('public.fs_record_server_compilation(uuid,uuid,text,integer,text,text,jsonb,jsonb,jsonb,text)'::regprocedure)) > 0 THEN RETURN; END IF;
+
   -- (1) the receipt table: exactly the two digests.
   SELECT c.conname INTO v_con FROM pg_constraint c
    WHERE c.conrelid = 'public.fs_server_compilations'::regclass AND c.contype = 'c' AND pg_get_constraintdef(c.oid) LIKE '%' || v_old || '%';

@@ -109,6 +109,7 @@ export async function applyChain(db) {
   return null;
 }
 export const chainFiles = () => currentChain(REPO);
+const COMPILER_IDENTITY_FILE = "20261220100000_statement_compiler_casting_declaration.sql";
 /** Applies the chain BEFORE `file` (main's schema before a release). Returns null on success, or the first failure. */
 export async function applyChainBefore(db, file) {
   const chain = currentChain(REPO);
@@ -118,6 +119,12 @@ export async function applyChainBefore(db, file) {
     let t = migrationSql(REPO, f);
     if (f === PG_CRON_FILE) t = t.split("\n").slice(0, t.split("\n").findIndex((l) => l.includes("CREATE EXTENSION IF NOT EXISTS pg_cron"))).join("\n");
     try { await db.admin.query(t); } catch (e) { return `${f}: ${String(e.message).split("\n")[0]}`; }
+  }
+  // The deployable compiler bundle is the CURRENT checkout's, and the database accepts its identity only through COMPILER_IDENTITY_FILE (idempotent). A proof
+  // that stops the chain before it, but after the receipt table (20261123100000), would otherwise have every report compilation refused.
+  const receipts = chain.indexOf("20261123100000_fs_server_compilation.sql");
+  if (chain.indexOf(COMPILER_IDENTITY_FILE) >= stop && receipts >= 0 && receipts < stop) {
+    try { await db.admin.query(migrationSql(REPO, COMPILER_IDENTITY_FILE)); } catch (e) { return `${COMPILER_IDENTITY_FILE}: ${String(e.message).split("\n")[0]}`; }
   }
   return null;
 }
