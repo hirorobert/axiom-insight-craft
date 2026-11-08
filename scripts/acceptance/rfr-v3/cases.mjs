@@ -567,7 +567,7 @@ CASES.push({
 
 // Implementation-only contracts (no reference-model evaluation: they need a database or a live source).
 export const IMPLEMENTATION_CONTRACTS = [
-  { id: "C1", title: "local change commits before finalization", category: "database", requirement: "finalize recomputes the readiness manifest under the scope lock and refuses BUNDLE_STALE; no FINAL row, no issuance" },
+  { id: "C1", title: "local change commits before finalization", category: "database", requirement: "finalize recomputes the readiness manifest under the scope lock and refuses RFR_MANIFEST_STALE; no FINAL row, no issuance" },
   { id: "C2", title: "finalization commits before a local change", category: "database", requirement: "the change commits after FINAL; FINAL and its manifest are byte-identical afterwards; the next version shows the change and the issued version is listed as superseded only when a later FINAL exists" },
   { id: "C3", title: "finalize at a non-READ COMMITTED isolation", category: "database", requirement: "refused PT412 before any write (tb_require_read_committed pattern)" },
   { id: "C4", title: "every bound-input writer takes the scope lock", category: "database", requirement: "static catalogue check: each function writing a manifest input calls _rfr_scope_lock first" },
