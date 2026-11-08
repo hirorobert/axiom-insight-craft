@@ -638,6 +638,11 @@ describe("database inertness — schema and functions", () => {
     // Returning-client integration (docs/release/returning-client): one forward-only migration (statements issued outside CFOClose as a hash-bound comparative source; AUTHORED, NOT APPLIED),
     // the readiness engine's treatment of an unposted prior-year adjustment, and its wording.
     added.add("supabase/migrations/20261218100000_issued_comparative_schedules.sql");
+    // The prior FINAL pack read as the approved opening position (rfr_import_prior_pack): derived on the server, never typed; AUTHORED, NOT APPLIED.
+    added.add("supabase/migrations/20261219100000_rfr_prior_pack_basis.sql");
+    modified.add("src/lib/readiness/client.ts");
+    modified.add("src/components/readiness/CheckBooksView.tsx");
+    modified.add("src/lib/financialStatementsWorkspace/firstPeriodNextActions.ts");
     modified.add("supabase/functions/_shared/readiness/engine.ts");
     modified.add("src/lib/readiness/present.ts");
     for (const file of ["supabase/functions/qbo-oauth-callback/index.ts", "supabase/functions/trial-balance-draft/index.ts", "supabase/functions/trial-balance-source-download/index.ts",

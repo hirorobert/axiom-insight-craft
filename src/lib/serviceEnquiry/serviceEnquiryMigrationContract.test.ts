@@ -96,7 +96,7 @@ describe("migration hygiene", () => {
       "20261206100000_fs_equipment_multiclass.sql", "20261207100000_ipsas_accrual_preparation.sql", "20261208100000_ipsas_grants.sql", "20261210100000_ipsas_statement_review.sql", "20261211100000_source_access_authority_repairs.sql", "20261212100000_legacy_financial_write_revocation.sql", "20261213100000_qbo_connector_storage.sql", "20261214100000_qbo_readiness_controls.sql", "20261215100000_api_cache_control_headers.sql",
       "20261216100000_ready_for_reporting_pilot.sql",
       "20261217100000_first_period_governed_review.sql",
-      "20261218100000_issued_comparative_schedules.sql",
+      "20261218100000_issued_comparative_schedules.sql", "20261219100000_rfr_prior_pack_basis.sql",
     ]);
     expect(RAW.includes("\u0000")).toBe(false);
     expect(RAW).not.toMatch(/^(<{7}|={7}|>{7})/m);

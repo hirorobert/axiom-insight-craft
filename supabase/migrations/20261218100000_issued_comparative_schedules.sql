@@ -16,8 +16,14 @@
 --     · fs_propose_restatement_from_issued (prepare_close) — derives the restatement from the issued schedule minus the figures as
 --       reported, requires evidence for every changed line, and hands it to the EXISTING restatement workflow (a different
 --       person with review_close approves it; the comparative approval then binds it as before);
---     · fs_issued_comparative_reconciliation (read) and COMPARATIVE_NOT_AS_ISSUED_EXTERNAL — while an issued record exists for the
---       period, sign-off is blocked unless the presented comparative equals it, line by line.
+--     · fs_restatement_authorizations / fs_authorize_restatement — IMPORTING the issued comparatives is not a restatement: the issued
+--       statements are what was reported, and the restatement rows derived from them only bridge the source ledger to what was issued
+--       (reference 'issued:<id>'; the two-person workflow alone authorises them). A GENUINE restatement of an issued figure (a prior-period
+--       error, a policy change) is a different act: it needs its own authorization by a third person holding approve_certification, with
+--       its basis, and the reconciliation then expects presented = issued + authorized genuine restatements, exactly.
+--     · fs_issued_comparative_reconciliation (read) and COMPARATIVE_NOT_AS_ISSUED_EXTERNAL / RESTATEMENT_NOT_AUTHORIZED — while an issued
+--       record exists for the period, sign-off is blocked unless the presented comparative equals the issued schedule plus the authorized
+--       genuine restatements, line by line, and no approved genuine restatement is left unauthorized.
 --   Scopes with no issued record are unchanged. The issued source and the opening bridge remain separate records.
 -- ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
@@ -25,7 +31,7 @@ DO $preflight$
 DECLARE
   v_def text; v_hits integer;
 BEGIN
-  IF to_regclass('public.fs_issued_comparatives') IS NOT NULL OR to_regprocedure('public.fs_record_issued_comparative(uuid, integer, text, text, date, jsonb, jsonb, uuid)') IS NOT NULL THEN
+  IF to_regclass('public.fs_issued_comparatives') IS NOT NULL OR to_regclass('public.fs_restatement_authorizations') IS NOT NULL OR to_regprocedure('public.fs_record_issued_comparative(uuid, integer, text, text, date, jsonb, jsonb, uuid)') IS NOT NULL THEN
     RAISE EXCEPTION 'PREFLIGHT_REFUSED: issued comparative schedules are already applied; nothing was changed' USING ERRCODE = 'P0001';
   END IF;
   IF to_regprocedure('public.fs_propose_restatement(uuid, integer, jsonb, text, text, uuid)') IS NULL OR to_regprocedure('public.fs_statement_composition(uuid, integer)') IS NULL
@@ -142,21 +148,93 @@ BEGIN
 END;
 $$;
 
--- Presented comparative (figures as reported + approved restatements) against the latest issued schedule, line by line.
+CREATE TABLE public.fs_restatement_authorizations (
+  id             UUID        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  seq            BIGINT      GENERATED ALWAYS AS IDENTITY,
+  company_id     UUID        NOT NULL REFERENCES public.companies (id) ON DELETE RESTRICT,
+  period_year    INTEGER     NOT NULL CHECK (period_year BETWEEN 2000 AND 2100),
+  restatement_id UUID        NOT NULL UNIQUE REFERENCES public.fs_comparative_restatements (id) ON DELETE RESTRICT,
+  basis          TEXT        NOT NULL CHECK (basis IN ('prior_period_error', 'accounting_policy_change')),
+  reason         TEXT        NOT NULL CHECK (length(btrim(reason)) BETWEEN 3 AND 2000),
+  evidence_ref   TEXT        NOT NULL CHECK (length(btrim(evidence_ref)) BETWEEN 3 AND 300),
+  request_id     UUID        NOT NULL,
+  actor_user_id  UUID        NOT NULL,
+  firm_member_id UUID        NULL REFERENCES public.firm_members (id) ON DELETE RESTRICT,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+  CONSTRAINT uq_fsra_request UNIQUE (actor_user_id, request_id)
+);
+CREATE TRIGGER trg_fsra_append_only BEFORE UPDATE OR DELETE ON public.fs_restatement_authorizations FOR EACH ROW EXECUTE FUNCTION public.close_review_events_guard();
+CREATE TRIGGER trg_fsra_no_truncate BEFORE TRUNCATE ON public.fs_restatement_authorizations FOR EACH STATEMENT EXECUTE FUNCTION public.close_review_events_guard();
+
+-- Approved restatements that are GENUINE (not derived from an issued record) and their authorization state, per period.
+CREATE OR REPLACE FUNCTION public._fs_genuine_restatements(p_company_id uuid, p_period_year integer)
+RETURNS TABLE (restatement_id uuid, lines jsonb, authorized boolean) LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT r.id, r.lines, EXISTS (SELECT 1 FROM public.fs_restatement_authorizations a WHERE a.restatement_id = r.id)
+    FROM public.fs_comparative_restatements r
+   WHERE r.company_id = p_company_id AND r.period_year = p_period_year AND r.reference NOT LIKE 'issued:%' AND public._fs_restatement_state(r.id) = 'approved';
+$$;
+CREATE OR REPLACE FUNCTION public._fs_authorized_restatement_delta(p_company_id uuid, p_period_year integer)
+RETURNS TABLE (line_id text, section text, delta numeric) LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT d ->> 'lineId', d ->> 'section', sum((d ->> 'deltaMinor')::numeric)
+    FROM public._fs_genuine_restatements(p_company_id, p_period_year) g CROSS JOIN LATERAL jsonb_array_elements(g.lines) d
+   WHERE g.authorized GROUP BY 1, 2;
+$$;
+
+-- Presented comparative against the latest issued schedule plus the AUTHORIZED genuine restatements, line by line.
 CREATE OR REPLACE FUNCTION public.fs_issued_comparative_reconciliation(p_company_id uuid, p_period_year integer)
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE
-  v_i public.fs_issued_comparatives; v_diff jsonb;
+  v_i public.fs_issued_comparatives; v_diff jsonb; v_unauth integer;
 BEGIN
   IF NOT public.close_review_readable(p_company_id) THEN RETURN jsonb_build_object('state', 'unavailable'); END IF;
   SELECT * INTO v_i FROM public.fs_issued_comparatives c WHERE c.company_id = p_company_id AND c.period_year = p_period_year ORDER BY c.seq DESC LIMIT 1;
   IF v_i.id IS NULL THEN RETURN jsonb_build_object('state', 'none'); END IF;
-  SELECT coalesce(jsonb_agg(jsonb_build_object('lineId', x.line_id, 'section', x.section, 'issuedMinor', x.issued::text, 'presentedMinor', x.presented::text, 'asReportedMinor', x.as_reported::text) ORDER BY x.line_id, x.section), '[]'::jsonb) INTO v_diff
-    FROM (SELECT (e ->> 'lineId') AS line_id, (e ->> 'section') AS section, (e ->> 'amountMinor')::numeric AS issued, c.presented_minor AS presented, c.as_reported_minor AS as_reported
-            FROM jsonb_array_elements(v_i.schedule) e LEFT JOIN public._fs_issued_comparative_lines(p_company_id, p_period_year) c ON c.line_id = e ->> 'lineId' AND c.section = e ->> 'section') x
-   WHERE x.presented IS DISTINCT FROM x.issued;
-  RETURN jsonb_build_object('state', CASE WHEN jsonb_array_length(v_diff) = 0 THEN 'reconciled' ELSE 'differences' END, 'issuedId', v_i.id, 'documentName', v_i.document_name, 'documentSha256', v_i.document_sha256,
-    'issuedOn', v_i.issued_on, 'scheduleSha256', v_i.schedule_sha256, 'differences', v_diff);
+  SELECT coalesce(jsonb_agg(jsonb_build_object('lineId', x.line_id, 'section', x.section, 'issuedMinor', x.issued::text, 'authorizedRestatementMinor', x.auth::text,
+         'presentedMinor', x.presented::text, 'asReportedMinor', x.as_reported::text) ORDER BY x.line_id, x.section), '[]'::jsonb) INTO v_diff
+    FROM (SELECT (e ->> 'lineId') AS line_id, (e ->> 'section') AS section, (e ->> 'amountMinor')::numeric AS issued, coalesce(az.delta, 0) AS auth, c.presented_minor AS presented, c.as_reported_minor AS as_reported
+            FROM jsonb_array_elements(v_i.schedule) e
+            LEFT JOIN public._fs_issued_comparative_lines(p_company_id, p_period_year) c ON c.line_id = e ->> 'lineId' AND c.section = e ->> 'section'
+            LEFT JOIN public._fs_authorized_restatement_delta(p_company_id, p_period_year) az ON az.line_id = e ->> 'lineId' AND az.section = e ->> 'section') x
+   WHERE x.presented IS DISTINCT FROM x.issued + x.auth;
+  SELECT count(*) INTO v_unauth FROM public._fs_genuine_restatements(p_company_id, p_period_year) g WHERE NOT g.authorized;
+  RETURN jsonb_build_object('state', CASE WHEN jsonb_array_length(v_diff) = 0 AND v_unauth = 0 THEN 'reconciled' ELSE 'differences' END, 'issuedId', v_i.id, 'documentName', v_i.document_name, 'documentSha256', v_i.document_sha256,
+    'issuedOn', v_i.issued_on, 'scheduleSha256', v_i.schedule_sha256, 'differences', v_diff, 'unauthorizedRestatements', v_unauth,
+    'authorizedRestatements', (SELECT count(*) FROM public._fs_genuine_restatements(p_company_id, p_period_year) g WHERE g.authorized));
+END;
+$$;
+
+-- Authorizing a GENUINE restatement of issued figures. Outcomes: recorded | replay | already_authorized | forbidden | feature_disabled | invalid_request |
+-- not_found | not_approved | issued_import_needs_no_authorization | no_issued_record | authorizer_is_proposer | authorizer_is_approver | request_reused.
+CREATE OR REPLACE FUNCTION public.fs_authorize_restatement(p_restatement_id uuid, p_basis text, p_reason text, p_evidence_ref text, p_request_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_uid uuid := auth.uid(); v_r public.fs_comparative_restatements; v_prior public.fs_restatement_authorizations; v_approver uuid; v_id uuid;
+BEGIN
+  IF v_uid IS NULL THEN RAISE EXCEPTION 'UNAUTHENTICATED' USING ERRCODE = '28000'; END IF;
+  IF p_restatement_id IS NULL OR p_request_id IS NULL OR p_basis IS NULL OR p_basis NOT IN ('prior_period_error', 'accounting_policy_change')
+     OR p_reason IS NULL OR length(btrim(p_reason)) NOT BETWEEN 3 AND 2000 OR p_evidence_ref IS NULL OR length(btrim(p_evidence_ref)) NOT BETWEEN 3 AND 300 THEN
+    RETURN jsonb_build_object('outcome', 'invalid_request');
+  END IF;
+  SELECT * INTO v_r FROM public.fs_comparative_restatements r WHERE r.id = p_restatement_id;
+  IF v_r.id IS NULL THEN RETURN jsonb_build_object('outcome', 'not_found'); END IF;
+  IF NOT public.workspace_capability_allowed(v_r.company_id, v_uid, 'approve_certification') THEN RETURN jsonb_build_object('outcome', 'forbidden'); END IF;
+  IF NOT public.fs_rollout_allows(v_r.company_id) THEN RETURN jsonb_build_object('outcome', 'feature_disabled'); END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended('fs_comparatives:' || v_r.company_id::text || ':' || v_r.period_year::text, 0));
+  SELECT * INTO v_prior FROM public.fs_restatement_authorizations a WHERE a.actor_user_id = v_uid AND a.request_id = p_request_id;
+  IF v_prior.id IS NOT NULL THEN
+    IF v_prior.restatement_id = p_restatement_id AND v_prior.basis = p_basis THEN RETURN jsonb_build_object('outcome', 'replay', 'authorizationId', v_prior.id); END IF;
+    RETURN jsonb_build_object('outcome', 'request_reused');
+  END IF;
+  IF v_r.reference LIKE 'issued:%' THEN RETURN jsonb_build_object('outcome', 'issued_import_needs_no_authorization'); END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.fs_issued_comparatives c WHERE c.company_id = v_r.company_id AND c.period_year = v_r.period_year) THEN RETURN jsonb_build_object('outcome', 'no_issued_record'); END IF;
+  IF public._fs_restatement_state(p_restatement_id) <> 'approved' THEN RETURN jsonb_build_object('outcome', 'not_approved'); END IF;
+  IF EXISTS (SELECT 1 FROM public.fs_restatement_authorizations a WHERE a.restatement_id = p_restatement_id) THEN RETURN jsonb_build_object('outcome', 'already_authorized'); END IF;
+  IF v_r.proposed_by = v_uid THEN RETURN jsonb_build_object('outcome', 'authorizer_is_proposer'); END IF;
+  SELECT d.actor_user_id INTO v_approver FROM public.fs_comparative_restatement_decisions d WHERE d.restatement_id = p_restatement_id AND d.decision = 'approved' ORDER BY d.seq DESC LIMIT 1;
+  IF v_approver = v_uid THEN RETURN jsonb_build_object('outcome', 'authorizer_is_approver'); END IF;
+  INSERT INTO public.fs_restatement_authorizations (company_id, period_year, restatement_id, basis, reason, evidence_ref, request_id, actor_user_id, firm_member_id)
+  VALUES (v_r.company_id, v_r.period_year, p_restatement_id, p_basis, btrim(p_reason), btrim(p_evidence_ref), p_request_id, v_uid, public._cr_member(v_r.company_id, v_uid)) RETURNING id INTO v_id;
+  RETURN jsonb_build_object('outcome', 'recorded', 'authorizationId', v_id);
 END;
 $$;
 
@@ -193,19 +271,24 @@ BEGIN
 END;
 $$;
 
--- Sign-off: while an issued record exists for the period and the comparative is presented, it must equal the issued schedule.
+-- Sign-off: while an issued record exists for the period and the comparative is presented, it must equal the issued schedule plus the authorized genuine
+-- restatements, and no approved genuine restatement may be left unauthorized.
 CREATE OR REPLACE FUNCTION public._fs_issued_comparative_blockers(p_company_id uuid, p_period_year integer)
 RETURNS text[] LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
-DECLARE v_i public.fs_issued_comparatives; v_n integer; v_first text;
+DECLARE v_i public.fs_issued_comparatives; v_n integer; v_first text; v_unauth integer; v_out text[] := '{}';
 BEGIN
   SELECT * INTO v_i FROM public.fs_issued_comparatives c WHERE c.company_id = p_company_id AND c.period_year = p_period_year ORDER BY c.seq DESC LIMIT 1;
   IF v_i.id IS NULL THEN RETURN '{}'; END IF;
   IF public.fs_statement_composition(p_company_id, p_period_year) -> 'comparative' ->> 'state' IS DISTINCT FROM 'available' THEN RETURN '{}'; END IF;
-  SELECT count(*), min(x.line_id) INTO v_n, v_first FROM (SELECT e ->> 'lineId' AS line_id, c.presented_minor, (e ->> 'amountMinor')::numeric AS issued
-      FROM jsonb_array_elements(v_i.schedule) e LEFT JOIN public._fs_issued_comparative_lines(p_company_id, p_period_year) c ON c.line_id = e ->> 'lineId' AND c.section = e ->> 'section') x
-   WHERE x.presented_minor IS DISTINCT FROM x.issued;
-  IF v_n > 0 THEN RETURN ARRAY['COMPARATIVE_NOT_AS_ISSUED_EXTERNAL:' || v_n || ':' || v_first]; END IF;
-  RETURN '{}';
+  SELECT count(*), min(x.line_id) INTO v_n, v_first FROM (SELECT e ->> 'lineId' AS line_id, c.presented_minor, (e ->> 'amountMinor')::numeric + coalesce(az.delta, 0) AS expected
+      FROM jsonb_array_elements(v_i.schedule) e
+      LEFT JOIN public._fs_issued_comparative_lines(p_company_id, p_period_year) c ON c.line_id = e ->> 'lineId' AND c.section = e ->> 'section'
+      LEFT JOIN public._fs_authorized_restatement_delta(p_company_id, p_period_year) az ON az.line_id = e ->> 'lineId' AND az.section = e ->> 'section') x
+   WHERE x.presented_minor IS DISTINCT FROM x.expected;
+  IF v_n > 0 THEN v_out := v_out || ('COMPARATIVE_NOT_AS_ISSUED_EXTERNAL:' || v_n || ':' || v_first); END IF;
+  SELECT count(*) INTO v_unauth FROM public._fs_genuine_restatements(p_company_id, p_period_year) g WHERE NOT g.authorized;
+  IF v_unauth > 0 THEN v_out := v_out || ('RESTATEMENT_NOT_AUTHORIZED:' || v_unauth); END IF;
+  RETURN v_out;
 END;
 $$;
 
@@ -224,10 +307,14 @@ END;
 $splice$;
 
 ALTER TABLE public.fs_issued_comparatives ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON TABLE public.fs_issued_comparatives FROM PUBLIC, anon, authenticated, service_role;
-GRANT SELECT ON TABLE public.fs_issued_comparatives TO authenticated, service_role;
+ALTER TABLE public.fs_restatement_authorizations ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.fs_issued_comparatives, public.fs_restatement_authorizations FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON TABLE public.fs_issued_comparatives, public.fs_restatement_authorizations TO authenticated, service_role;
 CREATE POLICY fsic_read ON public.fs_issued_comparatives FOR SELECT TO authenticated USING (public.close_review_readable(company_id));
-REVOKE ALL ON FUNCTION public._fs_issued_comparative_lines(uuid, integer), public._fs_issued_schedule_problem(uuid, integer, jsonb), public._fs_issued_comparative_blockers(uuid, integer) FROM PUBLIC, anon, authenticated, service_role;
+CREATE POLICY fsra_read ON public.fs_restatement_authorizations FOR SELECT TO authenticated USING (public.close_review_readable(company_id));
+REVOKE ALL ON FUNCTION public._fs_issued_comparative_lines(uuid, integer), public._fs_issued_schedule_problem(uuid, integer, jsonb), public._fs_issued_comparative_blockers(uuid, integer), public._fs_genuine_restatements(uuid, integer), public._fs_authorized_restatement_delta(uuid, integer) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fs_authorize_restatement(uuid, text, text, text, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fs_authorize_restatement(uuid, text, text, text, uuid) TO authenticated;
 REVOKE ALL ON FUNCTION public.fs_record_issued_comparative(uuid, integer, text, text, date, jsonb, jsonb, uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fs_record_issued_comparative(uuid, integer, text, text, date, jsonb, jsonb, uuid) TO authenticated;
 REVOKE ALL ON FUNCTION public.fs_issued_comparative_reconciliation(uuid, integer) FROM PUBLIC, anon;
@@ -245,7 +332,8 @@ BEGIN
      OR has_function_privilege('authenticated', 'public.fs_publication_blockers(uuid, text, integer)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public._fs_issued_comparative_blockers(uuid, integer)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.fs_record_issued_comparative(uuid, integer, text, text, date, jsonb, jsonb, uuid)', 'EXECUTE')
-     OR (SELECT count(*) FROM public.fs_issued_comparatives) <> 0 THEN
+     OR has_function_privilege('anon', 'public.fs_authorize_restatement(uuid, text, text, text, uuid)', 'EXECUTE')
+     OR (SELECT count(*) FROM public.fs_issued_comparatives) <> 0 OR (SELECT count(*) FROM public.fs_restatement_authorizations) <> 0 THEN
     RAISE EXCEPTION 'POSTCONDITION_FAILED: issued comparative schedules are not in the expected state' USING ERRCODE = 'P0001';
   END IF;
 END;

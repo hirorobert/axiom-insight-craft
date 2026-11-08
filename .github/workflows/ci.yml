@@ -1448,7 +1448,7 @@ jobs:
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/first_period_proof
         run: |
           createdb first_period_proof
-          bun scripts/db-proof/firstPeriodGovernedReview.mjs 2>&1 | grep -v '^[PTB'
+          bun scripts/db-proof/firstPeriodGovernedReview.mjs 2>&1 | grep -v '^\[PTB'
           test ${PIPESTATUS[0]} -eq 0
 
       - name: First-period regression run without the migration (it MUST fail - its failure is the old-certificate bypass)
@@ -1464,7 +1464,7 @@ jobs:
           bun scripts/db-proof/firstPeriodGovernedReview.mjs > first-period-absent.log 2>&1
           code=$?
           set -e
-          grep -v '^[PTB' first-period-absent.log || true
+          grep -v '^\[PTB' first-period-absent.log || true
           test "$code" -ne 0
 
       - name: Returning-client journey proof (20261218100000 and the readiness engine - the prior pack finalised in CFOClose with an approved accrual of 100.00, the supported opening correction held until applied, exact preview and FINAL figures, the same journal later booked in QuickBooks as current-year expense linked or unlinked, a ledger edit that changes no total, retries; statements issued outside CFOClose as a hash-bound comparative source stopped only at the registered restated-comparative casting gap)
@@ -1654,6 +1654,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Returning-client browser journey (headless Chrome drives the real Check my books, Close Review adjustments and reporting views over a loopback bridge to a throwaway database as preparer, partner and owner - one engagement, one trial balance upload per year, the prior pack FINAL in CFOClose with an approved accrual of 100.00, the one finding and its correction approved by a second person, every check ready, the comparative approved, the report saved, REVIEWED and FINAL with the exact figures; loopback only)
+        if: ${{ !cancelled() }}
         env:
           DB_PROOF_MODE: external
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/returning_harness

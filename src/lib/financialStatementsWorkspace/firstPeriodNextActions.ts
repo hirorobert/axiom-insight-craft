@@ -8,7 +8,7 @@ export const FIRST_PERIOD_NEXT_ACTIONS: Readonly<Record<string, string>> = Objec
   FIRST_PERIOD_LEGACY_DECLARATION_UNVERIFIED: "Your earlier first-period declaration is kept as a claim only. Record the first-period facts, cite the registration evidence and ask a partner or manager to review them.",
   FIRST_PERIOD_FACTS_MISSING: "Record the first-period facts (legal name, registration and start dates, the exact reporting dates) and cite the evidence for them.",
   FIRST_PERIOD_ENTITY_NAME_MISMATCH: "Make the legal name in the facts match the company name in this workspace, or correct the company name.",
-  FIRST_PERIOD_ENTITY_TIN_MISMATCH: "Make the TIN in the facts match the company's TIN, or correct the company profile.",
+  FIRST_PERIOD_ENTITY_TIN_MISMATCH: "Make the tax identifier in the facts match the company's tax identifier, or correct the company profile.",
   FIRST_PERIOD_IDENTITY_EVIDENCE_MISSING: "Cite the certificate of incorporation or registration whose date is the registration date in the facts.",
   FIRST_PERIOD_DATES_MISMATCH: "The facts name different reporting dates from the reviewed trial balance. Record the facts again for the server's dates.",
   FIRST_PERIOD_NOT_FIRST_ON_EVIDENCE: "The registration date is before this period begins, so the evidence cited does not show a first period. Prepare comparatives; if the entity was dormant, record the dormancy basis with its evidence.",

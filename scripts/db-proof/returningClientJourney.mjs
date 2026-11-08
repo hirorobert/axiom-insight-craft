@@ -78,11 +78,11 @@ async function main() {
     const BRIDGE = { basis: "FY2025 pack finalised in CFOClose", lines: [{ line: "payables", approved: "-320000", accounts: ["2000"], level: "account", classification: { kind: "unposted_audit_adjustment", evidence: ["EV-AUDIT-ADJ"] } }],
       proposals: [{ id: CORR, line: "payables", lines: [{ account: "3100", amount: "10000" }, { account: "2000", amount: "-10000" }] }] };
     const EVID = { kind: "audit_adjustment_schedule", extraction: "human_confirmed", facts: { amount: "10000", account: "2000", date: "2025-12-31", ref: "AA-2025-01" } };
-    const optIn = () => asU(U.preparer, "SELECT public.rfr_set_scope($1,$2,'rfr-pilot-ipsas-accrual','1.0.0',$3::jsonb,'Check the books for the returning client') r", [A, Y, JSON.stringify({ opening_lines: ["payables"] })]).then((r) => r.r);
+    const optIn = (facts = { opening_lines: ["payables"] }) => asU(U.preparer, "SELECT public.rfr_set_scope($1,$2,'rfr-pilot-ipsas-accrual','1.0.0',$3::jsonb,'Check the books for the returning client') r", [A, Y, JSON.stringify(facts)]).then((r) => r.r);
     const importAll = async (lp = ledgerPayload(), bridge = BRIDGE) => ({ ledger: await reg("ledger_snapshot", "gl", lp), evidence: await reg("evidence", "EV-AUDIT-ADJ", EVID), bridge: await reg("opening_bridge", "opening_bridge", bridge) });
     const checkBooks = () => runReadinessCheck(serviceRpc, A, Y);
     const linesOf = (prop) => prop.lines.map((l) => (BigInt(l.amount) > 0n ? { accountKey: l.account, debitMinor: l.amount, creditMinor: "0" } : { accountKey: l.account, debitMinor: "0", creditMinor: String(-BigInt(l.amount)) }));
-    const propose = (prop, extra = {}) => asU(U.preparer, "SELECT public.rfr_propose_correction($1,$2,$3,$4,$5::text[],$6,$7,$8::jsonb,$9,NULL,$10,$11) r", [A, Y, prop.id, "opening:payables", [prop.id], "Prior-year accrual agreed to the audit adjustment schedule", "AA-2025-01", JSON.stringify(linesOf(prop)), uuid(), extra.bundle ?? null, extra.supersedes ?? null]).then((r) => r.r);
+    const propose = (prop, extra = {}) => asU(U.preparer, "SELECT public.rfr_propose_correction($1,$2,$3,$4,$5::text[],$6,$7,$8::jsonb,$9,NULL,$10,$11) r", [A, Y, prop.id, `opening:${prop.id.replace("corr:opening:", "")}`, [prop.id], "Prior-year accrual agreed to the audit adjustment schedule", "AA-2025-01", JSON.stringify(linesOf(prop)), uuid(), extra.bundle ?? null, extra.supersedes ?? null]).then((r) => r.r);
     const layer = async () => Object.fromEntries((await db.asRole("authenticated", U.owner, "SELECT account_code, (adjusted_debit_minor - adjusted_credit_minor)::text v FROM public.close_review_adjusted_trial_balance($1,$2)", [A, Y])).map((r) => [r.account_code, r.v]));
     const composition = async (yr = Y) => (await asU(U.owner, "SELECT public.fs_statement_composition($1,$2) r", [A, yr])).r;
     const line = (c, id) => c.lines.find((l) => l.lineId === id);
@@ -302,6 +302,53 @@ async function main() {
     return cs?.state === "candidate_needs_confirmation" && f?.outcome === "suspected" && r.result.scopes["opening:payables"] === "HELD" && r.result.finalization.held === true ? true : { cs, f, scopes: r.result.scopes };
   });
 
+  // ═══════════════ A6: the approved opening position DERIVED from the prior FINAL pack (no exported figure) ═══════════════
+  group("A6. Check my books derives last year's approved position from the prior FINAL pack itself");
+  let d, importD;
+  const importPack = (c, uid = U.preparer, req = uuid()) => asU(uid, "SELECT public.rfr_import_prior_pack($1,$2,$3) r", [c.A, Y, req]).then((r) => r.r);
+  await check("with no export of last year's figures: the scope opts in, only the QuickBooks ledger is imported, and ONE call derives the opening bridge from the FINAL pack - one line per asset and liability account, the pack cited by report, version, document hash and input hash, the lines made required", async () => {
+    d = await returningClient("D");
+    await d.optIn({ });
+    await d.reg("ledger_snapshot", "gl", d.ledgerPayload());
+    const req = uuid(); importD = await importPack(d, U.preparer, req);
+    const again = await importPack(d, U.preparer, uuid());
+    const br = await db.one("SELECT payload FROM public.rfr_inputs WHERE company_id=$1 AND period_year=$2 AND family='opening_bridge' ORDER BY seq DESC LIMIT 1", [d.A, Y]);
+    const sc = (await asU(U.preparer, "SELECT public.rfr_status($1,$2) r", [d.A, Y])).r;
+    const ev = await db.count("SELECT count(*) n FROM public.rfr_inputs WHERE company_id=$1 AND family='evidence'", [d.A]);
+    return importD.outcome === "recorded" && importD.lines >= 8 ? (again.outcome === "unchanged" && br.payload.basis.startsWith(`prior_final:${d.rid25}@v${d.r25.reportVersion};doc:${d.priorDoc.h};input:`) && importD.classified === 1 && ev === 1
+      && sc.scope.facts.opening_lines.length === importD.lines && br.payload.lines.filter((l) => l.classification).length === 1 && br.payload.lines.find((l) => l.line === "acct-2000").approved === "-320000" ? true : { again, basis: br.payload.basis, classified: importD.classified, ev, lines: importD.lines }) : importD;
+  });
+  await check("ONE check, ONE finding: every other opening line agrees to the pack; only the payable differs (ledger 310,000 vs approved 320,000), explained by the pack's own approved adjustment AA-1 (reproduced, not typed); the proposal moves 100.00 from opening equity to the payable", async () => {
+    const r = await d.checkBooks();
+    const bad = r.result.findings.filter((f) => f.outcome !== "pass");
+    const agrees = r.result.findings.filter((f) => f.rule === "OPENING_AGREES").length;
+    const issues = presentIssues(r.result, { currency: "TZS", exponent: 2 });
+    return bad.length === 1 && bad[0].rule === "OPENING_ADJUSTMENT_UNPOSTED" && bad[0].scope === "opening:acct-2000" && bad[0].detail.difference === "10000" && agrees === importD.lines - 1 && issues.length === 1
+      && r.result.proposals.length === 1 && r.result.proposals[0].lines.map((l) => `${l.account}:${l.amount}`).sort().join() === "2000:-10000,3100:10000" ? true : { bad: bad.map((f) => [f.rule, f.scope]), agrees, issues: issues.length, props: r.result.proposals };
+  });
+  await check("ONE effective correction, exact books: proposed once (repeats are already_proposed), approved by a different person, payable 320,000, opening equity 1,090,000, expense 6100 unchanged at 240,000, every required check ready; re-importing the pack changes nothing", async () => {
+    const r1 = await d.checkBooks();
+    const p1 = await d.propose(r1.result.proposals[0]), p2 = await d.propose(r1.result.proposals[0]);
+    await asU(U.partner, "SELECT public.close_review_decide_adjustment($1,'approve','Agreed to the FY2025 pack',NULL,$2) r", [p1.adjustmentId, uuid()]);
+    const r2 = await d.checkBooks(); const L = await d.layer();
+    const again = await importPack(d);
+    const r3 = await d.checkBooks();
+    const adjN = await db.count("SELECT count(*) n FROM public.close_review_adjustments WHERE company_id=$1 AND period_year=$2", [d.A, Y]);
+    return p1.outcome === "proposed" && p2.outcome === "already_proposed" && r2.result.finalization.held === false && r2.balancesAgree && L["2000"] === "-320000" && L["3100"] === "-1090000" && L["6100"] === "240000"
+      && again.outcome === "unchanged" && r3.result.applied_adjustments.length === 1 && adjN === 1 ? true : { p: [p1.outcome, p2.outcome], held: r2.result.finalization, L: { 2000: L["2000"], 3100: L["3100"] }, again: again.outcome, adjN };
+  });
+  await check("the pack is refused by name when it cannot be relied on: no prior FINAL (source B has none), or an adjustment approved AFTER the pack was issued (the sealed pack no longer equals the prior year's current position); a viewer cannot import", async () => {
+    const g = await returningClient("G", { priorPack: false }); await g.optIn({});
+    const none = await importPack(g);
+    const e = await returningClient("F");
+    await e.optIn({});
+    const late = await e.T.proposeAdjustment(e.A, 2025, [{ accountKey: "6000", debitMinor: "5000", creditMinor: "0" }, { accountKey: "2000", debitMinor: "0", creditMinor: "5000" }], "Late accrual approved after the pack was issued");
+    await e.T.approveAdjustment(late.adjustmentId);
+    const changed = await importPack(e);
+    const viewer = await importPack(d, U.viewer);
+    return none.outcome === "no_prior_final" && changed.outcome === "prior_changed_after_issue" && viewer.outcome === "forbidden" ? true : { none, changed, viewer };
+  });
+
   // ═══════════════ Source B: statements issued OUTSIDE CFOClose ═══════════════
   group("B. Statements issued outside CFOClose: the issued document, its structured comparative schedule and the evidence of the adjustment feed the existing comparative workflow");
   let b, issued, restId;
@@ -392,6 +439,45 @@ async function main() {
     const ver = await db.one("SELECT report_document -> 'reportingDependencies' ->> 'dependenciesSha256' d FROM public.financial_statement_reports WHERE report_id=$1 AND report_version=$2", [bPrev.rid, bPrev.v]);
     const ids = new Set([issued.issuedId, restId, adj.adjustment_id]);
     return ids.size === 3 && row.document_sha256 === issuedDoc && /^[0-9a-f]{64}$/.test(bridge.payload_sha256) && bridge.payload.basis.includes(issued.issuedId) && ver.d === bPrev.dp.dependenciesSha256 && bPrev.cmpNow.approval.comparativeSha256 === bPrev.cmpNow.comparativeSha256 ? true : { ids: [...ids], row, ver, cmp: bPrev.cmpNow.approval };
+  });
+  group("B2. Importing issued comparatives is NOT a restatement; a genuine restatement of an issued figure is a separate, authorized act");
+  const authorize = (uid, id, basis = "prior_period_error", evidence = "Error analysis EA-2025-03") => asU(uid, "SELECT public.fs_authorize_restatement($1,$2,'The FY2025 payable was understated by an invoice received in January 2026',$3,$4) r", [id, basis, evidence, uuid()]).then((r) => r.r);
+  await check("TRACE: why the issued schedule enters through the restatement path - the comparative is composed from the CERTIFIED LEDGER trial balance, and the only way to move a presented comparative off it is an approved restatement row. Importing derives that row; it is recorded as an issued import (reference issued:<id>), needs no authorization, and the reconciliation treats the ISSUED schedule as the authority", async () => {
+    const c = await b.composition(); const pay = b.line(c, "sfp.trade_and_other_payables").comparative;
+    const rec = (await asU(U.owner, "SELECT public.fs_issued_comparative_reconciliation($1,$2) r", [b.A, Y])).r;
+    const refused1 = await authorize(U.owner, restId);
+    const ref = (await db.one("SELECT reference FROM public.fs_comparative_restatements WHERE id=$1", [restId])).reference;
+    // Named limitation: the composition cannot yet tell an import from a restatement, so the line is flagged restated and its 'as reported' is the ledger figure.
+    return ref === `issued:${issued.issuedId}` && refused1.outcome === "issued_import_needs_no_authorization" && rec.state === "reconciled" && rec.unauthorizedRestatements === 0 && rec.authorizedRestatements === 0
+      && pay.amountMinor === "320000" && pay.asReportedMinor === "310000" && pay.restated === true ? true : { ref, refused1, rec, pay };
+  });
+  let genuine;
+  await check("a GENUINE restatement of an issued figure (+50.00 on the payable and the expense, a prior-period error) goes through the ordinary two-person workflow - and is then BLOCKED until authorized: the comparative no longer equals the issued schedule and an approved restatement is unauthorized", async () => {
+    const lines = [{ lineId: "sfp.trade_and_other_payables", section: "current_liabilities", deltaMinor: "5000" }, { lineId: "sci.operating_expenses_by_function", section: "sci", deltaMinor: "5000" }];
+    const pr = await asU(U.preparer, "SELECT public.fs_propose_restatement($1,$2,$3::jsonb,'Invoice received in January 2026 relates to FY2025 services','Error analysis EA-2025-03',$4) r", [b.A, Y, JSON.stringify(lines), uuid()]).then((r) => r.r);
+    genuine = pr.restatementId;
+    const ap = await asU(U.partner, "SELECT public.fs_decide_restatement($1,'approved','Agreed to the invoice and the error analysis',$2) r", [genuine, uuid()]).then((r) => r.r);
+    const bl = (await b.T.partner.c.readiness(b.A, bPrev.rid, bPrev.v)).blockers;
+    const rec = (await asU(U.owner, "SELECT public.fs_issued_comparative_reconciliation($1,$2) r", [b.A, Y])).r;
+    return pr.outcome === "recorded" && ap.outcome === "recorded" && bl.some((x) => x.startsWith("RESTATEMENT_NOT_AUTHORIZED:1")) && bl.some((x) => x.startsWith("COMPARATIVE_NOT_AS_ISSUED_EXTERNAL:2:"))
+      && rec.state === "differences" && rec.unauthorizedRestatements === 1 ? true : { pr: pr.outcome, ap: ap.outcome, bl: bl.filter((x) => /RESTATEMENT|ISSUED/.test(x)), rec: [rec.state, rec.unauthorizedRestatements] };
+  });
+  await check("authorization is a third person's act: the proposer (no approve_certification), the restatement's own approver and an import are all refused; the owner authorizes with a basis and evidence; a second authorization is refused", async () => {
+    const byProposer = await authorize(U.preparer, genuine);
+    const byApprover = await authorize(U.partner, genuine);
+    const ok = await authorize(U.owner, genuine);
+    const again = await authorize(U.owner, genuine);
+    const badBasis = await asU(U.owner, "SELECT public.fs_authorize_restatement($1,'because',$2,$3,$4) r", [genuine, "A reason that is long enough", "Evidence reference", uuid()]).then((r) => r.r);
+    return byProposer.outcome === "forbidden" && byApprover.outcome === "authorizer_is_approver" && ok.outcome === "recorded" && again.outcome === "already_authorized" && badBasis.outcome === "invalid_request" ? true : { byProposer, byApprover, ok, again, badBasis };
+  });
+  await check("after authorization the reconciliation is exact: presented 325,000 = issued 320,000 + authorized 5,000 on the payable; 1,005,000 = 1,000,000 + 5,000 on the expense; the issued schedule and the figures as reported by the ledger are both kept; no CFOClose blocker of this control remains", async () => {
+    const c = await b.composition(); const pay = b.line(c, "sfp.trade_and_other_payables").comparative, opx = b.line(c, "sci.operating_expenses_by_function").comparative;
+    const rec = (await asU(U.owner, "SELECT public.fs_issued_comparative_reconciliation($1,$2) r", [b.A, Y])).r;
+    const bl = (await b.T.partner.c.readiness(b.A, bPrev.rid, bPrev.v)).blockers;
+    const az = await db.one("SELECT basis, evidence_ref FROM public.fs_restatement_authorizations WHERE restatement_id=$1", [genuine]);
+    const sch = (await db.one("SELECT schedule FROM public.fs_issued_comparatives WHERE id=$1", [issued.issuedId])).schedule.find((x) => x.lineId === "sfp.trade_and_other_payables");
+    return pay.amountMinor === "325000" && pay.asReportedMinor === "310000" && opx.amountMinor === "1005000" && opx.asReportedMinor === "990000" && sch.amountMinor === "320000" && rec.state === "reconciled" && rec.authorizedRestatements === 1
+      && rec.unauthorizedRestatements === 0 && az.basis === "prior_period_error" && !bl.some((x) => /^(RESTATEMENT_NOT_AUTHORIZED|COMPARATIVE_NOT_AS_ISSUED_EXTERNAL)/.test(x)) ? true : { pay, opx, rec: [rec.state, rec.authorizedRestatements, rec.unauthorizedRestatements], bl: bl.filter((x) => /RESTATEMENT|ISSUED/.test(x)) };
   });
   await refused("issued records are append-only - not even the database owner may change one", "42501", () => db.admin.query("UPDATE public.fs_issued_comparatives SET document_name = 'x y z' WHERE true"));
 }

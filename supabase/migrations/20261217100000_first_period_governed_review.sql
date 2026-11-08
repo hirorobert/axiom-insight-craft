@@ -166,7 +166,7 @@ RETURNS text LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, public AS $$
     WHEN 'FIRST_PERIOD_LEGACY_DECLARATION_UNVERIFIED' THEN 'Your earlier first-period declaration is kept as a claim only. Record the first-period facts, cite the registration evidence and ask a partner or manager to review them.'
     WHEN 'FIRST_PERIOD_FACTS_MISSING' THEN 'Record the first-period facts (legal name, registration and start dates, the exact reporting dates) and cite the evidence for them.'
     WHEN 'FIRST_PERIOD_ENTITY_NAME_MISMATCH' THEN 'Make the legal name in the facts match the company name in this workspace, or correct the company name.'
-    WHEN 'FIRST_PERIOD_ENTITY_TIN_MISMATCH' THEN 'Make the TIN in the facts match the company''s TIN, or correct the company profile.'
+    WHEN 'FIRST_PERIOD_ENTITY_TIN_MISMATCH' THEN 'Make the tax identifier in the facts match the company''s tax identifier, or correct the company profile.'
     WHEN 'FIRST_PERIOD_IDENTITY_EVIDENCE_MISSING' THEN 'Cite the certificate of incorporation or registration whose date is the registration date in the facts.'
     WHEN 'FIRST_PERIOD_DATES_MISMATCH' THEN 'The facts name different reporting dates from the reviewed trial balance. Record the facts again for the server''s dates.'
     WHEN 'FIRST_PERIOD_NOT_FIRST_ON_EVIDENCE' THEN 'The registration date is before this period begins, so the evidence cited does not show a first period. Prepare comparatives; if the entity was dormant, record the dormancy basis with its evidence.'

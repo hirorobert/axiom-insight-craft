@@ -13,7 +13,7 @@ export function toolkit(db, W, k, companyName = COMPANY_NAME) {
   const asU = (uid, sql, p) => db.asUser(uid, sql, p);
   const as = (uid) => { const d = clientDb(db, uid); return { d, c: signoffClient(d) }; };
   const pre = as(U.preparer), partner = as(U.partner), owner = as(U.owner);
-  const decisionRows = ACCOUNTS.map((r) => r.slice(0, 5));
+  const decisionRows = ACCOUNTS.map((r) => [...r.slice(0, 5), r[0] === "3100"]);
 
   /** Upload + real-engine certification of one year from the exported (source ledger) trial balance. */
   async function certifyYear(A, year, first) {

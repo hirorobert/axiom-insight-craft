@@ -38,6 +38,17 @@ export const PROPOSE_CORRECTION_WORDS: Record<Exclude<ProposeCorrectionOutcome, 
   unknown_account: "An account is not classified in this workspace. Classify it in Account review first.", not_reversible: "Only an approved correction can be reversed, once.",
   request_reused: "This was already sent with different content. Reload and try again.", feature_disabled: "Close Review is not enabled for this workspace. Nothing was recorded.",
 };
+export type ImportPriorPackOutcome = "recorded" | "unchanged" | "forbidden" | "feature_disabled" | "invalid_request" | "not_enabled" | "no_prior_final" | "prior_unavailable" | "prior_changed_after_issue" | "retained_earnings_unidentified" | "request_reused";
+export interface PriorPackResult { outcome: ImportPriorPackOutcome; lines?: number; classified?: number; priorReportId?: string; priorReportVersion?: number; documentSha256?: string }
+export const PRIOR_PACK_WORDS: Record<Exclude<ImportPriorPackOutcome, "recorded" | "unchanged">, string> = {
+  forbidden: "Reading last year's pack needs Prepare in this workspace. Nothing was recorded.", feature_disabled: "Close Review is not enabled for this workspace. Nothing was recorded.",
+  invalid_request: "That could not be read. Nothing was recorded.", not_enabled: "Start checking this period first. Nothing was recorded.",
+  no_prior_final: "Last year has no FINAL pack in this workspace, so there is nothing to read. Import last year's approved figures instead.",
+  prior_unavailable: "Last year's reviewed trial balance is not available, so its position cannot be read.",
+  prior_changed_after_issue: "Last year's books changed after its pack was issued (for example an adjustment approved later). The pack no longer shows last year's position; resolve that first.",
+  retained_earnings_unidentified: "An approved adjustment needs this year's opening equity account, and no account is marked as retained earnings. Mark it in Account review first.",
+  request_reused: "This was already sent with different content. Reload and try again.",
+};
 export const CHECK_WORDS: Record<Exclude<CheckOutcome, "recorded">, string> = {
   not_enabled: "Start checking this period first.", no_authority: "There is no reviewed trial balance for this period yet.", period_unknown: "The reporting period of the trial balance is not known.",
   input_changed: "The books changed while they were being checked. Check again.", invalid_request: "The request was not valid.", forbidden: "Checking needs Prepare in this workspace.",
@@ -65,6 +76,9 @@ export function readinessClient(db: { rpc: Rpc }, invoke: Invoke) {
         p_company_id: companyId, p_period_year: periodYear, p_correction_id: c.correctionId, p_scope: c.scope, p_anchor: c.anchor, p_reason: c.reason, p_evidence_ref: c.evidenceRef,
         p_lines: c.lines, p_request_id: requestId, p_reverses_correction: c.reversesCorrection ?? null, p_bundle: c.bundle, p_supersedes: c.supersedes ?? null,
       }, "The proposal"),
+    /** Reads last year's approved position from the prior FINAL pack itself (server-derived; nothing is typed or exported). */
+    importPriorPack: (companyId: string, periodYear: number, requestId: string) =>
+      call<PriorPackResult>("rfr_import_prior_pack", { p_company_id: companyId, p_period_year: periodYear, p_request_id: requestId }, "Reading last year's pack"),
     check: async (companyId: string, periodYear: number): Promise<CheckOutcome> => {
       const { data, error } = await invoke("rfr-check-books", { companyId, periodYear });
       const outcome = (data as { outcome?: string } | null)?.outcome;

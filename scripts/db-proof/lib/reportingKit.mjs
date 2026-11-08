@@ -193,8 +193,8 @@ export async function certifier(db, U) {
     shim.storage.set(`trial-balance-files/${filePath}`, new TextEncoder().encode(text));
     return { id, year: y, periodId: pid };
   };
-  const decisions = (rows = TB) => rows.map(([code, name, cls, st, nb]) => ({ account_code: code, account_name: name, proposal_type: "NONE",
-    decision_action: "USER_MANUAL_CLASSIFICATION", statement: st, classification: cls, normal_balance: nb, is_cash_account: code === "1000" }));
+  const decisions = (rows = TB) => rows.map(([code, name, cls, st, nb, flagRe]) => ({ account_code: code, account_name: name, proposal_type: "NONE",
+    decision_action: "USER_MANUAL_CLASSIFICATION", statement: st, classification: cls, normal_balance: nb, is_cash_account: code === "1000", ...(flagRe === true ? { is_retained_earnings: true } : {}) }));
   const review = (company, u, rows = TB) => db.asUser(U.owner, "SELECT public.resolve_account_review_batch($1,$2,$3,$4::jsonb)", [company, u.id, uuid(), JSON.stringify(decisions(rows))]);
   const certify = async (company, u) => {
     const r = await call(ptb, db.pool, mintTestJwt(U.owner), { uploadId: u.id, clientRequestId: uuid() });

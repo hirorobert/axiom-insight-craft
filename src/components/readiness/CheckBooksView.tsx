@@ -10,7 +10,7 @@ import { ActionButton } from "@/components/feedback/ActionButton";
 import { PendingStatus } from "@/components/feedback/Activity";
 import { useBusyState } from "@/hooks/useBusyState";
 import {
-  CHECK_WORDS, PROPOSE_CORRECTION_WORDS, REGISTER_WORDS, type CorrectionProposal, type ReadinessClient, type ReadinessStatus,
+  CHECK_WORDS, PRIOR_PACK_WORDS, PROPOSE_CORRECTION_WORDS, REGISTER_WORDS, type CorrectionProposal, type ReadinessClient, type ReadinessStatus,
 } from "@/lib/readiness/client";
 import { buildRegistrations, parseSettings, type CheckSettings, type WorkspaceAccount } from "@/lib/readiness/importFiles";
 import { presentIssues, type CorrectionView, type Issue } from "@/lib/readiness/present";
@@ -100,6 +100,13 @@ export function CheckBooksView(p: {
     await load();
   });
 
+  const readPriorPack = () => act(async () => {
+    const out = await p.client.importPriorPack(p.companyId, p.periodYear, requestFor("prior-pack"));
+    if (out.outcome !== "recorded" && out.outcome !== "unchanged") { setNotice(PRIOR_PACK_WORDS[out.outcome]); return; }
+    setNotice(out.outcome === "unchanged" ? "Last year's FINAL pack was already read." : `Read last year's approved position from its FINAL pack (version ${out.priorReportVersion}): ${out.lines} lines, ${out.classified} explained by the pack's own approved adjustments. Now check your books.`);
+    await load();
+  });
+
   const check = () => act(async () => {
     const out = await p.client.check(p.companyId, p.periodYear);
     if (out !== "recorded") { setNotice(CHECK_WORDS[out]); return; }
@@ -174,6 +181,7 @@ export function CheckBooksView(p: {
               </div>
             </div>
             <ActionButton type="submit" className={secondary} disabled={!canPrepare} busy={busy} busyLabel="Importing…">Import the files</ActionButton>
+            <ActionButton type="button" className={secondary} disabled={!canPrepare} busy={busy} busyLabel="Reading…" onClick={() => void readPriorPack()} data-testid="use-prior-pack">Use last year's FINAL pack as the approved opening position</ActionButton>
           </form>
 
           <div>
