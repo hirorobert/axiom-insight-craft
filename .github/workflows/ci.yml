@@ -198,6 +198,9 @@ jobs:
       - name: Type-check the independent statement compiler against the real Supabase client types
         run: deno check supabase/functions/compile-financial-report/index.ts
 
+      - name: Type-check the Ready for Reporting function against the real Supabase client types
+        run: deno check supabase/functions/rfr-check-books/index.ts
+
       - name: Type-check the QuickBooks connector functions including authorized disconnect against the real Supabase client types
         run: deno check supabase/functions/qbo-connect-start/index.ts supabase/functions/qbo-oauth-callback/index.ts supabase/functions/qbo-finish-connection/index.ts supabase/functions/qbo-pull-trial-balance/index.ts supabase/functions/qbo-disconnect/index.ts
 
@@ -1418,6 +1421,31 @@ jobs:
           echo "$code" > proof-results/publicationAuthority.present.exit
           grep -v '^\[PTB' proof-results/publicationAuthority.present.log || true
           node scripts/ci/validateProofResult.mjs proof-results/publicationAuthority.present.json --manifest scripts/db-proof/publicationAuthority.manifest.mjs --mode present --exit-code "$code"
+
+      - name: Ready for Reporting proof (20261216100000 - opt-in readiness gate at FINAL, both orderings of a concurrent change, QuickBooks freshness as a separate attestation, exact balances through the real adjustment functions)
+        shell: bash
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/readiness_proof
+          PROOF_RESULT_FILE: proof-results/readinessFinalization.present.json
+        run: |
+          createdb readiness_proof
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/readinessFinalization.mjs > proof-results/readinessFinalization.present.log 2>&1
+          code=$?
+          set -e
+          echo "$code" > proof-results/readinessFinalization.present.exit
+          grep -v '^\[PTB' proof-results/readinessFinalization.present.log || true
+          node scripts/ci/validateProofResult.mjs proof-results/readinessFinalization.present.json --manifest scripts/db-proof/readinessFinalization.manifest.mjs --mode present --exit-code "$code"
+
+      - name: Ready for Reporting acceptance - runner self-check, audit regressions on the model and the engine, and the engine through the acceptance adapter
+        shell: bash
+        run: |
+          node scripts/acceptance/rfr-v3/run.mjs --self-check
+          node scripts/acceptance/rfr-v3/auditRegression.mjs
+          bun scripts/acceptance/rfr-v3/auditRegression.mjs --adapter scripts/acceptance/rfr-v3/adapters/implementation.mjs
+          bun scripts/acceptance/rfr-v3/run.mjs --implementation scripts/acceptance/rfr-v3/adapters/implementation.mjs
 
       - name: Track A hardening proof (release batch track-a-r1 installed on a database that already holds a FINAL, a sign-off and a sealed pack - order guard, interrupted installation rolled back, retry, repeated application refused, fixtures byte-identical; no API role writes the FINAL authority or its history and the table owner cannot move it without a matching event; the former replacement setting is ignored and the intent cannot be forged; TRUNCATE refused for every role; the framework changes only through the audited owner-only function, which invalidates the certification it affects and refuses stale, locked, processing, unauthorised and cross-tenant attempts; FINAL and framework change serialise in both orders)
         shell: bash

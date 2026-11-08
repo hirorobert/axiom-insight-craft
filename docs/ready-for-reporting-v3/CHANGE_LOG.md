@@ -49,3 +49,16 @@ Each finding from the reviews of v1/v2 and from the V3 assignment, with its reso
 | D5 | TB v2 names 1030 "CRDB USD"; the CRDB TZS statement has no ledger account; the CRDB USD statement is in USD. | E1 and E4 hold cash:CRDB-TZS for a mapping decision and Bank of Tanzania rates. |
 | D6 | The page-8 amount in this engagement's bank workpaper (7,059,664.92) does not match the transcribed adjacent rows (12,786,950.80). | E4 stays draft until resolved against the PDF; the fixture asserts the break, not an amount. |
 | D7 | The ledger carries no opening payable (A/P nil), so "Dr Payable / Cr Expense" alone would leave a debit payable. | E2 requires the opening-bridge correction first; two corrections, one effect each. |
+
+## Independent review of 8bb3b1f and the pilot implementation (rfr-acceptance/2)
+
+| # | Finding | Resolution | Status |
+|---|---|---|---|
+| X1 | D1: missing evidence could pass (scopes started READY) | Positive proof per scope, derived required scopes, `NOT_EVALUATED` (PILOT_IMPLEMENTATION.md §1) | Resolved; cases D1-*, PostgreSQL a3/a4 |
+| X2 | D2: an adjustment counted twice | One authoritative effective-correction set, post-conditions, layer-equals-engine check | Resolved; cases D2-*, PostgreSQL b1-b6 |
+| X3 | D3: the sandbox runner could manufacture a pass | `sandboxProof.mjs`: independence, known postings, recorded run; export parity is not a proof; NOT_RUN without access | Resolved for the runner; the sandbox run itself is NOT_RUN |
+| X4 | D4: evidence passed without the facts a rule requires | Facts present and equal; windows need dates; cut-off and opening evidence must state amount, account, date, identity | Resolved; cases S1-M3..M5, S10-M1..M6, E2-M4/M5 |
+| X5 | D5: finalization mixed reviewed content with refresh timing | Content digest bound by the review; separate expiring attestation bound to it | Resolved; cases D5-*, PostgreSQL f1-f6 |
+| X6 | Spec 4.1: "the account population must be equal both ways" made a TB that omits a zero-balance account fail | An account on one side only ties when its closing is exactly zero | Spec clarified; fixtures and both implementations |
+| X7 | Spec 8.1: "two effects are two corrections" vs one QuickBooks journal fixing their net | Corrections may share a `bundle`; the bundle is verified in the source as a whole; a partial fix is completed by a superseding residual | Resolved; cases E2-L6/L7, PostgreSQL b5/b6 |
+| X8 | cases.mjs C1 said `BUNDLE_STALE`; the spec says `RFR_MANIFEST_STALE` | `RFR_MANIFEST_STALE` everywhere | Resolved |
