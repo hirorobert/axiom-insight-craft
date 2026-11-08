@@ -1423,6 +1423,7 @@ jobs:
           node scripts/ci/validateProofResult.mjs proof-results/publicationAuthority.present.json --manifest scripts/db-proof/publicationAuthority.manifest.mjs --mode present --exit-code "$code"
 
       - name: Ready for Reporting proof (20261216100000 - opt-in readiness gate at FINAL, both orderings of a concurrent change, QuickBooks freshness as a separate attestation, exact balances through the real adjustment functions)
+        if: ${{ !cancelled() }}
         shell: bash
         env:
           DB_PROOF_MODE: external
@@ -1440,6 +1441,7 @@ jobs:
           node scripts/ci/validateProofResult.mjs proof-results/readinessFinalization.present.json --manifest scripts/db-proof/readinessFinalization.manifest.mjs --mode present --exit-code "$code"
 
       - name: Ready for Reporting acceptance - runner self-check, audit regressions on the model and the engine, and the engine through the acceptance adapter
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           node scripts/acceptance/rfr-v3/run.mjs --self-check
