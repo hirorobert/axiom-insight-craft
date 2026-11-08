@@ -624,6 +624,13 @@ describe("database inertness — schema and functions", () => {
     // Cache-Control: no-cache, no-store; no RLS, policy or table change), the Cache-Control value of eight functions, and proxied delivery of the
     // original file after the unchanged issuance decision. No financial write, authority or schema change of an existing object.
     added.add("supabase/migrations/20261215100000_api_cache_control_headers.sql");
+    // Ready for Reporting pilot (docs/ready-for-reporting-v3, branch feat/ready-for-reporting-pilot): ONE forward-only migration (an opt-in readiness gate spliced
+    // into fs_publication_blockers, immutable readiness tables, writers that take the existing scope lock), one Edge Function that runs the engine for a signed-in
+    // member, the pure engine under _shared/readiness, and the registration of that function. AUTHORED, NOT APPLIED.
+    added.add("supabase/migrations/20261216100000_ready_for_reporting_pilot.sql");
+    added.add("supabase/functions/rfr-check-books/index.ts");
+    for (const f of ["types", "money", "evidence", "rulePack", "corrections", "finalization", "engine", "load", "index"]) added.add(`supabase/functions/_shared/readiness/${f}.ts`);
+    modified.add("supabase/config.toml");
     for (const file of ["supabase/functions/qbo-oauth-callback/index.ts", "supabase/functions/trial-balance-draft/index.ts", "supabase/functions/trial-balance-source-download/index.ts",
       "supabase/functions/trial-balance-source-signer/index.ts", "supabase/functions/_shared/sourceDownload.ts"]) modified.add(file);
     expect(unreviewedChanges(changed, { added, modified, removed })).toEqual([]);
@@ -932,6 +939,11 @@ describe("database inertness — schema and functions", () => {
     for (const file of ["scripts/db-proof/apiCacheHeaders.mjs", "scripts/db-proof/qboRealmProtectionCandidate.mjs", "scripts/ci/releaseJournal.mjs",
       "scripts/db-proof/serviceWithholding.mjs", "scripts/db-proof/trackAHardening.mjs", "scripts/e2e/sourceDownloadJourney.mjs",
       "scripts/e2e/localStackJourney.mjs", "scripts/browser-acceptance/cdp.mjs"]) allowed.add(file);
+    // Ready for Reporting pilot: the acceptance contract (fixtures, strict runner, adapter, regression), its PostgreSQL proof and the pilot fixture writer.
+    for (const f of ["implementation.mjs"]) allowed.add(`scripts/acceptance/rfr-v3/adapters/${f}`);
+    for (const f of ["auditRegression", "cases", "compare", "referenceModel", "run", "sandboxProof"]) allowed.add(`scripts/acceptance/rfr-v3/${f}.mjs`);
+    for (const f of ["readinessFinalization.manifest", "readinessFinalization"]) allowed.add(`scripts/db-proof/${f}.mjs`);
+    allowed.add("scripts/readiness/writePilotFixtures.mjs");
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
 
