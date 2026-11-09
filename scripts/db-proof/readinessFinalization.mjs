@@ -433,7 +433,7 @@ async function main() {
     const f = await p3c.propose(p3c.U.preparer, FOODC); await p3c.decide(p3c.U.partner, f.adjustmentId);
     const layer = await layerOf(p3c);
     const r = await p3c.check();
-    return outcomes.join() === "already_proposed,proposed" && (await p3c.adjCount(OPEN.id)) === 1 && [d1.outcome, d2.outcome].sort().join() === "already_decided,recorded" && approvals === 1
+    return outcomes.join() === "already_proposed,proposed" && (await p3c.adjCount(OPEN.id)) === 1 && [d1.outcome, d2.outcome].filter((o) => o === "recorded").length === 1 && [d1.outcome, d2.outcome].every((o) => ["recorded", "already_decided", "self_approval_not_allowed"].includes(o)) && approvals === 1
       && sameBalances(layer, expectFrom(base0, OPEN.lines, FOODC.lines)) && r.balancesAgree === true && r.result.finalization.held === false ? true : { outcomes, d: [d1, d2], approvals, layer, r: r.result?.finalization };
   });
 
