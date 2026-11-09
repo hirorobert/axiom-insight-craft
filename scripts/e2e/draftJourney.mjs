@@ -381,13 +381,29 @@ const commitAndProcess = async (bytes, name) => {
   const c = await fn(owner, commitBody({ ...d, bytes, year: p.year }, { period_id: p.periodId, engagement_id: p.engagementId }));
   if (c.body?.outcome !== "committed") return { commit: c.body };
   const t0 = Date.now();
-  const res = await fetch(`${apiUrl}/functions/v1/process-trial-balance`, { method: "POST", headers: { Authorization: `Bearer ${owner.token}`, apikey: anonKey, "Content-Type": "application/json" }, body: JSON.stringify({ uploadId: c.body.upload_id, clientRequestId: crypto.randomUUID() }) });
+  // One request id for the whole check: a retry is the SAME request, never a second one (the protocol every other check here
+  // and the browser follow). A single retry is allowed only for a runtime-level termination: HTTP 503/546 whose body carries
+  // no application code. The Edge Runtime ends a request that runs long on a loaded runner (CI run 42483952150, attempt 2: the
+  // largest over-limit workbook, 1,608 ms, 503, empty body, no worker line; the same request passed in 624-1,059 ms elsewhere).
+  // A refusal the function itself names (PROCESSING_BUSY, TOO_MANY_*) or any other status is never retried, and a second
+  // runtime termination fails the check.
+  const requestId = crypto.randomUUID();
+  const send = () => fetch(`${apiUrl}/functions/v1/process-trial-balance`, { method: "POST", headers: { Authorization: `Bearer ${owner.token}`, apikey: anonKey, "Content-Type": "application/json" }, body: JSON.stringify({ uploadId: c.body.upload_id, clientRequestId: requestId }) });
+  let res = await send(), retried = null;
+  let firstText = res.status === 200 ? "" : (await res.text().catch(() => "")).slice(0, 400);
+  const runtimeTermination = (status, text) => (status === 503 || status === 546) && !(() => { try { return JSON.parse(text)?.code; } catch { return null; } })();
+  if (runtimeTermination(res.status, firstText)) {
+    retried = { http: res.status, ms: Date.now() - t0, body: firstText };
+    log(`        [policy] ${name}: runtime ended the request (HTTP ${res.status}, ${retried.ms} ms, no application code); retrying the SAME request once`);
+    res = await send();
+    firstText = res.status === 200 ? "" : (await res.text().catch(() => "")).slice(0, 400);
+  }
   const ms = Date.now() - t0;
-  const bodyText = res.status === 200 ? "" : (await res.text().catch(() => "")).slice(0, 400);
+  const bodyText = firstText;
   const row = (await admin.from("trial_balance_uploads").select("status, processing_result, accounting_errors").eq("id", c.body.upload_id).single()).data;
   const ing = row?.processing_result?.ingestion ?? null;
   const cert = await certificationOf(c.body.upload_id);
-  const r = { httpStatus: res.status, ms, bytes: bytes.length, status: row?.status, codes: (ing?.issues ?? []).map((i) => i.code), accounts: ing?.lineage_summary?.account ?? null, totals: ing?.totals ?? null, cert, uploadId: c.body.upload_id, year: p.year };
+  const r = { httpStatus: res.status, ms, bytes: bytes.length, status: row?.status, codes: (ing?.issues ?? []).map((i) => i.code), accounts: ing?.lineage_summary?.account ?? null, totals: ing?.totals ?? null, cert, uploadId: c.body.upload_id, year: p.year, retried };
   log(`        [policy] ${name}: ${(bytes.length / 1024).toFixed(0)} KB, HTTP ${r.httpStatus} in ${ms} ms, status ${r.status}, accounts ${r.accounts}, issues ${r.codes.join(",") || "none"}, certification ${cert ? `findings ${cert.findingsCount} (stored ${cert.stored}, summary ${cert.summaryEntries}${cert.summarized ? ", summarized" : ""})` : "none"}${bodyText ? `, body ${bodyText}` : ""}${r.status === "error" ? `, errors ${JSON.stringify(row?.accounting_errors ?? null).slice(0, 300)}` : ""}`);
   return r;
 };
