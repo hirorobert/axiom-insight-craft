@@ -1586,9 +1586,9 @@ jobs:
       - name: Readiness read-only proof (DEFECT D-2; the client transport as PostgREST runs it, STABLE functions in a READ ONLY transaction; 25006 reproduced on two existing drafts before 20261023100000; after it and a schema reload readiness reads, both drafts survive byte for byte, the Close Review gate and REVIEWED and FINAL by role hold, stale versions are refused, a readiness read writes nothing; no other STABLE function writes; on the same throwaway container)
         env:
           DB_PROOF_MODE: external
-          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/readiness_proof
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/readiness_read_only_proof
         run: |
-          createdb readiness_proof
+          createdb readiness_read_only_proof
           bun scripts/db-proof/readinessReadOnly.mjs
 
       - name: Cash perimeter scope proof (DEFECT D-3; each period's cash accounts from its own reporting input, never company-wide; the hosted state rebuilt from the acceptance fixture files plus earlier cash accounts of another year; reproduced with the company-wide flags; the next version stores and binds the cash account map, the perimeter and roll-forward pass, every expected total matches; drafts, certifications and the earlier accounts unchanged; REVIEWED, FINAL and export; a later mapping change makes the result stale; on the same throwaway container)
