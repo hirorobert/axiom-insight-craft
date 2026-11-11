@@ -624,6 +624,13 @@ describe("database inertness — schema and functions", () => {
     // Cache-Control: no-cache, no-store; no RLS, policy or table change), the Cache-Control value of eight functions, and proxied delivery of the
     // original file after the unchanged issuance decision. No financial write, authority or schema change of an existing object.
     added.add("supabase/migrations/20261215100000_api_cache_control_headers.sql");
+    // Second-pass S2-S01/S2-S03/S2-S04: one forward-only migration that REMOVES client write policies and write-class privileges on
+    // eighteen financial/evidence tables and tightens three professional-input tables (no row changed, SELECT and service_role kept;
+    // proof: scripts/db-proof/financialWriteBoundary.mjs), and the five functions that wrote those tables with the caller's token now
+    // verify an accepted member holding prepare_close and write with the service role. No financial-statements schema.
+    added.add("supabase/migrations/20261221100000_financial_table_member_write_revocation.sql");
+    for (const file of ["supabase/functions/safisha-efdms-ingest/index.ts", "supabase/functions/safisha-categorize/index.ts", "supabase/functions/safisha-score/index.ts",
+      "supabase/functions/maono-cashflow/index.ts", "supabase/functions/maono-risk/index.ts"]) modified.add(file);
     for (const file of ["supabase/functions/qbo-oauth-callback/index.ts", "supabase/functions/trial-balance-draft/index.ts", "supabase/functions/trial-balance-source-download/index.ts",
       "supabase/functions/trial-balance-source-signer/index.ts", "supabase/functions/_shared/sourceDownload.ts"]) modified.add(file);
     expect(unreviewedChanges(changed, { added, modified, removed })).toEqual([]);
@@ -932,6 +939,10 @@ describe("database inertness — schema and functions", () => {
     for (const file of ["scripts/db-proof/apiCacheHeaders.mjs", "scripts/db-proof/qboRealmProtectionCandidate.mjs", "scripts/ci/releaseJournal.mjs",
       "scripts/db-proof/serviceWithholding.mjs", "scripts/db-proof/trackAHardening.mjs", "scripts/e2e/sourceDownloadJourney.mjs",
       "scripts/e2e/localStackJourney.mjs", "scripts/browser-acceptance/cdp.mjs"]) allowed.add(file);
+    // Financial table write boundary (20261221100000): a loopback-only disposable-database proof and its manifest, and the two
+    // migration-tail lists that pin the newest migration. No hosted access, no deploy capability.
+    for (const file of ["scripts/db-proof/financialWriteBoundary.mjs", "scripts/db-proof/financialWriteBoundary.manifest.mjs",
+      "scripts/db-proof/serviceWithholding.mjs", "scripts/db-proof/trackAHardening.mjs"]) allowed.add(file);
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
 
