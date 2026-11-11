@@ -195,6 +195,9 @@ export function PeriodCloseManager({ userId }: Props) {
   };
 
   useEffect(() => { fetchAll(); }, [userId]);
+
+  // ── Portfolio summary ─────────────────────────────────────────────────────
+  const lockedCount = companies.filter(c => c.signOff?.status === "locked").length;
   const pendingCount = companies.filter(c => c.signOff && c.signOff.status !== "locked").length;
   const noSignOffCount = companies.filter(c => !c.signOff).length;
 
