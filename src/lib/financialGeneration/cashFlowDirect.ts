@@ -11,10 +11,15 @@
 //
 // A missing opening cash figure yields a partial statement WITHOUT opening or
 // closing lines — never a zero, never an inferred figure.
+//
+// A transfer between two cash accounts of the perimeter (activity TRANSFER_BETWEEN_CASH_ACCOUNTS, ledger schema 1.1.0) is not a
+// cash flow and is presented nowhere (S2-A01). A period whose ledger records nothing else has no cash flow to present: the
+// current period then yields no statement (as an empty ledger would), and a comparative period contributes no figure.
 
 import { addMoney, subtractMoney, sumMoney, type Money } from "@/lib/canonicalStatement/money";
 import { CANONICAL_CONCEPTS } from "@/lib/canonicalStatement/concepts";
 import type { MonetaryFact, Statement, StatementLine, StatementSection } from "@/lib/canonicalStatement/types";
+import { TRANSFER_ACTIVITY } from "@/lib/financialEvidence/schemas";
 import type { EvidenceBatch } from "@/lib/financialEvidence/types";
 import { amountOf, byCodepoint, columnReader, describeRows, evidenceFact, gap, periodRef, sameDenomination, slug, type EvidenceRowRef, type GenerationDiagnostic, type GenerationResult } from "./common";
 
@@ -47,6 +52,8 @@ function aggregate(input: CashFlowPeriodInput): PeriodAggregate {
   const byLine = new Map<string, Map<string, { net: Money; rows: number[] }>>();
   for (let row = 1; row <= input.ledger.document.rows.length; row++) {
     const activity = read(row, "activity");
+    // In each account's roll-forward (cashLedgerAuthority.ts), in no presented line. Its two legs are checked at intake.
+    if (activity === TRANSFER_ACTIVITY) continue;
     const label = read(row, "cash_flow_line");
     const receipt = read(row, "receipt");
     const amount = receipt !== "" ? amountOf(input.ledger, receipt) : subtractMoney(amountOf(input.ledger, "0"), amountOf(input.ledger, read(row, "payment")));
@@ -65,7 +72,10 @@ export function buildDirectCashFlow(periods: readonly CashFlowPeriodInput[]): Ge
   const current = periods.filter((p) => !p.isComparative);
   if (current.length !== 1) return gap(["Exactly one current-period cash ledger is required."]);
 
-  const aggs = periods.map(aggregate);
+  const all = periods.map(aggregate);
+  if (all.find((a) => !a.input.isComparative)!.byLine.size === 0) return gap(["The current-period cash ledger records only transfers between cash accounts; there is no cash flow to present."]);
+  // The server's twin (fs_evidence_statements) composes nothing for a period without a presentable row; neither does this.
+  const aggs = all.filter((a) => a.byLine.size > 0);
   const denomination = periods[0].ledger;
   const facts: MonetaryFact[] = [];
   const evidenceIndex: Record<string, EvidenceRowRef[]> = {};
