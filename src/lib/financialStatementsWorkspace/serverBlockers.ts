@@ -9,6 +9,11 @@ const WORDS: Record<string, (detail: string) => string> = {
   CLOSE_REVIEW_ADJUSTMENTS_UNDECIDED: (d) => `${d} adjustment${d === "1" ? " is" : "s are"} awaiting approval or rejection.`,
   CLOSE_REVIEW_ADJUSTMENTS_REQUIRE_REVALIDATION: (d) => `${d} approved adjustment${d === "1" ? " was" : "s were"} approved on an earlier trial balance and must be revalidated or declined first.`,
   COMPARATIVE_PERIOD_MISSING: () => "The framework requires comparative figures. Add the prior year; only a genuinely first reporting period (no earlier trial balance) can be declared, with evidence.",
+  // [20261222100000] role:account:account:net minor units
+  CASHFLOW_TRANSFER_UNMATCHED: (d) => {
+    const [role, a, b] = d.split(":");
+    return `In the ${role === "COMPARATIVE" ? "comparative" : "current"} cash ledger, the transfers recorded between cash accounts ${a ?? "?"} and ${b ?? "?"} do not net to zero. Record both legs of each transfer, one on each account, naming the other account; money leaving the two accounts is a cash flow, not a transfer.`;
+  },
 };
 
 /** "CODE" or "CODE:detail" → a sentence (or null when there are no words for the code). */

@@ -645,6 +645,12 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/maono-cashflow/index.ts", "supabase/functions/maono-risk/index.ts"]) modified.add(file);
     for (const file of ["supabase/functions/qbo-oauth-callback/index.ts", "supabase/functions/trial-balance-draft/index.ts", "supabase/functions/trial-balance-source-download/index.ts",
       "supabase/functions/trial-balance-source-signer/index.ts", "supabase/functions/_shared/sourceDownload.ts"]) modified.add(file);
+    // S2-A01 / S2-A02 (fix/fs-cash-transfers-and-post-closing): two forward-only migrations (fs_evidence_statements leaves transfers
+    // between cash accounts out of every presented line; a reviewer's reasoned acceptance clears the post-closing finding; the
+    // compiler identity of rule pack 2.4.0) and the regenerated compiler bundle with its digest. No table, grant or writer is added.
+    added.add("supabase/migrations/20261222100000_fs_cash_transfers_and_post_closing.sql");
+    added.add("supabase/migrations/20261222200000_statement_compiler_transfers_post_closing.sql");
+    for (const file of ["supabase/functions/_shared/statementCompiler.generated.mjs", "supabase/functions/_shared/statementCompiler.manifest.mjs"]) modified.add(file);
     expect(unreviewedChanges(changed, { added, modified, removed })).toEqual([]);
   });
 
