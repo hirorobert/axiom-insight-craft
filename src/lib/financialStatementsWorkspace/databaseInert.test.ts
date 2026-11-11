@@ -534,6 +534,11 @@ describe("database inertness — schema and functions", () => {
       // PR #32 user-based validation: process-trial-balance resolves its actor with tbu_resolve_processing_actor, and the
       // idempotency claim records a workspace_user actor (actor_user_id) with no firm membership.
       "supabase/functions/process-trial-balance/index.ts",
+      // SheetJS 0.20.3 (CVE-2023-30533, CVE-2024-22363): the spreadsheet import names the official cdn.sheetjs.com ESM build
+      // instead of esm.sh 0.18.5. One import line each (and its @deno-types line); no schema, no query.
+      "supabase/functions/process-trial-balance/auditedAccountsAdapter.ts",
+      "supabase/functions/trial-balance-layout/index.ts",
+      "supabase/functions/layout-assist/index.ts",
       // PR #34 release blocker P-1 (after main received PR #34 in production): the processing entitlement helpers
       // (processingEntitlementRefusal, isEntitlementWallError) added to the reviewed paid-action gate. No financial-statements schema.
       "supabase/functions/_shared/paidAction.ts",
