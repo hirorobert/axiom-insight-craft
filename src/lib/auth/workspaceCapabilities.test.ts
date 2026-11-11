@@ -65,7 +65,9 @@ describe("no job title decides anything in the client or at the Edge", () => {
   });
   it("the sign-off and scope controls read the server's capability answer", () => {
     expect(read("src/components/PeriodCloseManager.tsx")).toMatch(/get_my_workspace_capabilities/);
-    expect(read("src/jurisdiction-packs/tz/KingaTaxPanel.tsx")).toMatch(/useWorkspaceCapabilities\(companyId\)/);
+    // KingaTaxPanel no longer offers a sign-off control (statement_sign_offs is server-written only since 20261221100000),
+    // so it has no capability decision left to read; it must not regain a direct sign-off write.
+    expect(read("src/jurisdiction-packs/tz/KingaTaxPanel.tsx")).not.toMatch(/\.from\("statement_sign_offs"\)\s*\.(insert|update|upsert)\(/);
     expect(read("src/hooks/useEngagementMandate.ts")).toMatch(/canAmend: canExercise\(capabilities, "review_close"\)/);
   });
 });
