@@ -534,8 +534,9 @@ describe("database inertness — schema and functions", () => {
       // PR #32 user-based validation: process-trial-balance resolves its actor with tbu_resolve_processing_actor, and the
       // idempotency claim records a workspace_user actor (actor_user_id) with no firm membership.
       "supabase/functions/process-trial-balance/index.ts",
-      // SheetJS 0.20.3 (CVE-2023-30533, CVE-2024-22363): the spreadsheet import names the official cdn.sheetjs.com ESM build
-      // instead of esm.sh 0.18.5. One import line each (and its @deno-types line); no schema, no query.
+      // SheetJS 0.20.3 (CVE-2023-30533, CVE-2024-22363): the spreadsheet import names the vendored ESM build
+      // (_shared/vendor/sheetjs-0.20.3/xlsx.mjs) instead of esm.sh 0.18.5. One import line each (and its @deno-types line);
+      // no schema, no query.
       "supabase/functions/process-trial-balance/auditedAccountsAdapter.ts",
       "supabase/functions/trial-balance-layout/index.ts",
       "supabase/functions/layout-assist/index.ts",
@@ -949,11 +950,14 @@ describe("database inertness — schema and functions", () => {
     // Adding any other package/version still fails this guard. None creates a database or provider connection.
     const REVIEWED_LOCAL_DOCUMENT_DEPENDENCIES = new Map([["@tesseract.js-data/eng", "1.0.0"], ["pdfjs-dist", "6.4.299"], ["tesseract.js", "6.0.1"]]);
     const reviewedRuntimeLines = new Set([...REVIEWED_LOCAL_DOCUMENT_DEPENDENCIES].map(([name, version]) => `+    "${name}": "${version}",`));
-    // SheetJS 0.20.3 (CVE-2023-30533, CVE-2024-22363): SheetJS publishes only to its own CDN, so the dependency is the
-    // official tarball URL (bun.lock records its sha512). A dependency given by URL, git, file or npm: alias is checked
-    // like a version: an unreviewed one fails.
-    const REVIEWED_SHEETJS = '+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",';
-    expect(diff.filter((l) => /"[@\w./-]+":\s*"(?:[\^~]?\d|https?:|git|file:|link:|npm:)/.test(l) && !REVIEWED_DEV_DEPENDENCIES.has(l) && !reviewedRuntimeLines.has(l) && l !== REVIEWED_SHEETJS)).toEqual([]);
+    // SheetJS 0.20.3 (CVE-2023-30533, CVE-2024-22363): SheetJS publishes 0.19+ only on its own CDN, and the owner does not
+    // accept an externally hosted dependency, so the official tarball is vendored and the dependency names that file
+    // (vendor/sheetjs/PROVENANCE.md; pinned by scripts/ci/assertVendoredDependencies.mjs; bun.lock records its sha512).
+    // Exactly this local-file line is reviewed. A dependency given by any URL scheme, git, owner/repo shorthand, another
+    // file:/link: path or an npm: alias is checked like a version: an unreviewed one fails (the first revision's
+    // cdn.sheetjs.com URL line included).
+    const REVIEWED_SHEETJS = '+    "xlsx": "file:vendor/sheetjs/xlsx-0.20.3.tgz",';
+    expect(diff.filter((l) => /"[@\w./-]+":\s*"(?:[\^~]?\d|[a-z][a-z0-9+.-]*:|git|[\w.-]+\/[\w.-]+)/i.test(l) && !REVIEWED_DEV_DEPENDENCIES.has(l) && !reviewedRuntimeLines.has(l) && l !== REVIEWED_SHEETJS)).toEqual([]);
     const pkgNow = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
     for (const name of ["axe-core", "jsdom"]) {
       expect(pkgNow.dependencies?.[name], `${name} must never be a runtime dependency`).toBeUndefined();
@@ -961,6 +965,7 @@ describe("database inertness — schema and functions", () => {
     }
     for (const [name, version] of REVIEWED_LOCAL_DOCUMENT_DEPENDENCIES) expect(pkgNow.dependencies[name]).toBe(version);
     expect(pkgNow.dependencies.fflate).toBeDefined();
+    expect(pkgNow.dependencies.xlsx).toBe("file:vendor/sheetjs/xlsx-0.20.3.tgz");
   });
 });
 
