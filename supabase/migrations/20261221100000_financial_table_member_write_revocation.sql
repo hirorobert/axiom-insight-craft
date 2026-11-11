@@ -80,6 +80,10 @@ DECLARE
   v_role   TEXT;
   v_priv   TEXT;
   v_col    TEXT;
+  -- What clients can read before: the postcondition requires exactly the same afterwards (this migration removes writes,
+  -- never visibility, and neither grants nor removes SELECT whatever the database's own default privileges were).
+  v_readable_before TEXT[];
+  v_select_policies_before TEXT[];
 BEGIN
   -- ── 0. Preflight ───────────────────────────────────────────────────────────────────────────────────────────────────
   SET LOCAL lock_timeout = '5s';
@@ -88,6 +92,10 @@ BEGIN
       RAISE EXCEPTION 'PREFLIGHT_REFUSED: public.% does not exist; nothing was changed', v_table USING ERRCODE = 'P0001';
     END IF;
   END LOOP;
+  SELECT coalesce(array_agg(t ORDER BY t), ARRAY[]::TEXT[]) INTO v_readable_before
+    FROM unnest(v_server || v_input) t WHERE has_table_privilege('authenticated', 'public.' || t, 'SELECT');
+  SELECT coalesce(array_agg(p.tablename || '.' || p.policyname ORDER BY p.tablename, p.policyname), ARRAY[]::TEXT[]) INTO v_select_policies_before
+    FROM pg_policies p WHERE p.schemaname = 'public' AND p.tablename = ANY (v_server || v_input) AND p.cmd = 'SELECT';
   IF NOT EXISTS (SELECT 1 FROM unnest(v_server) t
                   WHERE has_table_privilege('authenticated', 'public.' || t, 'INSERT')
                      OR has_table_privilege('authenticated', 'public.' || t, 'UPDATE')
@@ -196,11 +204,14 @@ BEGIN
         RAISE EXCEPTION 'POSTCONDITION_FAILED: % still holds a column-level write privilege on public.%', v_role, v_table USING ERRCODE = 'P0001';
       END IF;
     END LOOP;
-    IF NOT has_table_privilege('authenticated', 'public.' || v_table, 'SELECT')
-       OR NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = v_table AND cmd = 'SELECT') THEN
-      RAISE EXCEPTION 'POSTCONDITION_FAILED: what the engines recorded must remain readable (public.%)', v_table USING ERRCODE = 'P0001';
-    END IF;
   END LOOP;
+  IF (SELECT coalesce(array_agg(t ORDER BY t), ARRAY[]::TEXT[]) FROM unnest(v_server || v_input) t
+       WHERE has_table_privilege('authenticated', 'public.' || t, 'SELECT')) IS DISTINCT FROM v_readable_before
+     OR (SELECT coalesce(array_agg(p.tablename || '.' || p.policyname ORDER BY p.tablename, p.policyname), ARRAY[]::TEXT[])
+           FROM pg_policies p WHERE p.schemaname = 'public' AND p.tablename = ANY (v_server || v_input) AND p.cmd = 'SELECT')
+        IS DISTINCT FROM v_select_policies_before THEN
+    RAISE EXCEPTION 'POSTCONDITION_FAILED: what the engines recorded must remain readable exactly as before (SELECT privilege and policies)' USING ERRCODE = 'P0001';
+  END IF;
   IF EXISTS (SELECT 1 FROM pg_policies
               WHERE schemaname = 'public' AND tablename = ANY (v_server)
                 AND cmd IN ('INSERT', 'UPDATE', 'DELETE', 'ALL') AND roles <> ARRAY['service_role']::name[]) THEN
@@ -217,9 +228,6 @@ BEGIN
     IF has_table_privilege('anon', 'public.' || v_table, 'INSERT') OR has_table_privilege('anon', 'public.' || v_table, 'UPDATE')
        OR has_table_privilege('anon', 'public.' || v_table, 'DELETE') THEN
       RAISE EXCEPTION 'POSTCONDITION_FAILED: anon still holds a write privilege on public.%', v_table USING ERRCODE = 'P0001';
-    END IF;
-    IF NOT has_table_privilege('authenticated', 'public.' || v_table, 'SELECT') THEN
-      RAISE EXCEPTION 'POSTCONDITION_FAILED: public.% must remain readable', v_table USING ERRCODE = 'P0001';
     END IF;
   END LOOP;
   IF has_table_privilege('authenticated', 'public.variance_budgets', 'DELETE')
