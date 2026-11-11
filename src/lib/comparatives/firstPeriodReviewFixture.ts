@@ -1,6 +1,6 @@
 // Test fixture (synthetic): fs_first_period_status payloads in the exact shape 20261223100000 returns. Used only by tests.
 import type { Subject } from "./firstPeriodReview";
-import { FIRST_PERIOD_NEXT_ACTIONS } from "@/lib/financialStatementsWorkspace/firstPeriodNextActions";
+import { FIRST_PERIOD_NEXT_ACTIONS } from "@/lib/comparatives/firstPeriodNextActions";
 
 const H = (c: string) => c.repeat(64);
 export const CERT = { id: "00000000-0000-4000-8000-0000000000c1", kind: "certificate_of_incorporation", reference: "Certificate of incorporation CN-2026-0042", revision: 1,

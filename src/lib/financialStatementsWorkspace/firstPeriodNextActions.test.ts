@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { FIRST_PERIOD_NEXT_ACTIONS } from "./firstPeriodNextActions";
+import { FIRST_PERIOD_NEXT_ACTIONS } from "@/lib/comparatives/firstPeriodNextActions";
 import { blockerSentence } from "./serverBlockers";
 
 const SQL = readFileSync(resolve(__dirname, "../../../supabase/migrations/20261223100000_first_period_governed_review_standalone.sql"), "utf8");

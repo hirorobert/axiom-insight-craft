@@ -5,7 +5,8 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { CLAIM_OUTCOMES, DECISION_OUTCOMES, EVIDENCE_OUTCOMES, documentSha256, firstPeriodClient, firstPeriodFacts, outcomeWords, parseFirstPeriodStatus, reviewView, type Abilities, type SubjectStatus } from "./firstPeriodReview";
 import { fpStatus, item, subject } from "./firstPeriodReviewFixture";
-import { FIRST_PERIOD_NEXT_ACTIONS } from "@/lib/financialStatementsWorkspace/firstPeriodNextActions";
+import { FIRST_PERIOD_NEXT_ACTIONS } from "@/lib/comparatives/firstPeriodNextActions";
+import { blockerText } from "@/lib/reporting/blockers";
 
 const SQL = readFileSync(resolve(__dirname, "../../../supabase/migrations/20261223100000_first_period_governed_review_standalone.sql"), "utf8");
 const PREPARER: Abilities = { canPrepare: true, canApprove: false };
@@ -174,5 +175,16 @@ describe("the calls are exactly the migration's functions, with exactly their pa
   it("a failed status read is 'unknown' (cannot confirm), not an exception and not a default", async () => {
     expect(await firstPeriodClient({ rpc: async () => ({ data: null, error: { message: "function fs_first_period_status does not exist" } }) }).status("c1", 2026)).toMatchObject({ state: "unknown" });
     expect(await firstPeriodClient({ rpc: async () => { throw new Error("network"); } }).status("c1", 2026)).toMatchObject({ state: "unknown" });
+  });
+});
+
+describe("the sign-off page's words for the same reasons", () => {
+  it("each first-period and opening-balance reason reads as its one next action, never 'the server reports a blocker'; the missing comparative names the review", () => {
+    for (const [code, words] of Object.entries(FIRST_PERIOD_NEXT_ACTIONS)) {
+      expect(blockerText(code)).toBe(words);
+      expect(blockerText(`${code}:1`)).toBe(words);
+    }
+    expect(blockerText("COMPARATIVE_PERIOD_MISSING")).toMatch(/first-period review on the Comparatives page/);
+    expect(blockerText("COMPARATIVE_PERIOD_MISSING")).toMatch(/A declaration alone does not/);
   });
 });

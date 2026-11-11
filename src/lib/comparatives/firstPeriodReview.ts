@@ -4,7 +4,7 @@
 // defaulted or written here (CLAUDE.md 4.2: RPCs only). Anything the page cannot recognise is "cannot confirm", never approved.
 
 import { z } from "zod";
-import { FIRST_PERIOD_NEXT_ACTIONS } from "@/lib/financialStatementsWorkspace/firstPeriodNextActions";
+import { FIRST_PERIOD_NEXT_ACTIONS } from "@/lib/comparatives/firstPeriodNextActions";
 
 export type Subject = "first_period" | "opening_balances";
 

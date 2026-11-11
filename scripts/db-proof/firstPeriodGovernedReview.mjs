@@ -33,7 +33,7 @@ import { EVIDENCE_FY2025_COMPARATIVE, EVIDENCE_FY2026, FY2026, applyChainBefore,
 import { blockersOf, decide, recordEvidence, sha, status as fpStatus, submitClaim, verifyGenuineFirstPeriod, withMissingComparativeDates } from "./lib/firstPeriodKit.mjs";
 import { CASES, PROOF } from "./firstPeriodGovernedReview.manifest.mjs";
 import { firstPeriodClient, firstPeriodFacts, reviewView } from "../../src/lib/comparatives/firstPeriodReview.ts";
-import { FIRST_PERIOD_NEXT_ACTIONS } from "../../src/lib/financialStatementsWorkspace/firstPeriodNextActions.ts";
+import { FIRST_PERIOD_NEXT_ACTIONS } from "../../src/lib/comparatives/firstPeriodNextActions.ts";
 import { ingestEvidence } from "../../src/lib/financialEvidence/intake.ts";
 import { signoffClient } from "../../src/lib/reporting/signoff.ts";
 import { prepareReportVersion } from "../../src/lib/reporting/prepareVersion.ts";

@@ -13,7 +13,7 @@ import { composition } from "@/lib/statements/compositionFixture";
 import { axeViolations, click, mount, typeInto, type Mounted } from "@/lib/workbench/testkit/dom";
 import type { ReportingDb } from "@/lib/reporting/signoff";
 import { CERT, fpStatus, item, subject } from "@/lib/comparatives/firstPeriodReviewFixture";
-import { FIRST_PERIOD_NEXT_ACTIONS } from "@/lib/financialStatementsWorkspace/firstPeriodNextActions";
+import { FIRST_PERIOD_NEXT_ACTIONS } from "@/lib/comparatives/firstPeriodNextActions";
 
 let m: Mounted | null = null;
 afterEach(() => { m?.unmount(); m = null; document.body.innerHTML = ""; });

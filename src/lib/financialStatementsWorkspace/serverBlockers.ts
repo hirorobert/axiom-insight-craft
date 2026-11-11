@@ -1,6 +1,6 @@
 // financialStatementsWorkspace/serverBlockers.ts — plain words for the server's publication blockers
 // (fs_publication_blockers). The code is always shown too; a code without words is shown as is, never hidden.
-import { FIRST_PERIOD_NEXT_ACTIONS } from "./firstPeriodNextActions";
+import { FIRST_PERIOD_NEXT_ACTIONS } from "@/lib/comparatives/firstPeriodNextActions";
 
 const WORDS: Record<string, (detail: string) => string> = {
   REPORTING_INPUT_STALE: () => "The reviewed trial balance, its approved adjustments or its findings changed after this version was prepared. Prepare and save a new version.",
