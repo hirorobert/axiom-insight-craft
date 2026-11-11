@@ -226,5 +226,5 @@ The releases below were owner-authorised. The release review was performed by th
 - busy/retry: not exercised on hosted;
 - Reporting Pack: FS lane;
 - payments: the Polar sandbox correction pending on hosted, Snippe disabled, external Polar wording;
-- privacy: `KAMANGA_MEDICS_TB_2025.csv` is tracked on `main` (#171);
+- privacy: `a client-derived trial balance file (removed 2026-11-11)` is tracked on `main` (#171);
 - #149: deferred, and must be renumbered.
