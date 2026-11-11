@@ -26,7 +26,7 @@
 import { CURRENCY_REGISTRY } from "./currencyRegistry.ts";
 import { PRINTED_FOOTER_RULES, footerRuleFor, isStandalonePageNumber } from "./printedReportMetadata.ts";
 
-export const TB_INGESTION_VERSION = "tb-ingest-3.2.0";
+export const TB_INGESTION_VERSION = "tb-ingest-3.3.0";
 
 export type Cell = string | number | boolean | null | undefined;
 
@@ -464,8 +464,23 @@ export function detectColumns(rows: SourceRow[], periodYear: number | null): Col
   const debit = resolveAmount("debit");
   const credit = resolveAmount("credit");
   const hasDebitCredit = debit !== null && credit !== null;
-  // With Debit and Credit columns, balance columns are not used for arithmetic, so their number does not matter.
-  const balance = hasDebitCredit ? (byRole.balance.length === 1 ? pick("balance", byRole.balance) : null) : resolveAmount("balance");
+  // With Debit and Credit columns, ONE balance column is cross-checked against them on every row (BALANCE_COLUMN_MISMATCH).
+  // Two or more (an opening and a closing balance, or two years) cannot be checked against one Debit and Credit pair, and
+  // beside an opening and a closing balance the Debit and Credit columns are the period's MOVEMENTS, not balances at the
+  // reporting date. Refused (S2-I02) — never read on the movements — until a confirmed layout names the closing-balance
+  // column, or the file is exported with closing balances only.
+  const balanceBesideDebitCredit = hasDebitCredit && byRole.balance.length > 1;
+  const balance = hasDebitCredit ? (balanceBesideDebitCredit ? null : pick("balance", byRole.balance)) : resolveAmount("balance");
+  if (balanceBesideDebitCredit) {
+    const names = byRole.balance.map((c) => `“${headers[c]}”`).join(", ");
+    issues.push({
+      code: "AMBIGUOUS_AMOUNT_COLUMNS", severity: "blocking", field: "balance", rows: [header.rowNumber],
+      message: `Row ${header.rowNumber} has Debit and Credit columns and ${byRole.balance.length} balance columns (${names}). Beside an opening and a closing balance, Debit and Credit are usually the period's movements, not the balances at the reporting date, so this file cannot be read automatically. On the File layout page, choose the closing-balance column as the Balance column and leave Debit and Credit unassigned; or export the trial balance with closing balances only (one Debit and one Credit column, or one Balance column) and upload that.`,
+    });
+    // The movement columns are not proposed as the trial balance's Debit and Credit (the layout editor starts from this).
+    delete detected.debit;
+    delete detected.credit;
+  }
 
   for (const [role, value] of [["debit", debit], ["credit", credit], ["balance", balance]] as const) {
     if (value === "ambiguous") {
