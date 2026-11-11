@@ -8,7 +8,7 @@ export default function Privacy() {
       <Header />
       <main className="max-w-3xl mx-auto px-6 pt-32 pb-20">
         <h1 className="text-3xl font-bold text-foreground mb-2">Privacy Policy</h1>
-        <p className="text-sm text-muted-foreground mb-10">Last updated: 3 November 2026</p>
+        <p className="text-sm text-muted-foreground mb-10">Last updated: 11 November 2026</p>
 
         <section className="space-y-8 text-sm leading-relaxed text-muted-foreground">
           <div>
@@ -16,10 +16,11 @@ export default function Privacy() {
             <p>
               Account information you provide (name, email, firm and company
               names), the trial balances and supporting documents you upload, the
-              reconciliation, statement and other engagement records your firm
+              review decisions, reports and other engagement records your firm
               produces while using the service (including records created with
-              services that are no longer offered), and basic technical logs needed to
-              operate and secure the service.
+              services that are no longer offered), commercial records needed to
+              operate your plan (see section 4), and basic technical logs needed
+              to operate and secure the service.
             </p>
           </div>
 
@@ -40,10 +41,12 @@ export default function Privacy() {
           <div>
             <h2 className="text-lg font-semibold text-foreground mb-2">3. How it's used</h2>
             <p>
-              To provide the service you signed up for: running the accounting,
-              reconciliation and monitoring engines you invoke, maintaining
-              your workspace state, and keeping an audit trail of professional
-              decisions and administrative actions for your own firm's record. We
+              To provide the service you signed up for: checking and reviewing
+              the trial balances you upload and recording your review decisions
+              (and, for a company invited to the financial reporting pilot,
+              preparing its reports), maintaining your workspace state, and
+              keeping an audit trail of professional decisions and administrative
+              actions for your own firm's record. We
               do not sell your data, and we do not use your accounting data to
               train models for other customers.
             </p>
@@ -54,7 +57,8 @@ export default function Privacy() {
             <p>
               Separately from your accounting data, we maintain minimal commercial
               records (plan, licence status and, where applicable, payment
-              history) needed to operate accounts and support. This commercial
+              history and provider payment references — never card numbers)
+              needed to operate accounts and support. This commercial
               record is kept administratively separate from, and is never used to
               alter, your accounting data or the results your firm has produced.
             </p>
@@ -73,15 +77,44 @@ export default function Privacy() {
           <div>
             <h2 className="text-lg font-semibold text-foreground mb-2">6. Third parties</h2>
             <p>
-              Lovable Cloud and Supabase provide hosting, database, file
-              storage, authentication and server-function infrastructure.
               Authorized workspace members can access the company records their
               permissions allow. Operational staff access is limited to service,
-              security, support and legal needs. Intuit processes authorization
-              and source requests for QuickBooks connections. Payment integrations
-              in the product include Polar and Snippe; their availability depends
-              on the configured checkout. Any payment provider and applicable
-              terms must be shown before you confirm a payment.
+              security, support and legal needs. These external parties receive
+              personal or financial data when you use the parts of the service
+              named:
+            </p>
+            <ul className="mt-3 list-disc space-y-2 pl-5" data-testid="privacy-third-parties">
+              <li><strong className="text-foreground">Lovable (Lovable Cloud) and Supabase</strong> — hosting,
+                database, file storage, authentication and server functions:
+                all the data described in section 1.</li>
+              <li><strong className="text-foreground">Lovable</strong> — sends the service's e-mail from
+                notify.cfoclose.com (sign-up confirmation, password reset,
+                invitations and enquiry acknowledgements): the recipient's
+                e-mail address and the message.</li>
+              <li><strong className="text-foreground">Google, through Lovable's sign-in service</strong> — only
+                if you choose &ldquo;Continue with Google&rdquo;: you sign in at
+                Google, and your name and e-mail address are passed to CFOClose.</li>
+              <li><strong className="text-foreground">Polar</strong>, our merchant of record for card
+                payments — your name, e-mail address and account reference when
+                you start a payment; Polar collects your card and billing
+                details on its own page and tells us the payment outcome.</li>
+              <li><strong className="text-foreground">Cloudflare Turnstile</strong> — a bot check on the
+                public contact form: signals from your browser needed for the
+                check.</li>
+              <li><strong className="text-foreground">Google Fonts</strong> — the site loads its typeface
+                from Google, which receives your browser's IP address and
+                browser details when a page loads.</li>
+              <li><strong className="text-foreground">Namecheap</strong> — hosts the cfoclose.com mailboxes
+                (support, billing and general enquiries): the messages you send
+                us.</li>
+              <li><strong className="text-foreground">Intuit</strong> — authorization and source requests for
+                QuickBooks connections. Customer QuickBooks connections are not
+                currently available (section 8).</li>
+            </ul>
+            <p className="mt-3">
+              Snippe, a payment provider whose integration exists in the code,
+              is not offered: no customer data is sent to it. Optional AI
+              providers are described in section 9.
             </p>
           </div>
 
