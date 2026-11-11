@@ -9,6 +9,51 @@ The charter records target requirements, not proof of implementation or framewor
 This file is read automatically by Claude Code at the start of every session.
 It contains every architectural decision, constraint, and invariant established
 across the full development history of this project. Do not skip it.
+Read §0 first: it separates target architecture from what is implemented, tested and production-enabled.
+
+---
+
+## 0. Capability status — read this before every other section (2026-11-11)
+
+Much of this file was written as a plan and later read as a description. This section is the authority on what is
+true today; where a later section disagrees, this section wins and the later section carries a dated correction.
+
+**Four statuses, never merged into one word:**
+
+| Status | Means | Evidence that proves it |
+|---|---|---|
+| **Target** | Designed or described; not built, or built but not reachable | A design document |
+| **Implemented** | The code is on `main` | The file, at a cited commit |
+| **Tested** | Automated proof passes in CI for the code as it is on `main` | A CI run on the exact head, plus the proof's own result file |
+| **Production-enabled** | A customer of cfoclose.com can use it | A dated observation of the hosted system: a live-bundle marker, an unauthenticated probe, or an owner read-back |
+
+**Rules.** Source code, a merged PR, or a mirror in `drizzle/migrations/` is never evidence of production state:
+merge, Publish, Edge Function deploy and migration apply are four separate owner actions in Lovable
+(`assertMigrationAuthority.mjs` proves text parity with the journal and never connects to a database). Do not use
+"live", "deployed", "complete" or "production-ready" without the production-enabled evidence beside it.
+
+**Status as of `main` `d20a36b` (2026-11-10).** `main`'s own CI was red on its last three pushes (direct bot pushes:
+an inertness-guard assertion and the GitHub artifact-storage quota); "tested" below means proven on PR heads.
+
+| Capability | Implemented | Tested | Production-enabled (evidence) |
+|---|---|---|---|
+| Trial-balance upload, check, classification, review | Yes | Yes | **Yes**, general sale (live reader verified by an owner-session upload 2026-11-01; live bundle markers 2026-11-10). Open reader defects: formula cells without cached values, opening/movement/closing column files (branch `fix/tb-reader-formula-and-column-triads-20261111`) |
+| Card checkout through Polar, 12-month term, no renewal | Yes | Sandbox and local journeys only | **Yes**: `get_public_plan_prices` returned `online_payment: true` on 2026-11-10. The controlled live charge and refund round trip is recorded as NOT RUN |
+| Reconcile page (EFDMS panel) | Yes | Partly | Only for workspaces whose filing jurisdiction is TZ; the jurisdiction cannot be set after an engagement starts |
+| Financial statements, IFRS for SMEs 2015 | Yes | Yes (database proofs, browser journeys) | **Pilot only**, per company via `financial_statements_rollout_companies`. Hosted application of the publication controls is a journal record, not a read-back. Expected outputs are author-validated, not independently validated |
+| IPSAS accrual and cash | Partly | Partly | No: no publication path |
+| Tax computation, findings, disclosure notes, management letter (KINGA) | Yes | No | **No**: withheld; hosted `kinga-tax-engine` answered 503 before auth on 2026-11-10 |
+| Analytics (MAONO) | Yes | No | **No**: `maono-compute` restricted, `maono-decide` and `maono-root-cause` withheld (`_shared/openDefectRestriction.ts`); its UI is unreachable from `src/main.tsx` |
+| Bank reconciliation (SAFISHA), assertions (HESABU), XBRL | Yes | Partly | **No**: no routed UI |
+| QuickBooks Online connector | Yes | Yes, plus an Intuit sandbox rehearsal (2026-11-03) | **No**: `QBO_CONNECTOR_ENABLED = false` in the browser only; Intuit production review pending |
+| Ask CFOClose and other LLM features | Yes | Yes | **No**: disabled or withheld server-side |
+| Mobile money (Snippe) | Yes | Partly | **No**: route not launched |
+
+**Invariant status (§4).** §4.1 NULL-is-not-zero holds in the trial-balance and statement paths and is broken in the
+withheld tax engine (minimum tax written as 0). §4.2 sole write authority is a **target**: about twenty financial and
+evidence tables remain writable by members through PostgREST (branch `fix/financial-table-member-write-revocation-20261111`).
+§4.3 is a target for `statement_sign_offs`, whose signer columns reference `auth.users`. §4.6's sign-off trigger
+fires on INSERT only. Tenant isolation between companies held in a full replay of the migration chain.
 
 ---
 
@@ -29,6 +74,10 @@ lockfile — see section 14. Never run `npm install`/`npm ci`/`yarn`/`pnpm`; nev
 ---
 
 ## 2. Architecture v3.1 — The 7-Stage Accounting Lifecycle
+
+**Status 2026-11-11: target architecture.** Customers navigate the workbench (`src/lib/workbench/routes.ts`: Overview,
+Trial Balance, Close Review, Financial Statements, Sign-off), filtered by `moduleAvailability.ts`. The stage pages for
+statements, tax, compliance, filing and monitor are not reachable from `src/main.tsx`.
 
 Every client engagement moves through exactly these stages in order:
 
@@ -70,6 +119,12 @@ navigation labels. They exist in code and DB but not in nav tabs or headings.
 | HESABU | Financial statement validation | `supabase/functions/hesabu-validate` |
 | KINGA | Tax computation engine (ITA Cap.332) | `supabase/functions/kinga-tax-engine` |
 | MAONO | Variance analysis + forecasting | `supabase/functions/maono-*` |
+
+**Correction 2026-11-11: MAONO is not customer-available.** `maono-compute` is restricted and `maono-decide` /
+`maono-root-cause` are withheld by `_shared/openDefectRestriction.ts` (503 before authentication), and
+`MonitorWorkspace.tsx` / `MaonoDashboard` are unreachable from `src/main.tsx`. The paragraphs below describe the code's
+data discipline, not its availability. `account_pl_mapping` is created by migration `20260711163040`; only
+`account_classifications` has no migration.
 
 **MAONO is live — corrected 2026-09-04 (Ω∞ Phase 9 reconnaissance).** The
 `PHASE_B_LOCKED` / `MAONO_ENABLED` 503 guard this section previously
@@ -163,9 +218,19 @@ No `supabase.from('tax_computations').insert(...)` from the frontend.
 No `supabase.from('engine_runs').insert(...)` from the frontend.
 The only exception: audit log writes by `useAuditLog` hook.
 
+**Status 2026-11-11: target, not yet true.** A replay of the migration chain found about twenty financial and
+evidence tables (`period_closing_balances`, `statement_sign_offs`, `tax_losses`, MAONO outputs, SAFISHA/EFDMS
+evidence, `filing_obligations` and others) that an authenticated member can write directly through PostgREST, and
+`audit_logs` has no `company_id`. No routed page writes them. Revocation: branch
+`fix/financial-table-member-write-revocation-20261111`.
+
 ### 4.3 firmMemberId is the Canonical Actor Identity (v2.3)
 `firm_members.id` is the actor identity used in ALL financial writes.
 `auth.users.id` (Supabase auth UID) is used only for auth lookups.
+
+**Status 2026-11-11: target.** Newer authority paths re-derive the actor from `auth.uid()` inside SECURITY DEFINER
+functions; `statement_sign_offs.preparer_id/reviewer_id/approver_id` reference `auth.users(id)`
+(`20260707200000:254-262`).
 Every edge function that writes financial data must:
   1. Call `validateAuth(req)` from `_shared/auth.ts`
   2. Call `assertCompanyMembership(supabase, firmMemberId, companyId)`
@@ -228,21 +293,26 @@ Financial sign-offs require `role = 'partner'` or `role = 'manager'` in
 
 ## 5. Shared Auth Utilities (`_shared/auth.ts`)
 
-All edge functions import from `supabase/functions/_shared/auth.ts`.
-These are the only approved auth utilities:
+**Corrected 2026-11-11.** The list this section used to carry described helpers `_shared/auth.ts` does not export.
+What exists:
 
 ```typescript
-validateAuth(req)           // Extract + verify JWT, return { user, firmMemberId }
-assertCompanyMembership(supabase, firmMemberId, companyId)  // RLS guard
-checkIdempotency(supabase, key)     // Returns existing result if key seen before
-completeIdempotency(supabase, key, result)  // Mark key complete
-failIdempotency(supabase, key, error)       // Mark key failed
-recordEngineRun(supabase, params)   // Write to engine_runs table
-sha256Hex(data)             // Deterministic input hash
-canonicalJson(obj)          // Stable JSON serialisation for hashing
+// supabase/functions/_shared/auth.ts
+validateAuth(authHeader, corsHeaders)   // verify the JWT; returns the user (no firmMemberId)
+corsHeaders, handleCors(req)
+assertCompanyMembership(...)            // exported, but no function calls it
+// supabase/functions/_shared/actor.ts
+resolveFirmMemberActor(...)             // accepted-membership actor for writes (used by safisha-ingest, financial-statement-intake)
+// supabase/functions/_shared/hash.ts
+canonicalJson, sha256Hex, canonicalHash, sha256HexBytes
+// supabase/functions/_shared/engine-run.ts
+recordEngineRunComplete, recordEngineRunFailed
 ```
 
-Do not inline any of this logic. Always import from `_shared/auth.ts`.
+Functions authenticate in several ways (12 entrypoints call `validateAuth`, 28 call `auth.getUser` directly, a few
+verify claims themselves, webhooks use HMAC, the sweeper a database-minted ticket). Do not force one helper on
+all of them; for any function that writes company data, require an explicit accepted-membership and capability check
+before the write, and derive the actor server-side.
 
 ---
 
@@ -340,7 +410,9 @@ TS mirror `_shared/sourcePath.ts`, shared corpus); `..` is refused only as a who
 workspace. `process-trial-balance` processes a personal upload only for its `user_id` (403, identical for missing rows).
 
 ### five WIP migrations (NOT yet in origin/main)
-These must be applied in this exact order before any other WIP work:
+**Corrected 2026-11-11: these never landed.** No migration with these timestamps exists; `engine_runs` and
+`idempotency_keys` are created by `20260901120000_engine_execution_foundation.sql`; `tenant_events` and
+`sync_outbox` do not exist. The list below is kept as history only.
 1. `20260720100000` — RLS hardening + segregation of duties
 2. `20260720200000` — engine_runs reproducibility ledger
 3. `20260720300000` — idempotency_keys dedup table
@@ -1523,6 +1595,10 @@ AI ON stays `internal_beta_configure` (unchanged). Screen: `/commercial/admin?ta
 
 ## 10. Current Project State (as of 2026-07-25)
 
+**Historical; superseded by §0.** Several statements below are false today: the tax engine has no idempotency or
+`engine_runs` use, MAONO is withheld, `tenant_events` / `sync_outbox` do not exist, the 7-stage shell is not the
+customer navigation, and `supabase db push` is not the deploy path.
+
 ### What is complete and deployed
 - Architecture v3.1 routing shell (WorkspaceLayout + WorkspaceOverview + 7 stage pages)
 - deriveWorkspaceState.ts deterministic engine with 14-path coverage
@@ -1560,36 +1636,24 @@ from origin/main. Do NOT rebase the WIP branch directly.
 
 ## 11. Deploy Procedure
 
+**Corrected 2026-11-11.** Merging to `main` deploys nothing. Each of the following is a separate, explicitly
+authorised owner action in Lovable, verified separately (see §0 rules).
+
 ### Frontend
-```bash
-git add -A
-git commit -m "your message"
-git push origin main
-```
-Lovable.dev auto-deploys from main.
+Work on a branch and open a pull request; never push to `main` directly. After merge, the owner publishes from
+Lovable. A merge is not a publish.
 
 ### Database migrations
-```bash
-supabase db push
-```
-Always run AFTER pushing migrations to git. Always apply in filename order.
+Never run `supabase db push` against production. The owner applies each migration through Lovable's journalled
+migrator, byte for byte (§9.4 Migration authority); the repository then records the mirror. A mirror records an
+apply; only an owner read-back proves the hosted state.
 
 ### Edge functions (deploy individually)
-```bash
-supabase functions deploy kinga-tax-engine
-supabase functions deploy process-trial-balance
-supabase functions deploy hesabu-validate
-supabase functions deploy safisha-ingest
-supabase functions deploy safisha-efdms-ingest
-supabase functions deploy safisha-match
-supabase functions deploy generate-xbrl
-```
+The owner deploys each function through Lovable, one explicit request per function, in the order the PR states.
+Compare the deployed source with the pinned closure where possible (`scripts/release/verifyDeployedClosure.mjs`).
 
 ### Verify after deploy
 ```bash
-# Check function health
-supabase functions list
-
 # Install exactly what the lockfile says, then the release gate (must be zero failures)
 bun install --frozen-lockfile
 bunx tsc --noEmit -p tsconfig.app.json
