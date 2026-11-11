@@ -35,6 +35,12 @@
 --   evidence and decision (nil opening, or activity before bookkeeping began, reconciled item by item); while the exception is
 --   the comparative requirement's only basis, an unsupported opening is a blocker of its own (OPENING_SUPPORT_*).
 --
+--   THE PAGE (Financial Statements > Comparatives, src/components/reporting/FirstPeriodReview.tsx) drives only these RPCs. Its
+--   read model, fs_first_period_status, therefore also returns what an approver must see before deciding - the entity, the
+--   server's reporting dates, the current evidence revisions, each subject's latest claim, decision and cited revisions,
+--   and the binding a decision taken now would carry - and fs_decide_first_period takes that binding back
+--   (p_expected_binding): when anything moved in between, nothing is recorded (changed_since_viewed).
+--
 --   fs_publication_blockers is NOT re-created from a copy: the live definition on main (document-structure v7 of
 --   20261126100000 + the server-compilation splice 20261123100000) is read, one anchored block is replaced (asserted to occur
 --   exactly once) with itself plus two calls, and the result is checked to still carry every splice.
@@ -503,7 +509,7 @@ $$;
 
 -- ── 7. Writers (each takes the scope lock FIRST, like the sign-off transition) ───────────────────────────────────────────
 -- Outcomes: recorded | unchanged | replay | forbidden | feature_disabled | invalid_request | request_reused | no_claim | not_ready |
--- separate_approver_required.
+-- separate_approver_required | changed_since_viewed.
 CREATE OR REPLACE FUNCTION public.fs_record_first_period_evidence(p_company_id uuid, p_period_year integer, p_kind text, p_reference text,
   p_issued_on date, p_asserted_date date, p_document_sha256 text, p_note text, p_retract boolean, p_request_id uuid)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
@@ -576,7 +582,12 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.fs_decide_first_period(p_company_id uuid, p_period_year integer, p_subject text, p_verify boolean, p_reason text, p_request_id uuid)
+-- p_expected_binding: the binding the approver was SHOWN (fs_first_period_status -> <subject>.binding). When given and the
+-- server's binding has moved since (a newer claim, new or retracted evidence, a changed company or period), nothing is
+-- recorded (changed_since_viewed): an approver never decides something other than what the page put in front of them.
+-- It is a consistency guard for the page, not an authorisation: who may decide is unchanged.
+CREATE OR REPLACE FUNCTION public.fs_decide_first_period(p_company_id uuid, p_period_year integer, p_subject text, p_verify boolean, p_reason text, p_request_id uuid,
+  p_expected_binding text DEFAULT NULL)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE
   v_uid uuid := auth.uid(); v_claim public.fs_first_period_claims; v_assess jsonb; v_intent text; v_prior public.fs_first_period_decisions; v_last public.fs_first_period_decisions;
@@ -600,6 +611,9 @@ BEGIN
   END IF;
   IF v_claim.actor_user_id = v_uid THEN RETURN jsonb_build_object('outcome', 'separate_approver_required'); END IF;
   v_assess := CASE WHEN p_subject = 'first_period' THEN public._fs_first_period_assess(p_company_id, p_period_year) ELSE public._fs_opening_assess(p_company_id, p_period_year) END;
+  IF p_expected_binding IS NOT NULL AND p_expected_binding IS DISTINCT FROM (v_assess ->> 'binding') THEN
+    RETURN jsonb_build_object('outcome', 'changed_since_viewed');
+  END IF;
   IF p_verify AND jsonb_array_length(v_assess -> 'factIssues') > 0 THEN
     RETURN jsonb_build_object('outcome', 'not_ready', 'pending', v_assess -> 'factIssues');
   END IF;
@@ -645,22 +659,54 @@ BEGIN
 END;
 $$;
 
--- The read model of the page: both subjects, each pending item with its one next action, and the legacy declaration.
+-- What the page shows for ONE subject's latest claim and decision: the stated facts, the written basis, the cited revisions
+-- exactly as recorded (whether each is still current), and who recorded or decided relative to the CALLER (recordedByYou /
+-- decidedByYou: the page hides the approve control from the person who recorded the facts; the server still refuses it).
+CREATE OR REPLACE FUNCTION public._fs_fp_review_view(p_company_id uuid, p_period_year integer, p_claim_id uuid, p_decision_id uuid, p_uid uuid)
+RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT jsonb_build_object(
+    'claim', (SELECT jsonb_build_object('id', c.id, 'facts', c.facts, 'basisText', c.basis_text, 'evidenceIds', to_jsonb(c.evidence_ids), 'recordedAt', c.created_at,
+                                        'recordedByYou', c.actor_user_id IS NOT DISTINCT FROM p_uid)
+                FROM public.fs_first_period_claims c WHERE c.id = p_claim_id),
+    'decision', (SELECT jsonb_build_object('id', d.id, 'outcome', d.outcome, 'reason', d.reason, 'ruleVersion', d.rule_version, 'decidedAt', d.created_at,
+                                           'decidedByYou', d.actor_user_id IS NOT DISTINCT FROM p_uid)
+                   FROM public.fs_first_period_decisions d WHERE d.id = p_decision_id),
+    'cited', COALESCE((SELECT jsonb_agg(jsonb_build_object('id', e.id, 'kind', e.kind, 'reference', e.reference, 'revision', e.revision, 'issuedOn', e.issued_on,
+                                                           'assertedDate', e.asserted_date, 'documentSha256', e.document_sha256,
+                                                           'current', EXISTS (SELECT 1 FROM public._fs_fp_current_evidence(p_company_id, p_period_year) x WHERE x.id = e.id)) ORDER BY e.seq)
+                         FROM public.fs_first_period_claims c JOIN public.fs_first_period_evidence e ON e.id = ANY (c.evidence_ids) WHERE c.id = p_claim_id), '[]'::jsonb));
+$$;
+
+-- The read model of the page: both subjects, each pending item with its one next action, and the legacy declaration; the entity
+-- and the reporting dates exactly as the server binds them (the dates come from the authoritative certified trial balance,
+-- _fs_fp_period, which clients cannot call); the current evidence revisions the preparer may cite; per subject, the latest
+-- claim and decision (_fs_fp_review_view) and the binding digest a decision taken now would carry (fs_decide_first_period
+-- refuses one taken against a binding the approver was not shown).
 CREATE OR REPLACE FUNCTION public.fs_first_period_status(p_company_id uuid, p_period_year integer)
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE
-  v_fp jsonb; v_op jsonb; v_leg record;
+  v_fp jsonb; v_op jsonb; v_leg record; v_per record; v_co record; v_uid uuid := auth.uid();
 BEGIN
   IF NOT public.close_review_readable(p_company_id) THEN RETURN jsonb_build_object('state', 'unavailable'); END IF;
   v_fp := public._fs_first_period_assess(p_company_id, p_period_year);
   v_op := public._fs_opening_assess(p_company_id, p_period_year);
   SELECT d.action, d.evidence_kind, d.evidence_ref, d.evidence_date, d.created_at INTO v_leg FROM public.fs_first_period_declarations d
    WHERE d.company_id = p_company_id AND d.period_year = p_period_year ORDER BY d.seq DESC LIMIT 1;
+  SELECT * INTO v_per FROM public._fs_fp_period(p_company_id, p_period_year);
+  SELECT c.name, c.tin INTO v_co FROM public.companies c WHERE c.id = p_company_id;
   RETURN jsonb_build_object('state', 'evaluated', 'periodYear', p_period_year,
-    'firstPeriod', v_fp - 'binding' || jsonb_build_object('items', COALESCE((SELECT jsonb_agg(jsonb_build_object('code', split_part(x, ':', 1), 'detail', nullif(substr(x, length(split_part(x, ':', 1)) + 2), ''), 'nextAction', public._fs_fp_next_action(x)) ORDER BY o)
-                                                                        FROM jsonb_array_elements_text(v_fp -> 'pending') WITH ORDINALITY t(x, o)), '[]'::jsonb)),
-    'openingBalances', v_op - 'binding' || jsonb_build_object('items', COALESCE((SELECT jsonb_agg(jsonb_build_object('code', split_part(x, ':', 1), 'detail', nullif(substr(x, length(split_part(x, ':', 1)) + 2), ''), 'nextAction', public._fs_fp_next_action(x)) ORDER BY o)
-                                                                           FROM jsonb_array_elements_text(v_op -> 'pending') WITH ORDINALITY t(x, o)), '[]'::jsonb)),
+    'entity', jsonb_build_object('legalName', v_co.name, 'tin', nullif(btrim(v_co.tin), '')),
+    'period', jsonb_build_object('reportingStart', v_per.reporting_start, 'reportingEnd', v_per.reporting_end),
+    'evidence', COALESCE((SELECT jsonb_agg(jsonb_build_object('id', e.id, 'kind', e.kind, 'reference', e.reference, 'revision', e.revision, 'issuedOn', e.issued_on,
+                                                              'assertedDate', e.asserted_date, 'documentSha256', e.document_sha256, 'note', e.note, 'recordedAt', e.created_at,
+                                                              'recordedByYou', e.actor_user_id IS NOT DISTINCT FROM v_uid) ORDER BY e.seq)
+                            FROM public._fs_fp_current_evidence(p_company_id, p_period_year) e), '[]'::jsonb),
+    'firstPeriod', v_fp || jsonb_build_object('items', COALESCE((SELECT jsonb_agg(jsonb_build_object('code', split_part(x, ':', 1), 'detail', nullif(substr(x, length(split_part(x, ':', 1)) + 2), ''), 'nextAction', public._fs_fp_next_action(x)) ORDER BY o)
+                                                                        FROM jsonb_array_elements_text(v_fp -> 'pending') WITH ORDINALITY t(x, o)), '[]'::jsonb))
+                    || public._fs_fp_review_view(p_company_id, p_period_year, (v_fp ->> 'claimId')::uuid, (v_fp ->> 'decisionId')::uuid, v_uid),
+    'openingBalances', v_op || jsonb_build_object('items', COALESCE((SELECT jsonb_agg(jsonb_build_object('code', split_part(x, ':', 1), 'detail', nullif(substr(x, length(split_part(x, ':', 1)) + 2), ''), 'nextAction', public._fs_fp_next_action(x)) ORDER BY o)
+                                                                           FROM jsonb_array_elements_text(v_op -> 'pending') WITH ORDINALITY t(x, o)), '[]'::jsonb))
+                    || public._fs_fp_review_view(p_company_id, p_period_year, (v_op ->> 'claimId')::uuid, (v_op ->> 'decisionId')::uuid, v_uid),
     'legacyDeclaration', CASE WHEN v_leg.action IS NULL THEN NULL ELSE jsonb_build_object('action', v_leg.action, 'evidenceKind', v_leg.evidence_kind, 'evidenceRef', v_leg.evidence_ref,
                           'evidenceDate', v_leg.evidence_date, 'recordedAt', v_leg.created_at, 'satisfiesRequirement', false) END);
 END;
@@ -695,7 +741,8 @@ CREATE POLICY fpd2_read ON public.fs_first_period_decisions FOR SELECT TO authen
 
 REVOKE ALL ON FUNCTION public._fs_fp_next_action(text), public._fs_fp_norm(text), public._fs_fp_period(uuid, integer), public._fs_fp_current_evidence(uuid, integer),
   public._fs_fp_evidence_set_sha(uuid, integer, text), public._fs_fp_is_date(text), public._fs_fp_validate_facts(text, jsonb),
-  public._fs_first_period_assess(uuid, integer), public._fs_opening_assess(uuid, integer), public._fs_first_period_pending(uuid, integer), public._fs_opening_pending(uuid, integer)
+  public._fs_first_period_assess(uuid, integer), public._fs_opening_assess(uuid, integer), public._fs_first_period_pending(uuid, integer), public._fs_opening_pending(uuid, integer),
+  public._fs_fp_review_view(uuid, integer, uuid, uuid, uuid)
   FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public._fs_fp_binding(uuid, integer, text, public.fs_first_period_claims, date, date, text, text, text) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.fs_first_period_declared(uuid, integer) FROM PUBLIC, anon;
@@ -704,8 +751,8 @@ REVOKE ALL ON FUNCTION public.fs_record_first_period_evidence(uuid, integer, tex
 GRANT EXECUTE ON FUNCTION public.fs_record_first_period_evidence(uuid, integer, text, text, date, date, text, text, boolean, uuid) TO authenticated;
 REVOKE ALL ON FUNCTION public.fs_submit_first_period_claim(uuid, integer, text, jsonb, text, uuid[], uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fs_submit_first_period_claim(uuid, integer, text, jsonb, text, uuid[], uuid) TO authenticated;
-REVOKE ALL ON FUNCTION public.fs_decide_first_period(uuid, integer, text, boolean, text, uuid) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.fs_decide_first_period(uuid, integer, text, boolean, text, uuid) TO authenticated;
+REVOKE ALL ON FUNCTION public.fs_decide_first_period(uuid, integer, text, boolean, text, uuid, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fs_decide_first_period(uuid, integer, text, boolean, text, uuid, text) TO authenticated;
 REVOKE ALL ON FUNCTION public.fs_withdraw_first_period(uuid, integer, text, text, uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fs_withdraw_first_period(uuid, integer, text, text, uuid) TO authenticated;
 REVOKE ALL ON FUNCTION public.fs_first_period_status(uuid, integer) FROM PUBLIC, anon;
@@ -722,7 +769,7 @@ BEGIN
      OR position('ACCOUNT_CAPACITY_EXCEEDED' IN v_def) = 0 OR position('REVIEW_COMMENT_UNRESOLVED' IN v_def) = 0
      OR has_function_privilege('authenticated', 'public.fs_publication_blockers(uuid, text, integer)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public._fs_first_period_assess(uuid, integer)', 'EXECUTE')
-     OR has_function_privilege('anon', 'public.fs_decide_first_period(uuid, integer, text, boolean, text, uuid)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.fs_decide_first_period(uuid, integer, text, boolean, text, uuid, text)', 'EXECUTE')
      OR NOT has_function_privilege('authenticated', 'public.fs_first_period_declared(uuid, integer)', 'EXECUTE')
      OR position('_fs_first_period_assess' IN pg_get_functiondef('public.fs_first_period_declared(uuid, integer)'::regprocedure)) = 0
      OR (SELECT count(*) FROM public.fs_first_period_claims) <> 0 OR (SELECT count(*) FROM public.fs_first_period_decisions) <> 0 THEN

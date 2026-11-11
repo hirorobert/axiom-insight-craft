@@ -72,4 +72,14 @@ export const CASES = Object.freeze([
   { id: "race.d1-decision-first", kind: "control", modes: P },
   { id: "race.d2-signoff-first-withdraw", kind: "control", modes: P },
   { id: "race.history-after", kind: "control", modes: P },
+  // UI the exact RPC calls the Comparatives page makes, in its order, through the browser client (src/lib/comparatives/
+  // firstPeriodReview.ts) over the real client transport: prepare, the same person refused, a second person approves, the
+  // blocker clears, new evidence makes it stale, a decision on the binding shown before is refused, a re-review restores it.
+  { id: "ui.prepare-through-client", kind: "control", modes: P },
+  { id: "ui.same-person-cannot-approve", kind: "control", modes: P },
+  { id: "ui.second-person-approves", kind: "control", modes: P },
+  { id: "ui.new-evidence-stales", kind: "control", modes: P },
+  { id: "ui.decision-on-old-binding-refused", kind: "control", modes: P },
+  { id: "ui.re-review-restores", kind: "control", modes: P },
+  { id: "ui.legacy-and-viewer", kind: "control", modes: P },
 ]);

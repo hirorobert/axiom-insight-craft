@@ -15,6 +15,9 @@
 //         dormancy, opening support, and later evidence / facts / period / identity making a decision stale
 //   CMP   a valid comparative path still reaches REVIEWED and FINAL, and the server-compilation splice still bites
 //   RACE  an evidence change and a decision change racing with sign-off, BOTH orderings, through the scope lock
+//   UI    the Comparatives page's calls in its order through its own client (src/lib/comparatives/firstPeriodReview.ts) over
+//         the real client transport: prepare, the same person refused, a second person approves, the blocker clears, new
+//         evidence stales it, a decision on the binding shown before is refused, a re-review restores it
 //
 //   DB_PROOF_MODULES_DIR=<dir with pg + embedded-postgres> bun scripts/db-proof/firstPeriodGovernedReview.mjs
 //   DB_PROOF_MODE=external DB_PROOF_CONN=postgres://… (a throwaway, EMPTY loopback database) also works (CI).
@@ -29,6 +32,8 @@ import path from "node:path";
 import { EVIDENCE_FY2025_COMPARATIVE, EVIDENCE_FY2026, FY2026, applyChainBefore, certifier, chainFiles, clientDb, csv, makeWorld, migrationText, openDatabase, prepareReporting, reporter, REPO, uuid } from "./lib/reportingKit.mjs";
 import { blockersOf, decide, recordEvidence, sha, status as fpStatus, submitClaim, verifyGenuineFirstPeriod, withMissingComparativeDates } from "./lib/firstPeriodKit.mjs";
 import { CASES, PROOF } from "./firstPeriodGovernedReview.manifest.mjs";
+import { firstPeriodClient, firstPeriodFacts, reviewView } from "../../src/lib/comparatives/firstPeriodReview.ts";
+import { FIRST_PERIOD_NEXT_ACTIONS } from "../../src/lib/financialStatementsWorkspace/firstPeriodNextActions.ts";
 import { ingestEvidence } from "../../src/lib/financialEvidence/intake.ts";
 import { signoffClient } from "../../src/lib/reporting/signoff.ts";
 import { prepareReportVersion } from "../../src/lib/reporting/prepareVersion.ts";
@@ -218,8 +223,8 @@ async function main() {
   await kase("mig.access", "access: the assessment, the digests and the blockers are not callable by clients; the writers are authenticated-only; anon reaches nothing", async () => {
     const q = await db.one(`SELECT
       has_function_privilege('authenticated','public._fs_first_period_assess(uuid,integer)','EXECUTE') a, has_function_privilege('authenticated','public.fs_publication_blockers(uuid,text,integer)','EXECUTE') b,
-      has_function_privilege('anon','public.fs_decide_first_period(uuid,integer,text,boolean,text,uuid)','EXECUTE') c, has_function_privilege('anon','public.fs_record_first_period_evidence(uuid,integer,text,text,date,date,text,text,boolean,uuid)','EXECUTE') d,
-      has_function_privilege('authenticated','public.fs_decide_first_period(uuid,integer,text,boolean,text,uuid)','EXECUTE') e`);
+      has_function_privilege('anon','public.fs_decide_first_period(uuid,integer,text,boolean,text,uuid,text)','EXECUTE') c, has_function_privilege('anon','public.fs_record_first_period_evidence(uuid,integer,text,text,date,date,text,text,boolean,uuid)','EXECUTE') d,
+      has_function_privilege('authenticated','public.fs_decide_first_period(uuid,integer,text,boolean,text,uuid,text)','EXECUTE') e`);
     return !q.a && !q.b && !q.c && !q.d && q.e ? true : q;
   });
 
@@ -556,6 +561,83 @@ async function main() {
     const now = await snapA.capture();
     const n = [await pubs(RA), await pubs(RA2), await pubs(RD), await pubs(S2), await pubs(S7)];
     return JSON.stringify(now) === JSON.stringify(snapA.before) && n.every((x) => x === 0) ? true : { pubs: n };
+  });
+
+  // ── UI ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  // The Comparatives page (src/components/reporting/FirstPeriodReview.tsx) calls ONLY the four RPCs through
+  // src/lib/comparatives/firstPeriodReview.ts. These cases make exactly those calls, in the page's order, through that client
+  // over the real client transport (clientDb: PostgREST's argument binding, a STABLE read in a READ ONLY transaction), and
+  // read each state through the page's own mapping (reviewView) - the state the person would see.
+  group("UI. The Comparatives page's calls, in its order, through the browser client over the real client transport");
+  const UIC = await entity("Uiflow Limited", { start: "2026-02-03", end: `${Y}-12-31` });
+  const repUI = await light(UIC, "Uiflow Limited");
+  const fpc = (uid) => firstPeriodClient(clientDb(db, uid));
+  const BOTH = { canPrepare: true, canApprove: true }, VIEW = { canPrepare: false, canApprove: false };
+  const decisionsUI = () => db.count("SELECT count(*) n FROM public.fs_first_period_decisions WHERE company_id=$1", [UIC]);
+  let shownAtApproval = null;
+  await kase("ui.prepare-through-client", "the person preparing (a partner, who also holds the approval capability) reads the review (not started), records the certificate, reads again, and submits facts built from the SERVER's reporting dates with the evidence chosen from the server's list; the page then shows awaiting approval with no approve control for them", async () => {
+    const c = fpc(U.partner);
+    const s0 = await c.status(UIC, Y);
+    if (s0.state !== "evaluated") return s0;
+    const v0 = reviewView(s0.firstPeriod, "first_period", BOTH);
+    const e = await c.recordEvidence(UIC, Y, { kind: "certificate_of_incorporation", reference: "Certificate of incorporation CN-2026-0301", issuedOn: "2026-02-03", assertedDate: "2026-02-03",
+      documentSha256: sha("synthetic certificate CN-2026-0301"), note: null, retract: false }, uuid());
+    const s1 = await c.status(UIC, Y);
+    const cited = s1.evidence.filter((x) => x.kind === "certificate_of_incorporation").map((x) => x.id);
+    const facts = firstPeriodFacts({ legalName: s1.entity.legalName, registrationNumber: "CN-2026-0301", tin: s1.entity.tin ?? "", basis: "incorporated_in_period", registrationDate: "2026-02-03",
+      effectiveStart: "2026-02-03", priorStatementsPrepared: false, dormantFrom: "", dormantThrough: "" }, s1.period);
+    const r = await c.submitClaim(UIC, Y, "first_period", facts, "Incorporated on 3 February 2026; the certificate establishes the registration date; no earlier period exists.", cited, uuid());
+    const s2 = await c.status(UIC, Y);
+    const v2 = reviewView(s2.firstPeriod, "first_period", BOTH);
+    return v0.kind === "not_started" && v0.primary === "record_facts" && e.outcome === "recorded" && cited.length === 1 && s1.period.reportingStart === "2026-02-03" && s1.period.reportingEnd === `${Y}-12-31`
+      && r.outcome === "recorded" && v2.kind === "awaiting_approval" && v2.primary === null && s2.firstPeriod.claim?.recordedByYou === true ? true : { v0, e, cited, period: s1.period, r, v2 };
+  });
+  await kase("ui.same-person-cannot-approve", "if the person who recorded the facts calls the decision anyway (with the binding shown), the server refuses it (separate_approver_required); a preparer without the approval capability is refused (forbidden); nothing is recorded", async () => {
+    const s = await fpc(U.partner).status(UIC, Y);
+    const d = await fpc(U.partner).decide(UIC, Y, "first_period", true, "Approving my own facts", uuid(), s.firstPeriod.binding);
+    const p = await fpc(U.preparer).decide(UIC, Y, "first_period", true, "A preparer approving", uuid(), s.firstPeriod.binding);
+    const n = await decisionsUI();
+    return d.outcome === "separate_approver_required" && p.outcome === "forbidden" && n === 0 ? true : { d, p, n };
+  });
+  await kase("ui.second-person-approves", "a second person (the owner) is offered the review, reads exactly what is bound (company name, the server's dates, the one cited current revision, the rule version) and decides with the binding shown: recorded; COMPARATIVE_PERIOD_MISSING clears; the page shows approved and the comparatives a first-period exception", async () => {
+    const c = fpc(U.owner);
+    const s = await c.status(UIC, Y);
+    const v = reviewView(s.firstPeriod, "first_period", BOTH);
+    const bound = s.entity.legalName === "Uiflow Limited" && s.period.reportingStart === "2026-02-03" && s.period.reportingEnd === `${Y}-12-31` && s.firstPeriod.rules === "first-period-rules/1"
+      && s.firstPeriod.cited.length === 1 && s.firstPeriod.cited[0].current === true && s.firstPeriod.cited[0].reference === "Certificate of incorporation CN-2026-0301" && /^[0-9a-f]{64}$/.test(s.firstPeriod.binding ?? "");
+    shownAtApproval = s.firstPeriod.binding;
+    const d = await c.decide(UIC, Y, "first_period", true, "Certificate agrees to the registration date; dates agree to the reviewed trial balance.", uuid(), s.firstPeriod.binding);
+    const after = await c.status(UIC, Y); const b = await bl(UIC, repUI); const cmp = await comparatives(UIC);
+    const va = reviewView(after.firstPeriod, "first_period", BOTH);
+    return v.kind === "awaiting_approval" && v.primary === "review" && bound && d.outcome === "recorded" && va.kind === "approved" && !b.includes("COMPARATIVE_PERIOD_MISSING") && !b.some((x) => x.startsWith("FIRST_PERIOD_"))
+      && cmp.state === "first_period_exception" ? true : { v, bound, d, va, b: ours(b), cmp: cmp.state };
+  });
+  await kase("ui.new-evidence-stales", "new evidence recorded through the page (a certified copy of the certificate) makes the approval stale: the page shows 'approval out of date' with the server's ONE named reason and its next action; COMPARATIVE_PERIOD_MISSING returns with FIRST_PERIOD_DECISION_STALE", async () => {
+    const e = await fpc(U.preparer).recordEvidence(UIC, Y, { kind: "certificate_of_registration", reference: "Certified copy of certificate CN-2026-0301", issuedOn: "2026-03-01", assertedDate: "2026-02-03",
+      documentSha256: sha("synthetic certified copy CN-2026-0301"), note: null, retract: false }, uuid());
+    const s = await fpc(U.owner).status(UIC, Y); const v = reviewView(s.firstPeriod, "first_period", BOTH);
+    const b = await bl(UIC, repUI);
+    return e.outcome === "recorded" && v.kind === "stale" && v.primary === "review" && v.nextAction === FIRST_PERIOD_NEXT_ACTIONS.FIRST_PERIOD_DECISION_STALE && JSON.stringify(v.codes) === JSON.stringify(["FIRST_PERIOD_DECISION_STALE"])
+      && b.includes("COMPARATIVE_PERIOD_MISSING") && b.includes("FIRST_PERIOD_DECISION_STALE") ? true : { e, v, b: ours(b) };
+  });
+  await kase("ui.decision-on-old-binding-refused", "a decision sent with the binding the approver was shown BEFORE the new evidence is refused (changed_since_viewed): nothing is recorded and the exception stays off", async () => {
+    const before = await decisionsUI();
+    const d = await fpc(U.owner).decide(UIC, Y, "first_period", true, "Approving what I was shown earlier", uuid(), shownAtApproval);
+    const after = await decisionsUI(); const b = await bl(UIC, repUI);
+    return d.outcome === "changed_since_viewed" && before === after && b.includes("COMPARATIVE_PERIOD_MISSING") ? true : { d, before, after, b: ours(b) };
+  });
+  await kase("ui.re-review-restores", "the approver reads the review again (the new revision is now in the evidence set) and decides on what is shown now: recorded; approved again; COMPARATIVE_PERIOD_MISSING clears; both decisions are kept", async () => {
+    const c = fpc(U.owner);
+    const s = await c.status(UIC, Y);
+    const d = await c.decide(UIC, Y, "first_period", true, "Certified copy agrees to the original certificate; review refreshed.", uuid(), s.firstPeriod.binding);
+    const after = await c.status(UIC, Y); const b = await bl(UIC, repUI);
+    return s.firstPeriod.binding !== shownAtApproval && d.outcome === "recorded" && reviewView(after.firstPeriod, "first_period", BOTH).kind === "approved" && !b.includes("COMPARATIVE_PERIOD_MISSING")
+      && (await decisionsUI()) === 2 ? true : { d, b: ours(b), n: await decisionsUI() };
+  });
+  await kase("ui.legacy-and-viewer", "through the same client, a legacy declaration reads as an unverified claim that needs a governed review (never approved); a viewer reads the review and is offered no action", async () => {
+    const s = await fpc(U.owner).status(L2, Y); const v = reviewView(s.firstPeriod, "first_period", BOTH);
+    const sv = await fpc(U.viewer).status(UIC, Y); const vv = reviewView(sv.state === "evaluated" ? sv.firstPeriod : null, "first_period", VIEW);
+    return v.kind === "legacy_claim" && s.legacyDeclaration?.satisfiesRequirement === false && vv.kind === "approved" && vv.primary === null ? true : { v, legacy: s.legacyDeclaration, vv, sv: sv.state };
   });
 }
 
