@@ -26,8 +26,7 @@
 
 import React, { useState, useCallback, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
-// @ts-expect-error - runtime ESM URL import (loaded via esm.sh at runtime)
-import * as XLSX from "https://esm.sh/xlsx@0.18.5";
+import * as XLSX from "xlsx";
 import { deliverReportingPack } from "@/lib/commercial/requestReportingPack";
 import { DRAFT_PRINT_MARK } from "@/lib/commercial/reportingPack";
 

@@ -3,7 +3,7 @@
  * by a library that does not calculate (openpyxl), or a template with uncomputed SUMs — was read as an empty cell, so its
  * row became a zero balance and silently left the trial balance; when the vanished amounts offset, the file still balanced
  * and was certified with accounts missing. Through the exact code process-trial-balance, trial-balance-layout and
- * layout-assist bundle (_shared/tbSource.ts + tbIngestion.ts) and the same SheetJS version (0.18.5). Every workbook is
+ * layout-assist bundle (_shared/tbSource.ts + tbIngestion.ts) and the same SheetJS version (0.20.3). Every workbook is
  * built here, synthetically; expected figures are worked out by hand (TZS, 2 decimals: 1.00 = 100 minor units).
  */
 import * as XLSX from "xlsx";
@@ -29,7 +29,21 @@ function workbook(sheets: Record<string, { rows: unknown[][]; cells?: Cells }>):
     for (const [addr, cell] of Object.entries(s.cells ?? {})) ws[addr] = cell;
     XLSX.utils.book_append_sheet(wb, ws, name);
   }
-  return new Uint8Array(XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer);
+  return asNonCalculatingWriter(new Uint8Array(XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer));
+}
+/**
+ * SheetJS 0.20 writes a formula cell that has no value as an error cell (<c r="C4" t="e"><f>…</f></c>); 0.18.5 wrote it with
+ * no t attribute, as a library that does not calculate does. The fixtures are meant to be the latter, so the t="e" that 0.20
+ * adds to a value-less formula cell is removed (only then is the package rewritten): the sheets have the XML they had under
+ * 0.18.5. The 0.20 form itself is a case of its own below.
+ */
+const WRITER_ERROR_FORMULA = /<c r="([A-Z]+\d+)" t="e"><f>([^<]*)<\/f><\/c>/g;
+function asNonCalculatingWriter(bytes: Uint8Array): Uint8Array {
+  const files = unzipSync(bytes);
+  const sheets = Object.keys(files).filter((n) => /^xl\/worksheets\/sheet\d+\.xml$/.test(n));
+  if (!sheets.some((n) => strFromU8(files[n]).match(WRITER_ERROR_FORMULA))) return bytes;
+  for (const n of sheets) files[n] = strToU8(strFromU8(files[n]).replace(WRITER_ERROR_FORMULA, '<c r="$1"><f>$2</f></c>'));
+  return zipSync(files);
 }
 /** Rewrites the first worksheet's XML (to write a cell exactly as another program writes it). */
 function patchSheetXml(bytes: Uint8Array, edit: (xml: string) => string): Uint8Array {
@@ -60,6 +74,22 @@ describe("I-1: a formula without a calculated value (S2-I01)", () => {
     const xml = strFromU8(unzipSync(workbook({ TB: { rows: FORMULA_ROWS, cells: UNCALCULATED } }))["xl/worksheets/sheet1.xml"]);
     expect(xml).toContain('<c r="C4"><f>C2*0.4</f></c>');
     expect(xml).toContain('<c r="D5"><f>C4</f></c>');
+  });
+
+  it("is refused as SheetJS 0.20 itself writes it (an error-typed cell, t=\"e\", with <f> and no <v>)", () => {
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(FORMULA_ROWS);
+    for (const [addr, cell] of Object.entries(UNCALCULATED)) ws[addr] = cell;
+    XLSX.utils.book_append_sheet(wb, ws, "TB");
+    const bytes = new Uint8Array(XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer);
+    const xml = strFromU8(unzipSync(bytes)["xl/worksheets/sheet1.xml"]);
+    expect(xml).toContain('<c r="C4" t="e"><f>C2*0.4</f></c>');
+    expect(xml).toContain('<c r="D5" t="e"><f>C4</f></c>');
+    const r = readTrialBalanceSource(bytes, ctx("tb.xlsx"), xlsx);
+    expect(codes(r)).toEqual(["FORMULA_WITHOUT_VALUE"]);
+    expect(r.issues[0].rows).toEqual([4, 5]);
+    expect(r.issues[0].message).toContain("C4, D5");
+    expect(r.accounts).toEqual([]);
   });
 
   it("is refused by name, naming every such cell, before any row is read as an account", () => {
