@@ -941,8 +941,11 @@ describe("database inertness — schema and functions", () => {
       "scripts/e2e/localStackJourney.mjs", "scripts/browser-acceptance/cdp.mjs"]) allowed.add(file);
     // Financial table write boundary (20261221100000): a loopback-only disposable-database proof and its manifest, and the two
     // migration-tail lists that pin the newest migration. No hosted access, no deploy capability.
+    // The two parked-candidate proofs (20261004100000 / 20261005100000) replay client SAFISHA writes the revocation removes,
+    // so they now stop the chain just before it (loopback only, no deploy behaviour).
     for (const file of ["scripts/db-proof/financialWriteBoundary.mjs", "scripts/db-proof/financialWriteBoundary.manifest.mjs",
-      "scripts/db-proof/serviceWithholding.mjs", "scripts/db-proof/trackAHardening.mjs"]) allowed.add(file);
+      "scripts/db-proof/serviceWithholding.mjs", "scripts/db-proof/trackAHardening.mjs",
+      "scripts/db-proof/reconciliationAuthority.mjs", "scripts/db-proof/safishaIngestion.mjs"]) allowed.add(file);
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
 
