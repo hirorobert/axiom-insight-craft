@@ -932,6 +932,9 @@ describe("database inertness — schema and functions", () => {
     for (const file of ["scripts/db-proof/apiCacheHeaders.mjs", "scripts/db-proof/qboRealmProtectionCandidate.mjs", "scripts/ci/releaseJournal.mjs",
       "scripts/db-proof/serviceWithholding.mjs", "scripts/db-proof/trackAHardening.mjs", "scripts/e2e/sourceDownloadJourney.mjs",
       "scripts/e2e/localStackJourney.mjs", "scripts/browser-acceptance/cdp.mjs"]) allowed.add(file);
+    // Client-data containment (2026-11-11): a local, read-only scan of tracked files with a hash-only denylist, and the
+    // invented trial balance the guarded staging scripts now upload instead of a client-derived file. No hosted access.
+    for (const file of ["scripts/ci/clientDataGuard.mjs", "scripts/ci/clientDataDenylist.json", "scripts/fixtures/synthetic-sme-tb-2025.csv"]) allowed.add(file);
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
 
