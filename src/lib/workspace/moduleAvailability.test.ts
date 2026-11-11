@@ -456,10 +456,11 @@ describe("9/10. no public claim — in source or rendered — promises a withhel
     for (const [name, rendered] of [["Terms", terms], ["Privacy", privacy]] as const) {
       expect(rendered.match(POLICY_WITHHELD)?.[0], name).toBeUndefined();
     }
-    // What a customer can use, named: Trial balance review and its workflow, the Tanzania panel, the pilot labelled as such.
+    // What a customer can use, named: Trial balance review and its workflow, the jurisdiction pack's panel (named
+    // neutrally: global code carries no statutory jurisdiction wording, scripts/ci/assertPackIsolation.mjs), the pilot.
     expect(terms).toContain(`The service available to customers today is ${TRIAL_BALANCE_REVIEW.title.toLowerCase()}`);
     expect(terms).toContain("review and confirm its account classifications, and reach a reviewed trial balance ready for statement preparation");
-    expect(terms).toContain("Workspaces whose filing jurisdiction is Tanzania also show a panel for recording electronic fiscal device (EFD) Z-reports.");
+    expect(terms).toContain("A workspace whose filing jurisdiction has a jurisdiction pack may also show that jurisdiction");
     expect(terms).toContain("Financial reporting is a pilot by invitation: it is offered only to companies we have invited, it is not generally available");
     expect(terms).toContain("Other parts of the software are not available to customers.");
     expect(privacy).toContain("checking and reviewing the trial balances you upload");

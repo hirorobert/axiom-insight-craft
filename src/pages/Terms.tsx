@@ -21,9 +21,9 @@ export default function Terms() {
               review: upload and validate a trial balance, review and confirm
               its account classifications, and reach a reviewed trial balance
               ready for statement preparation. Each review decision is recorded
-              against the signed-in user who made it. Workspaces whose filing
-              jurisdiction is Tanzania also show a panel for recording
-              electronic fiscal device (EFD) Z-reports.
+              against the signed-in user who made it. A workspace whose filing
+              jurisdiction has a jurisdiction pack may also show that
+              jurisdiction's own record-keeping panel.
             </p>
             <p className="mt-3">
               Financial reporting is a pilot by invitation: it is offered only
