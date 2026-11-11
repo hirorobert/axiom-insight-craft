@@ -80,7 +80,7 @@ describe("migration authority parity", () => {
     // 20261123100000–20261126100000 (fs-integrity-r1) are applied as 0076–0079 (hosted 77–80) through the staged transport.
     // track-a-r1 (20261127100000, 20261128100000) applied through its staged transport (hosted 81–83).
     // IPSAS, CF-03 and QBO now all have installed journal mirrors; no authored source remains pending.
-    expect(r.pending).toEqual(["20261215100000_api_cache_control_headers.sql"]); // intuit-security-r1: authored and registered, not installed. // Readiness installed as hosted id 102 in its registered identical form.
+    expect(r.pending).toEqual(["20261215100000_api_cache_control_headers.sql", "20261223100000_first_period_governed_review_standalone.sql"]); // intuit-security-r1: authored and registered, not installed. // Readiness installed as hosted id 102 in its registered identical form.
     for (const t of ["0065_fs_controls_r1_staged_apply", "0066_fs_journey_r1_staged_apply", "0067_fs_bounds_r1_staged_apply", "0068_fs_capacity_r1_staged_apply", "0069_fs_memo_r1_staged_apply"]) expect(r.mirrored.find((m) => m.tag === t)?.how).toBe("staged_transport");
     // before this migration: the commercial launch, p3, p4 and p5 are applied (0046–0055, hosted 47–56)
     expect(r.mirrored.find((m) => m.tag === "0025_apply_20261001120000_annual_commercial_term")?.how).toBe("release_verbatim");
