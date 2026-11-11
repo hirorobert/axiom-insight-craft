@@ -16,7 +16,7 @@ describe("deployment manifests cover the whole function closure", () => {
       "_shared/namedUserAccess.ts", "_shared/paidAction.ts", "_shared/printedReportMetadata.ts", "_shared/processingActor.ts", "_shared/tbIngestion.ts",
       "_shared/tbInvestigation.ts", "_shared/tbSource.ts", "_shared/trialBalanceLayout.ts", "_shared/uploadLifecycle.ts", "_shared/uploadPolicy.ts", "trial-balance-layout/index.ts",
     ]);
-    expect(m.remote).toEqual(["https://deno.land/std@0.168.0/http/server.ts", "https://esm.sh/@supabase/supabase-js@2", "https://esm.sh/xlsx@0.18.5"]);
+    expect(m.remote).toEqual(["https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs", "https://deno.land/std@0.168.0/http/server.ts", "https://esm.sh/@supabase/supabase-js@2"]);
   });
   it("process-trial-balance's closure includes the layout modules it now reads", () => {
     const paths = (functionManifest("process-trial-balance") as Manifest).files.map((f) => f.path);

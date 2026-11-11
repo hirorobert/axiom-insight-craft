@@ -13,7 +13,8 @@
 
 import { serve }        from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import * as XLSX        from "https://esm.sh/xlsx@0.18.5";
+// @deno-types="https://cdn.sheetjs.com/xlsx-0.20.3/package/types/index.d.ts"
+import * as XLSX        from "https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs";
 import { corsHeaders, validateAuth } from "../_shared/auth.ts";
 import { handleLayoutAssist } from "../_shared/layoutAssist.ts";
 import type { LayoutUpload } from "../_shared/trialBalanceLayout.ts";

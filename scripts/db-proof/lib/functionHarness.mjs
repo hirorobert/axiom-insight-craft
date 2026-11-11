@@ -198,9 +198,10 @@ export async function loadHandler(source, name) {
 
 /**
  * Loads a handler that imports sibling and ../_shared modules: the function directory and _shared are copied to a temporary
- * tree and ONLY these remote specifiers are rewritten — std serve and supabase-js to the harness, esm.sh xlsx@0.18.5 to the
- * identical npm package in node_modules. Every other byte is the repository's. Returns the handler and the SHA-256 of the
- * function's unmodified index.ts.
+ * tree and ONLY these remote specifiers are rewritten — std serve and supabase-js to the harness, the SheetJS 0.20.3 ESM build
+ * (cdn.sheetjs.com; and the esm.sh 0.18.5 specifier of an engine before the upgrade) to node_modules/xlsx/xlsx.mjs, the
+ * byte-identical file of the same official release. Every other byte is the repository's. Returns the handler and the
+ * SHA-256 of the function's unmodified index.ts.
  */
 /**
  * Writes `fnName` and `_shared` exactly as they are at git commit `ref` into a fresh directory (for running a previous
@@ -236,6 +237,10 @@ export async function loadFunctionTree(repo, fnName, { functionsDir = path.join(
   const REMOTE = {
     "https://esm.sh/@supabase/supabase-js@2": (dir) => rel(dir, harnessSupabase),
     "https://deno.land/std@0.168.0/http/server.ts": (dir) => rel(dir, harnessServe),
+    "https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs": () => xlsx,
+    // A previous engine loaded through functionsAtCommit (a commit before the SheetJS 0.20.3 upgrade) still names the
+    // esm.sh 0.18.5 build; it runs on the one installed SheetJS too, so an old engine and the current one differ only in
+    // their own code (both SheetJS versions read every corpus and QuickBooks fixture identically).
     "https://esm.sh/xlsx@0.18.5": () => xlsx,
   };
   const rel = (dir, p) => { const r = path.relative(dir, p).split(path.sep).join("/"); return r.startsWith(".") ? r : `./${r}`; };
