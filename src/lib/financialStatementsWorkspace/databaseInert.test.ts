@@ -101,6 +101,12 @@ describe("database inertness — schema and functions", () => {
     // Neither migration modifies or deletes any pre-existing migration, function or config, and neither touches the
     // financial-statements schema this file otherwise documents.
     const added = new Set([
+      // SheetJS 0.20.3 vendored (CVE-2023-30533, CVE-2024-22363; vendor/sheetjs/PROVENANCE.md): the official ESM build, its type
+      // declarations and its Apache-2.0 licence, byte-identical to vendor/sheetjs/xlsx-0.20.3.tgz and pinned by
+      // scripts/ci/assertVendoredDependencies.mjs. Third-party library code: no schema, no query, no network.
+      "supabase/functions/_shared/vendor/sheetjs-0.20.3/xlsx.mjs",
+      "supabase/functions/_shared/vendor/sheetjs-0.20.3/types/index.d.ts",
+      "supabase/functions/_shared/vendor/sheetjs-0.20.3/LICENSE",
       // Independent saved-report compilation; no existing migration is edited or hosted write performed.
       "supabase/migrations/20261123100000_fs_server_compilation.sql",
       "supabase/functions/compile-financial-report/index.ts",
@@ -938,6 +944,10 @@ describe("database inertness — schema and functions", () => {
     for (const file of ["scripts/db-proof/apiCacheHeaders.mjs", "scripts/db-proof/qboRealmProtectionCandidate.mjs", "scripts/ci/releaseJournal.mjs",
       "scripts/db-proof/serviceWithholding.mjs", "scripts/db-proof/trackAHardening.mjs", "scripts/e2e/sourceDownloadJourney.mjs",
       "scripts/e2e/localStackJourney.mjs", "scripts/browser-acceptance/cdp.mjs"]) allowed.add(file);
+    // SheetJS 0.20.3 vendored (vendor/sheetjs/PROVENANCE.md): the offline CI guard that pins the vendored files and refuses any
+    // externally hosted spreadsheet code (reads files only), and the manual re-verification script (never run by CI; downloads
+    // the publisher's tarball and tagged files into memory and compares hashes). Neither deploys, applies or touches a database.
+    for (const file of ["scripts/ci/assertVendoredDependencies.mjs", "scripts/vendor/reverifySheetjs.mjs"]) allowed.add(file);
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
 
