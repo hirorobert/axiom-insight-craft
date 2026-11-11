@@ -43,6 +43,8 @@ export type IssueCode =
   | "UNSUPPORTED_FORMAT"
   | "ENCODING_NOT_UTF8"
   | "CSV_UNTERMINATED_QUOTE"
+  // A workbook cell inside the sheet read that has a formula but no calculated value (tbSource.ts): refused as a whole.
+  | "FORMULA_WITHOUT_VALUE"
   | "MULTIPLE_TRIAL_BALANCE_SHEETS"
   | "UNSUPPORTED_LAYOUT"
   | "MISSING_COLUMN"
@@ -1135,7 +1137,7 @@ const COLUMN_ISSUES = new Set<IssueCode>(["LAYOUT_SHEET_NOT_FOUND", "LAYOUT_HEAD
 // The file was refused as a whole before any check ran: an upload-policy limit (uploadPolicy.ts) or a file that cannot be
 // read as a trial balance. The record stops at "read" with the reason — never a later step (no totals is not an
 // arithmetic failure).
-const READ_REFUSALS = new Set<IssueCode>(["FILE_TOO_LARGE", "WORKBOOK_TOO_LARGE_EXPANDED", "WORKBOOK_TOO_MANY_PARTS", "TOO_MANY_ROWS", "TOO_MANY_CELLS", "TOO_MANY_ACCOUNTS", "UNSUPPORTED_FORMAT", "ENCODING_NOT_UTF8", "CSV_UNTERMINATED_QUOTE"]);
+const READ_REFUSALS = new Set<IssueCode>(["FILE_TOO_LARGE", "WORKBOOK_TOO_LARGE_EXPANDED", "WORKBOOK_TOO_MANY_PARTS", "TOO_MANY_ROWS", "TOO_MANY_CELLS", "TOO_MANY_ACCOUNTS", "UNSUPPORTED_FORMAT", "ENCODING_NOT_UTF8", "CSV_UNTERMINATED_QUOTE", "FORMULA_WITHOUT_VALUE"]);
 
 /** Marks the ingestion milestones (read → balance) from an ingest result. */
 export function markIngestionMilestones(log: MilestoneLog, r: IngestResult): void {
