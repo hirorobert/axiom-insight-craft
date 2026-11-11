@@ -74,7 +74,8 @@ records for `xlsx`).
   map, a `deno.json`, the CI workflow or any Deno import.
 - Online, by hand (never in CI): `node scripts/vendor/reverifySheetjs.mjs` downloads the tarball from the source URL and the
   tagged files from `git.sheetjs.com` into memory (nothing is written or executed) and compares their hashes with the pins.
-  Exit 0 means everything matched.
+  Exit 0 means everything matched. Runs so far: 2026-11-11 15:34 UTC, exit 0 (source tarball equal to the committed one and
+  the pins; 26 of 26 packaged files equal to tag `v0.20.3`).
 - Manually, with standard tools: `curl -sSLo /tmp/x.tgz https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz && sha256sum /tmp/x.tgz`
   must print the SHA-256 above.
 

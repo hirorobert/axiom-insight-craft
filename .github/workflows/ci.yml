@@ -129,6 +129,9 @@ jobs:
           node scripts/ci/assertSingleLockfile.mjs
           node scripts/buildStatementCompiler.mjs --check
 
+      - name: Vendored dependencies (SheetJS tarball and Deno build pinned and identical, no externally hosted spreadsheet code)
+        run: node scripts/ci/assertVendoredDependencies.mjs
+
       - name: Migration authority (the hosted Drizzle apply journal mirrors the authored supabase/migrations exactly)
         run: node scripts/ci/assertMigrationAuthority.mjs
 
