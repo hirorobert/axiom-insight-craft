@@ -28,24 +28,105 @@ export function detectSourceFormat(fileName: string): SourceFormat {
 
 /** The subset of the SheetJS API this module uses. */
 export interface XlsxLike {
-  read(data: Uint8Array, opts: { type: "array"; cellDates?: boolean; sheetRows?: number }): { SheetNames: string[]; Sheets: Record<string, Record<string, unknown>> };
+  read(data: Uint8Array, opts: { type: "array"; cellDates?: boolean; sheetRows?: number; sheetStubs?: boolean }): { SheetNames: string[]; Sheets: Record<string, Record<string, unknown>> };
   utils: {
     decode_range(ref: string): { s: { r: number; c: number }; e: { r: number; c: number } };
+    decode_cell(address: string): { r: number; c: number };
     sheet_to_json<T>(ws: Record<string, unknown>, opts: { header: 1; defval: null; raw: true; blankrows: true }): T[];
   };
 }
 
-export interface WorkbookSheet { name: string; rows: SourceRow[] }
+export interface WorkbookSheet {
+  name: string;
+  rows: SourceRow[];
+  /**
+   * Cells inside the sheet's read range that carry a formula but no calculated value ("C4"), in row order. Only an Office
+   * Open XML package can say so (see readWorkbook); empty otherwise.
+   */
+  uncalculated: { cell: string; row: number }[];
+}
+
+/**
+ * Whether the bytes are an Office Open XML package (.xlsx/.xlsm): a ZIP whose central directory lists [Content_Types].xml
+ * and none of the parts by which SheetJS reads a ZIP as OpenDocument or Numbers instead (parse_zip's own order). Names
+ * are read from the central directory alone; nothing is inflated.
+ */
+export function isOfficeOpenXmlPackage(b: Uint8Array): boolean {
+  if (b.byteLength < 22) return false;
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  if (dv.getUint32(0, true) !== 0x04034b50) return false;
+  const min = Math.max(0, b.byteLength - 22 - 65_535);
+  let eocd = -1;
+  for (let i = b.byteLength - 22; i >= min; i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) return false;
+  const entries = dv.getUint16(eocd + 10, true);
+  let p = dv.getUint32(eocd + 16, true);
+  const names = new Set<string>();
+  for (let n = 0; n < entries; n++) {
+    if (p + 46 > b.byteLength || dv.getUint32(p, true) !== 0x02014b50) return false;
+    const len = dv.getUint16(p + 28, true);
+    if (p + 46 + len > b.byteLength) return false;
+    // The names compared are ASCII; one byte per character is exact for them.
+    names.add(String.fromCharCode(...b.subarray(p + 46, p + 46 + len)).toLowerCase());
+    p += 46 + len + dv.getUint16(p + 30, true) + dv.getUint16(p + 32, true);
+  }
+  return names.has("[content_types].xml")
+    && !names.has("meta-inf/manifest.xml") && !names.has("objectdata.xml") && !names.has("index/document.iwa");
+}
+
+/**
+ * Reads a workbook. For an Office Open XML package the read keeps "stub" cells (sheetStubs): that is the only way SheetJS
+ * keeps a cell that has a formula but no calculated value (<f> with no or an empty <v>, as written by a library that does
+ * not calculate, such as openpyxl) — without it the cell is dropped and later reads as empty (S2-I01). Every stub is
+ * removed again in workbookSheets after the formula ones are noted, so the rows read are the same cells as before.
+ * Other formats keep the read exactly as before: OpenDocument stubs would expand repeated empty columns into cells, and
+ * a legacy .xls formula always stores its result.
+ */
+export function readWorkbook(xlsx: XlsxLike, bytes: Uint8Array): ReturnType<XlsxLike["read"]> {
+  return xlsx.read(bytes, { type: "array", cellDates: false, sheetRows: SHEET_ROWS, ...(isOfficeOpenXmlPackage(bytes) ? { sheetStubs: true } : {}) });
+}
 
 export function workbookSheets(xlsx: XlsxLike, wb: ReturnType<XlsxLike["read"]>): WorkbookSheet[] {
   return wb.SheetNames.map((name) => {
     const ws = wb.Sheets[name];
     const ref = typeof ws?.["!ref"] === "string" ? (ws["!ref"] as string) : null;
-    if (!ref) return { name, rows: [] };
-    const start = xlsx.utils.decode_range(ref).s.r + 1;
+    if (!ref) return { name, rows: [], uncalculated: [] };
+    const range = xlsx.utils.decode_range(ref);
+    // A formula cell without a calculated value inside the range that is read (any column: the header, the title block,
+    // a dimension or a total label decide as much as an amount does). Stubs (type "z") carry no value and are removed,
+    // so sheet_to_json sees exactly the cells a read without stubs keeps.
+    const uncalculated: { cell: string; row: number; col: number }[] = [];
+    for (const address of Object.keys(ws)) {
+      if (address.startsWith("!")) continue;
+      const cell = ws[address] as { t?: unknown; v?: unknown; f?: unknown; F?: unknown } | undefined;
+      if (!cell || typeof cell !== "object") continue;
+      const formula = typeof cell.f === "string" || typeof cell.F === "string";
+      if (formula && (cell.t === "z" || cell.v === undefined)) {
+        const at = xlsx.utils.decode_cell(address);
+        if (at.r >= range.s.r && at.r <= range.e.r && at.c >= range.s.c && at.c <= range.e.c) uncalculated.push({ cell: address, row: at.r + 1, col: at.c });
+      }
+      if (cell.t === "z") delete ws[address];
+    }
+    uncalculated.sort((a, b) => a.row - b.row || a.col - b.col);
     const matrix = xlsx.utils.sheet_to_json<Cell[]>(ws, { header: 1, defval: null, raw: true, blankrows: true });
-    return { name, rows: sheetRowsFromMatrix(matrix, start) };
+    return { name, rows: sheetRowsFromMatrix(matrix, range.s.r + 1), uncalculated: uncalculated.map(({ cell, row }) => ({ cell, row })) };
   });
+}
+
+/**
+ * The read sheet's formulas without a calculated value, as one blocking issue (S2-I01), or null. Such a cell would read as
+ * empty: its row a zero balance that silently leaves the trial balance (still balancing when the missing amounts offset).
+ * Refused before any row is read, never treated as blank.
+ */
+export function uncalculatedFormulaIssue(sheet: WorkbookSheet): IngestIssue | null {
+  const cells = sheet.uncalculated;
+  if (cells.length === 0) return null;
+  const one = cells.length === 1;
+  const shown = cells.slice(0, 10).map((c) => c.cell).join(", ") + (cells.length > 10 ? ` and ${cells.length - 10} more` : "");
+  return {
+    code: "FORMULA_WITHOUT_VALUE", severity: "blocking", rows: [...new Set(cells.map((c) => c.row))],
+    message: `Cell${one ? "" : "s"} ${shown} on sheet “${sheet.name}” ${one ? "has a formula" : "have formulas"} but no calculated value, so ${one ? "it" : "they"} cannot be read — an account could silently drop out of the trial balance. The file was saved by a program that does not calculate formulas. Open it in Excel (or another spreadsheet program), let it calculate, save it, and upload it again.`,
+  };
 }
 
 export type SheetChoice = { ok: true; sheet: WorkbookSheet } | { ok: false; issue: IngestIssue };
@@ -117,7 +198,7 @@ export function readTrialBalanceSource(bytes: Uint8Array, ctx: ReadContext, xlsx
   }
   let wb: ReturnType<XlsxLike["read"]>;
   try {
-    wb = xlsx.read(bytes, { type: "array", cellDates: false, sheetRows: SHEET_ROWS });
+    wb = readWorkbook(xlsx, bytes);
   } catch {
     return unreadable(ctx, null, { code: "UNSUPPORTED_FORMAT", severity: "blocking", message: "The workbook could not be opened. Save it again from Excel as .xlsx and upload it." });
   }
@@ -126,6 +207,8 @@ export function readTrialBalanceSource(bytes: Uint8Array, ctx: ReadContext, xlsx
   if (tooMany) return unreadable(ctx, null, tooMany);
   const choice = selectTrialBalanceSheet(sheets, ctx.periodYear);
   if (!choice.ok) return unreadable(ctx, null, choice.issue);
+  const uncalculated = uncalculatedFormulaIssue(choice.sheet);
+  if (uncalculated) return unreadable(ctx, choice.sheet.name, uncalculated);
   return ingestTrialBalance({ rows: choice.sheet.rows, sheetName: choice.sheet.name, periodYear: ctx.periodYear, currency: ctx.currency, workspaceEntityName: ctx.workspaceEntityName });
 }
 
@@ -149,10 +232,10 @@ export function readSourceTables(bytes: Uint8Array, fileName: string, xlsx: Xlsx
     if (!parsed.ok) return { ok: false, issue: parsed.issue };
     const tooMany = checkSourceTables([{ rows: parsed.rows.map((r) => r.cells) }]);
     if (tooMany) return { ok: false, issue: tooMany };
-    return { ok: true, kind: "csv", sheets: [{ name: "", rows: parsed.rows }] };
+    return { ok: true, kind: "csv", sheets: [{ name: "", rows: parsed.rows, uncalculated: [] }] };
   }
   try {
-    const sheets = workbookSheets(xlsx, xlsx.read(bytes, { type: "array", cellDates: false, sheetRows: SHEET_ROWS }));
+    const sheets = workbookSheets(xlsx, readWorkbook(xlsx, bytes));
     const tooMany = checkSourceTables(sheets.map((s) => ({ rows: s.rows.map((r) => r.cells) })));
     if (tooMany) return { ok: false, issue: tooMany };
     return { ok: true, kind: "workbook", sheets };
@@ -178,5 +261,8 @@ export function readTrialBalanceSourceWithLayout(bytes: Uint8Array, ctx: ReadCon
     const wanted = profile.sheet.kind === "csv" ? "a CSV file" : `a sheet named “${profile.sheet.name}”`;
     return { result: unreadable(ctx, null, { code: "LAYOUT_SHEET_NOT_FOUND", severity: "blocking", message: `The confirmed layout is for ${wanted}, which this file does not have. Check the file, or confirm a new layout.` }), resolved: null };
   }
+  // A layout says where the columns are; it cannot supply a value the file does not hold (S2-I01).
+  const uncalculated = uncalculatedFormulaIssue(sheet);
+  if (uncalculated) return { result: unreadable(ctx, tables.kind === "csv" ? null : sheet.name, uncalculated), resolved: null };
   return ingestWithLayout({ rows: sheet.rows, sheetName: tables.kind === "csv" ? null : sheet.name, periodYear: ctx.periodYear, currency: ctx.currency, workspaceEntityName: ctx.workspaceEntityName }, profile, profileHash);
 }
