@@ -14,7 +14,7 @@ import path from "node:path";
 import { execSync } from "node:child_process";
 import { FINANCIAL_STATEMENT_PERSISTENCE_ENABLED } from "./persistenceGate";
 import { FINANCIAL_STATEMENTS_WORKSPACE_ENABLED } from "./workspaceGate";
-import { resolveComparisonBase, unreviewedChanges, unreviewedPaths } from "../../../scripts/ci/inertBase.mjs";
+import { isLovablePlanningNote, resolveComparisonBase, unreviewedChanges, unreviewedPaths } from "../../../scripts/ci/inertBase.mjs";
 
 const ROOT = path.join(__dirname, "../../../");
 const rel = (p: string) => path.relative(ROOT, p).split(path.sep).join("/");
@@ -630,7 +630,8 @@ describe("database inertness — schema and functions", () => {
   });
 
   it("changes no automation-deploy surface other than the reviewed CI/RLS hardening, the disposable-database proof and the guarded hosted-staging acceptance script", () => {
-    const changed = gitStrict(`diff --name-only ${baseSha()}...HEAD -- .github package.json supabase/config.toml .lovable scripts`);
+    // core.quotepath=off: a non-ASCII path is listed as itself, not git-quoted (an unregistered one is still unreviewed).
+    const changed = gitStrict(`-c core.quotepath=off diff --name-only ${baseSha()}...HEAD -- .github package.json supabase/config.toml .lovable scripts`);
     // Every file the branch touches in these locations must be part of the reviewed RLS-regression safety hardening.
     const allowed = new Set([
       // Deterministic local shared-code bundle generation/check only; no deployment or hosted access.
@@ -932,7 +933,9 @@ describe("database inertness — schema and functions", () => {
     for (const file of ["scripts/db-proof/apiCacheHeaders.mjs", "scripts/db-proof/qboRealmProtectionCandidate.mjs", "scripts/ci/releaseJournal.mjs",
       "scripts/db-proof/serviceWithholding.mjs", "scripts/db-proof/trackAHardening.mjs", "scripts/e2e/sourceDownloadJourney.mjs",
       "scripts/e2e/localStackJourney.mjs", "scripts/browser-acceptance/cdp.mjs"]) allowed.add(file);
-    expect(unreviewedPaths(changed, allowed)).toEqual([]);
+    // Lovable's own markdown planning notes (.lovable/plan.md, .lovable/plan/*.md, .lovable/north-star/*.md) deploy nothing
+    // (scripts/ci/inertBase.mjs isLovablePlanningNote). Every other .lovable path is still reviewed by exact file.
+    expect(unreviewedPaths(changed, allowed).filter((p) => !isLovablePlanningNote(p))).toEqual([]);
   });
 
   it("package.json adds only exact reviewed local PDF/OCR runtime packages and the existing test-only exceptions relative to the exact base", () => {
