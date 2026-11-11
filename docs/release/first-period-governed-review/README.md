@@ -65,11 +65,41 @@ whether comparatives are required still comes from `financial_statement_framewor
   shows main's pre-migration text is a line-subsequence of the new one with exactly those six lines added.
 * `_fs_scope_lock` exists on main (`20261125100000`, hardened by `20261127100000`); every writer takes it first, as the
   sign-off transition does.
-* Client copy (not a UI): `serverBlockers.ts` gives each new reason its one next action
-  (`firstPeriodNextActions.ts`, pinned byte for byte to `_fs_fp_next_action` by a test) and `comparatives.ts` no longer says a
-  declaration is enough. No bundled statement-compiler file changes.
+* Client copy: `serverBlockers.ts` gives each new reason its one next action (`firstPeriodNextActions.ts`, pinned byte for
+  byte to `_fs_fp_next_action` by a test) and `comparatives.ts` no longer says a declaration is enough. No bundled
+  statement-compiler file changes.
 
-## Rollout (read-only preflight — run it first)
+## The approval workflow (Financial Statements › Comparatives)
+
+`src/components/reporting/FirstPeriodReview.tsx`, shown where the comparatives are missing (and, once the exception is in
+force, beside it). It calls only `fs_first_period_status`, `fs_record_first_period_evidence`, `fs_submit_first_period_claim`,
+`fs_decide_first_period` and `fs_withdraw_first_period` through `src/lib/comparatives/firstPeriodReview.ts`; it writes no
+table. The single-person declaration (`fs_declare_first_period`) has no browser route any more.
+
+* **Prepare** (`prepare_close`): record evidence revisions (kind, reference, issue date, the date the document establishes; the
+  document's SHA-256 is computed in the browser and the file is not uploaded), then the structured facts. The reporting dates
+  are the server's (read-only, from the reviewed trial balance), the cited evidence is chosen from the server's list of current
+  revisions, and the written basis shows a 20–1500 character counter. Submit for approval.
+* **Approve or return** (`approve_certification`, a different person): the form shows what the decision binds — company
+  name and TIN, the server's reporting dates, the facts, the basis, every cited revision (reference, revision, dates,
+  fingerprint, still current or not) and the rule version — and records verify / return with a reason. The person who recorded
+  the facts is offered no approve control; if the call is made anyway the server's refusal is shown in plain words.
+* **States**: not started, awaiting approval, approved, returned (with the reviewer's reason), stale (the server's named reason
+  and its one next action), legacy declaration (an unverified claim that needs a governed review), not applicable, not ready
+  (period unknown). One primary action per state; viewers read only. Anything the page does not recognise — an unknown state
+  or reason code, a reason without its next action, a "verified" without a verified decision, a failed read — is
+  **cannot confirm**, never green.
+* Once the first period is verified the **opening balances** are reviewed the same way (nil opening, or activity before
+  bookkeeping began item by item with its evidence).
+
+Two server additions in this same file make that possible: `fs_first_period_status` also returns the entity, the server's
+reporting dates (`_fs_fp_period` is not client-callable), the current evidence revisions and, per subject, the latest claim,
+decision, cited revisions (`_fs_fp_review_view`, revoked from clients) and the binding a decision taken now would carry; and
+`fs_decide_first_period` takes that binding back (`p_expected_binding`, default NULL): when the claim, the evidence set, the
+company or the period moved after the approver's page was read, nothing is recorded (`changed_since_viewed`). That is a
+consistency guard for the page, not an authorisation change. No table, column or other RPC was added.
+
+## Rollout (read-only preflight — run it first; apply, then Publish)
 
 `docs/release/first-period-governed-review/preflight.sql` — one `BEGIN READ ONLY` statement, run **before** applying. It
 returns the active legacy declarations (they **become unverified claims** — a behaviour change the owner must accept before
@@ -84,7 +114,12 @@ an open engagement, 1 whose certificate predates its period, 0 issued without co
 `scripts/db-proof/firstPeriodGovernedReview.manifest.mjs` (structured result validated by `scripts/ci/validateProofResult.mjs`).
 Present mode applies the migration on main's chain; absent mode (`FIRST_PERIOD_GATE_ABSENT=1`) stops before it and exactly
 the three weakness cases must fail. Both run in CI. PR #256's pilot scope group is not ported (there is no pilot on main);
-three cases are added for staleness on new facts, a changed period and a changed company identity.
+three cases are added for staleness on new facts, a changed period and a changed company identity. Group **UI** makes the
+Comparatives page's own calls, in its order, through its client (`src/lib/comparatives/firstPeriodReview.ts`) over the real
+client transport, and reads each state through the page's own mapping: prepare, the same person refused, a second person
+approves, the blocker clears, new evidence makes it stale, a decision on the binding shown before is refused, a re-review
+restores it. The page itself is covered by `src/components/reporting/FirstPeriodReview.test.ts` (jsdom) and the state
+mapping by `src/lib/comparatives/firstPeriodReview.test.ts`.
 
 The browser client cannot read a missing comparative that carries no dates (`src/lib/reporting/signoff.ts`, inside the
 pinned statement-compiler closure; its fix is PR #259). The proofs therefore wrap the transport so a missing comparative has
@@ -92,14 +127,18 @@ null dates (`lib/firstPeriodKit.mjs`, `withMissingComparativeDates`), as PR #256
 
 ## Remaining gaps
 
-1. **No UI.** There is no screen to record evidence, submit facts or decide. Once applied, a first-period entity cannot clear
-   `COMPARATIVE_PERIOD_MISSING` until a UI or an owner-run path exists. Every workspace relying on a legacy declaration is
-   blocked from REVIEWED/FINAL from the moment of application.
+1. **Order: apply the migration, then Publish.** Before the migration is applied, the published page reads no review
+   (`fs_first_period_status` does not exist) and shows "cannot confirm"; once applied, legacy-declared and first-period
+   workspaces have the governed review on Comparatives as their path. The browser journey for it
+   (`scripts/e2e/localStackJourney.mjs`, group "First-period review") is unproven until CI runs again.
 2. **A first-period IFRS-for-SMEs report cannot reach REVIEWED/FINAL on main, with or without this change** (the cash-flow
    roll-forward needs a prior balance: `CASHFLOW_ROLLFORWARD_BALANCE_MISSING`). Races are proven on the real sign-off
    function's blocker set, not on a successful first-period FINAL.
-3. **The server cannot read the documents.** It binds hashes, dates, kinds and references and requires a different
+3. **First-period workspaces cannot save a report version in the browser yet**: the client's reporting-input schema needs
+   dates on a missing comparative (`src/lib/reporting/signoff.ts`, compiler closure; fixed by PR #259). The review itself
+   works without it.
+4. **The server cannot read the documents.** It binds hashes, dates, kinds and references and requires a different
    approver; whether a certificate is genuine is the approver's recorded judgment.
-4. **Accounting review pending** for `first-period-rules/1`, `opening-balance-rules/1` and the evidence kinds.
-5. Any new evidence revision of a relevant kind re-opens the review (deliberate): a harmless extra copy needs a re-decision,
+5. **Accounting review pending** for `first-period-rules/1`, `opening-balance-rules/1` and the evidence kinds.
+6. Any new evidence revision of a relevant kind re-opens the review (deliberate): a harmless extra copy needs a re-decision,
    and prior-activity evidence also re-opens the opening-balance decision.
