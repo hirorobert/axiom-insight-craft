@@ -67,11 +67,13 @@ export function AccountCorrection(p: AccountCorrectionProps) {
 }
 
 function ScopedAccountCorrection(p: AccountCorrectionProps) {
-  const ids = { h: useId(), cls: useId(), reason: useId() };
+  const ids = { h: useId(), cls: useId(), reason: useId(), contra: useId() };
   const heading = useRef<HTMLHeadingElement>(null);
   const [read, setRead] = useState<Read>({ state: "loading" });
   const [classification, setClassification] = useState<ClassificationValue | "">("");
   const [reason, setReason] = useState("");
+  // S2-A05: the contra-account designation ("" = no change: not sent, the server keeps the account's current value).
+  const [contra, setContra] = useState<"" | "true" | "false">("");
   const [save, setSave] = useState<{ busy: boolean; outcome: SaveOutcome | null }>({ busy: false, outcome: null });
   const [check, setCheck] = useState<Check>({ phase: "idle" });
   const attempt = useRef<{ payload: string; requestId: string } | null>(null);
@@ -108,9 +110,11 @@ function ScopedAccountCorrection(p: AccountCorrectionProps) {
     if (!key || !actor || !uploadId) return;
     const pending = parsePending(store.get(key), { actor, uploadId, accountKey: p.link.accountKey });
     if (!pending) return;
+    const pendingContra = pending.contra === undefined ? "" : String(pending.contra) as "true" | "false";
     setClassification(pending.classification);
     setReason(pending.reason);
-    attempt.current = { payload: `${pending.classification}|${pending.reason.trim()}`, requestId: pending.requestId };
+    setContra(pendingContra);
+    attempt.current = { payload: `${pending.classification}|${pendingContra}|${pending.reason.trim()}`, requestId: pending.requestId };
     setSave({ busy: false, outcome: { kind: "unknown" } });
   }, [key, actor, uploadId, p.link.accountKey]);
 
@@ -127,12 +131,14 @@ function ScopedAccountCorrection(p: AccountCorrectionProps) {
   /** Sends (or, for an unproven attempt, re-sends the SAME) request; only the canonical receipt counts as saved. */
   const send = async (cls: ClassificationValue, why: string) => {
     if ((view?.kind !== "ready" && view?.kind !== "needs_recheck") || !uploadId || save.busy) return;
-    const decision = correctionDecision({ account_code: view.finding.account_code, account_name: view.finding.account_name ?? p.link.accountKey }, cls, why, p.link.findingKey);
-    const payload = `${cls}|${why.trim()}`;
+    const contraValue = contra === "" ? undefined : contra === "true";
+    const decision = correctionDecision({ account_code: view.finding.account_code, account_name: view.finding.account_name ?? p.link.accountKey }, cls, why, p.link.findingKey, contraValue);
+    const payload = `${cls}|${contra}|${why.trim()}`;
     if (!attempt.current || attempt.current.payload !== payload) attempt.current = { payload, requestId: crypto.randomUUID() };
     const requestId = attempt.current.requestId;
     // Kept before sending, so an answer lost with the page (or a reload) is resent as the same request by the same actor.
-    if (key && actor) store.set(key, JSON.stringify({ actor, uploadId, accountKey: p.link.accountKey, requestId, classification: cls, reason: why.trim() }));
+    if (key && actor) store.set(key, JSON.stringify({ actor, uploadId, accountKey: p.link.accountKey, requestId, classification: cls, reason: why.trim(),
+      ...(contraValue === undefined ? {} : { contra: contraValue }) }));
     setSave({ busy: true, outcome: null });
     const outcome = await saveCorrection(p.rpc, { companyId: p.companyId, uploadId, requestId, decision });
     // The stored attempt belongs to its own scope: settled outcomes clear it even if this view has gone; it stays while unknown.
@@ -140,7 +146,7 @@ function ScopedAccountCorrection(p: AccountCorrectionProps) {
     if (!live.current) return;
     if (outcome.kind !== "unknown") attempt.current = null;
     setSave({ busy: false, outcome });
-    if (outcome.kind === "saved") { setReason(""); setClassification(""); await reload(); }
+    if (outcome.kind === "saved") { setReason(""); setClassification(""); setContra(""); await reload(); }
   };
   const onSave = () => { if (isClassification(classification) && reasonValid(reason) && guidanceReasonComplete(reason)) void send(classification, reason); };
 
@@ -246,7 +252,8 @@ function ScopedAccountCorrection(p: AccountCorrectionProps) {
     // than the current findings (ready + savedNotChecked).
     const pendingCheck = lastCheck || view.savedNotChecked;
     const savedHere = view.kind === "needs_recheck" ? view.savedAfterCheck : view.savedNotChecked;
-    const unchangedChoice = classification !== "" && classification === saved && !pendingCheck;
+    // Saving the saved classification again is offered only when it records a contra-account designation (S2-A05).
+    const unchangedChoice = classification !== "" && classification === saved && !pendingCheck && contra === "";
     const guide = findingGuidance(f, saved);
     const adjust = p.canCorrect ? adjustmentsHref(p.companyId, p.periodYear, p.reportVersion) : null;
     const authored = authoredReason(reason).length;
@@ -300,6 +307,18 @@ function ScopedAccountCorrection(p: AccountCorrectionProps) {
               {isClassification(classification) ? <p role="status" className="text-muted-foreground" data-testid="classification-help">{CLASS_GUIDANCE[classification]}</p> : null}
               {unchangedChoice ? <p className="text-muted-foreground">This is already the saved classification.</p> : null}
             </div>
+            {p.link.rule === "A01" ? (
+              <div className="space-y-1">
+                <label htmlFor={ids.contra} className="block font-medium">Does this account reduce its category (a contra account)?</label>
+                <select id={ids.contra} data-testid="correction-contra" className="h-10 w-full max-w-sm rounded-md border border-input bg-background px-2" value={contra}
+                  onChange={(e) => setContra(e.target.value as "" | "true" | "false")} disabled={save.busy}>
+                  <option value="">Not reviewed here (no change)</option>
+                  <option value="true">Contra account — balance expected on the opposite side</option>
+                  <option value="false">Not a contra account</option>
+                </select>
+                <p className="text-muted-foreground">For example accumulated depreciation or an allowance for doubtful debts. The sign check then raises this account only when its balance is on its category's normal side. It does not change how the account is presented.</p>
+              </div>
+            ) : null}
             <div className="space-y-1">
               <label htmlFor={ids.reason} className="block font-medium">Reason for the correction</label>
               <textarea id={ids.reason} rows={3} maxLength={REASON_MAX} className="w-full rounded-md border border-input bg-background p-2" value={reason}

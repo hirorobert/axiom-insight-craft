@@ -101,6 +101,16 @@ export function findingGuidance(f: Pick<FindingRow, "rule_id" | "classification"
       explanationRemains: false,
     };
   }
+  // A01 on an account reviewed as a contra account (S2-A05, detail.contraAccount): it carries its class's NORMAL side.
+  if (f.rule_id === "A01" && f.detail?.contraAccount === true) {
+    return {
+      found: `This account is reviewed as a contra account: it reduces ${used}, so its balance is expected on the side opposite to that category's normal side. The trial balance carries ${onSide} on this account, which is the category's normal side.`,
+      legitimateIf: "A contra account rarely carries its category's normal side; it can where more was reversed or written back than had been accumulated. Without evidence of that, either the balance or the contra designation needs correcting.",
+      decides: "The register or schedule behind the account (for example the asset register for accumulated depreciation, or the receivables ageing for an allowance) and the postings of the period.",
+      correctionEffect: "If the account is not a contra account, record \"Not a contra account\" here with the classification: the next check then tests it as an ordinary account. If the amount itself needs correcting, that is done by an approved adjustment. Otherwise record a decision on the finding.",
+      explanationRemains: true,
+    };
+  }
   // A01: balance on the side opposite to its class.
   const legitimateIf = assetSide
     ? "A credit on an asset account may be legitimate where the account reduces a related asset (accumulated depreciation, an allowance) or where evidence supports a refund or overpayment due; the credit balance alone establishes none of these."
@@ -115,7 +125,7 @@ export function findingGuidance(f: Pick<FindingRow, "rule_id" | "classification"
   const correctionEffect = pendingAnother
     ? `The saved classification (${classificationWords(savedClassification!)}) has not been used by a check yet. If ${classificationWords(savedClassification!)} expects the side this balance is on, the next check no longer raises this finding; otherwise it is raised again and needs a decision.`
     : assetSide
-      ? "If the account belongs to another category, correct it: the next check uses the saved category. If it stays an asset with a credit balance, this warning is raised again after the check; CFOClose records a confirmed treatment only for a current-asset closing-stock credit (Account review, \"keep as mapped\"), so for other asset credits the finding is closed by a decision on it."
+      ? "If the account belongs to another category, correct it: the next check uses the saved category. If it stays an asset with a credit balance, this warning is raised again after the check; CFOClose records a confirmed treatment only for a current-asset closing-stock credit (Account review, \"keep as mapped\"), so for other asset credits the finding is closed by a decision on it. If the account reduces a related asset (a contra account such as accumulated depreciation or an allowance), record that designation with the classification: the next check then expects a credit balance on it."
       : "If the account belongs to a category whose normal side matches this balance, correct it: the next check uses the saved category and no longer raises this finding. If the category is right, record a decision on the finding instead.";
   return {
     found: `The check used ${used}, which expects a ${expectedWords}; the trial balance carries ${onSide} on this account.`,

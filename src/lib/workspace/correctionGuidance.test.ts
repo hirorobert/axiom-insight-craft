@@ -40,6 +40,15 @@ describe("finding guidance keeps facts, possibilities and judgement apart", () =
     expect(g.correctionEffect).toMatch(/closed by a decision on it/);
     expect(DISPOSITION_LIMITS).toMatch(/does not record a contra-account treatment, prove the balance or its presentation, replace required evidence or independent review/);
   });
+  it("S2-A05: an A01 on an account reviewed as a contra account states the reversed expectation, never that anything is wrong", () => {
+    const g = findingGuidance(finding({ classification: "non_current_assets", debit_minor: "200000", credit_minor: "0", class_side_minor: "200000", detail: { contraAccount: true } }), "non_current_assets");
+    expect(g.found).toBe("This account is reviewed as a contra account: it reduces Non-Current Assets, so its balance is expected on the side opposite to that category's normal side. The trial balance carries a debit balance on this account, which is the category's normal side.");
+    expect(g.correctionEffect).toMatch(/Not a contra account/);
+    expect(JSON.stringify(g)).not.toMatch(/\bwrong\b/i);
+    expect(g.explanationRemains).toBe(true);
+    // An ordinary asset credit now also names the designation as a way to close it.
+    expect(findingGuidance(finding({ classification: "non_current_assets" }), "non_current_assets").correctionEffect).toMatch(/record that designation with the classification/);
+  });
   it("while a saved classification has not been rechecked, says so instead of asking for a correction", () => {
     const g = findingGuidance(finding(), "non_current_assets");
     expect(g.correctionEffect).toMatch(/^The saved classification \(Non-Current Assets\) has not been used by a check yet/);

@@ -654,6 +654,11 @@ describe("database inertness — schema and functions", () => {
     // First-period governed review, standalone on main (S2-A03; docs/release/first-period-governed-review): ONE forward-only migration (the exception becomes a
     // verified, bound decision by a different approver; the blockers function is spliced, not copied). AUTHORED, NOT APPLIED. Supersedes 20261217100000 (PR #256).
     added.add("supabase/migrations/20261223100000_first_period_governed_review_standalone.sql");
+    // Second-pass S2-A05: one forward-only migration adding the reviewed, nullable account_mappings.is_contra_account (no back-fill;
+    // written only by resolve_account_review_batch) and re-creating that RPC, the S1 mapping-content/provenance helpers and
+    // close_review_refresh_findings with only the A01 expected-side test changed (proof: scripts/db-proof/closeReviewAuthority.mjs,
+    // "Contra designation"). No financial-statements schema, no Edge Function, no composition or presentation change.
+    added.add("supabase/migrations/20261224100000_contra_account_designation.sql");
     expect(unreviewedChanges(changed, { added, modified, removed })).toEqual([]);
   });
 
