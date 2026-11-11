@@ -740,12 +740,15 @@ async function main() {
   group("P. S2-A02 — a post-closing trial balance (profit already in retained earnings) blocks REVIEWED until a reviewer accepts it with a reason");
   // Both years exported after closing entries: no income or expense account; retained earnings 5,900.00 + 5,100.00 = 11,000.00 (FY2026)
   // and 3,500.00 + 3,100.00 = 6,600.00 (FY2025). Debits 39,000.00 = credits 39,000.00 (FY2026); 32,800.00 = 32,800.00 (FY2025). The cash
-  // is unchanged, so the ledgers are EVIDENCE_FY2026's; the equity movements carry the closed result as an OTHER_MOVEMENT (the audit's
-  // path that passes every equity tie).
+  // is unchanged, so the ledgers are EVIDENCE_FY2026's. The equity movements state the result for the period as 0.00 (what the nil SCI
+  // shows) and carry the closed result as an OTHER_MOVEMENT: every equity tie then holds (a statement of changes in equity with no
+  // result line at all is refused by equity-profit-tie, INSUFFICIENT_EVIDENCE — verified while building this case).
   const TB_POST_CLOSING = TB.filter((r) => r[3] === "balance_sheet").map((r) => (r[0] === "3100" ? [...r.slice(0, 5), "", "11000.00", "", "6600.00"] : r));
   const ASSIGN_SFP = Object.fromEntries(Object.entries(ASSIGN).filter(([key]) => TB_POST_CLOSING.some((r) => r[0] === key)));
-  const EQUITY_POST_CLOSING = { CURRENT: EVIDENCE_FY2026.EQUITY_MOVEMENTS.replace("Retained earnings,PROFIT_OR_LOSS,5100.00,", "Retained earnings,OTHER_MOVEMENT,5100.00,Result closed to retained earnings"),
-    COMPARATIVE: EVIDENCE_FY2025_COMPARATIVE.EQUITY_MOVEMENTS.replace("Retained earnings,PROFIT_OR_LOSS,3100.00,", "Retained earnings,OTHER_MOVEMENT,3100.00,Result closed to retained earnings") };
+  const EQUITY_POST_CLOSING = {
+    CURRENT: EVIDENCE_FY2026.EQUITY_MOVEMENTS.replace("Retained earnings,PROFIT_OR_LOSS,5100.00,", "Retained earnings,PROFIT_OR_LOSS,0.00,\nRetained earnings,OTHER_MOVEMENT,5100.00,Result closed to retained earnings"),
+    COMPARATIVE: EVIDENCE_FY2025_COMPARATIVE.EQUITY_MOVEMENTS.replace("Retained earnings,PROFIT_OR_LOSS,3100.00,", "Retained earnings,PROFIT_OR_LOSS,0.00,\nRetained earnings,OTHER_MOVEMENT,3100.00,Result closed to retained earnings"),
+  };
   const P = await worldWith(TB_POST_CLOSING, ASSIGN_SFP);
   const ridP = `rpt-post-closing-${uuid()}`;
   let vP, findingKey;
