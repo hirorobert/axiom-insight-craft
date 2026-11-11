@@ -6,9 +6,9 @@
 // functions import. A child that exceeds the cap is terminated by V8: "terminated" is measured, not estimated.
 // Invented data only. Run by CI (Edge function checks job); prints one JSON line per case and a summary table.
 //
-//   deno run --allow-read --allow-write --allow-run --allow-env --allow-net=cdn.sheetjs.com scripts/bench/tbUploadPolicyDenoProbe.ts [heapMb]
-// @deno-types="https://cdn.sheetjs.com/xlsx-0.20.3/package/types/index.d.ts"
-import * as XLSX from "https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs";
+//   deno run --allow-read --allow-write --allow-run --allow-env scripts/bench/tbUploadPolicyDenoProbe.ts [heapMb]
+// @deno-types="../../supabase/functions/_shared/vendor/sheetjs-0.20.3/types/index.d.ts"
+import * as XLSX from "../../supabase/functions/_shared/vendor/sheetjs-0.20.3/xlsx.mjs";
 import { readTrialBalanceSource, type XlsxLike } from "../../supabase/functions/_shared/tbSource.ts";
 import { checkSourceBytesActual, TB_UPLOAD_POLICY } from "../../supabase/functions/_shared/uploadPolicy.ts";
 
@@ -73,7 +73,7 @@ for (const c of cases) {
   }
   const size = (await Deno.stat(file)).size;
   const p = await new Deno.Command(Deno.execPath(), {
-    args: ["run", `--v8-flags=--max-old-space-size=${heapMb}`, "--allow-read", "--allow-net=cdn.sheetjs.com", "--allow-env", SELF, "--child", file, fileName],
+    args: ["run", `--v8-flags=--max-old-space-size=${heapMb}`, "--allow-read", "--allow-env", SELF, "--child", file, fileName],
     stdout: "piped", stderr: "piped",
   }).output();
   const out = new TextDecoder().decode(p.stdout).trim().split("\n").pop() ?? "";

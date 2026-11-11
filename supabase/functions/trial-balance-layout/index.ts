@@ -12,8 +12,8 @@
 
 import { serve }        from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-// @deno-types="https://cdn.sheetjs.com/xlsx-0.20.3/package/types/index.d.ts"
-import * as XLSX        from "https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs";
+// @deno-types="../_shared/vendor/sheetjs-0.20.3/types/index.d.ts"
+import * as XLSX        from "../_shared/vendor/sheetjs-0.20.3/xlsx.mjs";
 import { corsHeaders, validateAuth } from "../_shared/auth.ts";
 import { handleLayoutRequest, type LayoutUpload } from "../_shared/trialBalanceLayout.ts";
 import type { XlsxLike } from "../_shared/tbSource.ts";

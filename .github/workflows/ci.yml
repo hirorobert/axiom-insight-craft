@@ -202,7 +202,7 @@ jobs:
         run: deno check supabase/functions/qbo-connect-start/index.ts supabase/functions/qbo-oauth-callback/index.ts supabase/functions/qbo-finish-connection/index.ts supabase/functions/qbo-pull-trial-balance/index.ts supabase/functions/qbo-disconnect/index.ts
 
       - name: Upload policy probe in Deno under a 150 MB V8 heap cap (invented files; the real gate and reader; each case in its own process, fits or terminated, measured)
-        run: deno run --allow-read --allow-write --allow-run --allow-env --allow-net=cdn.sheetjs.com scripts/bench/tbUploadPolicyDenoProbe.ts 150
+        run: deno run --allow-read --allow-write --allow-run --allow-env scripts/bench/tbUploadPolicyDenoProbe.ts 150
 
       - name: Type-check the online payment functions (checkout, recovery, provider diagnostics and the Polar and Snippe webhooks) against the real Supabase client types
         run: deno check supabase/functions/commercial-create-checkout/index.ts supabase/functions/commercial-payment-status/index.ts supabase/functions/commercial-provider-diagnostics/index.ts supabase/functions/commercial-webhook-polar/index.ts supabase/functions/commercial-webhook-snippe/index.ts supabase/functions/commercial-payment-webhook/index.ts
@@ -211,10 +211,10 @@ jobs:
         run: deno check --import-map=supabase/functions/process-trial-balance/functionpath/import_map.json supabase/functions/_shared/tbIngestion.ts supabase/functions/_shared/tbSource.ts supabase/functions/_shared/layoutProfile.ts supabase/functions/process-trial-balance/functionpath/functionPath.test.ts
 
       - name: Function-path tests (real handler, in-memory database double)
-        run: deno test --no-check --allow-env --allow-net=esm.sh,deno.land,cdn.sheetjs.com --import-map=supabase/functions/process-trial-balance/functionpath/import_map.json supabase/functions/process-trial-balance/functionpath/functionPath.test.ts
+        run: deno test --no-check --allow-env --allow-net=esm.sh,deno.land --import-map=supabase/functions/process-trial-balance/functionpath/import_map.json supabase/functions/process-trial-balance/functionpath/functionPath.test.ts
 
       - name: Existing process-trial-balance Deno tests
-        run: deno test --allow-env --allow-read --allow-net=esm.sh,deno.land,cdn.sheetjs.com supabase/functions/process-trial-balance/balanceSheetCheck_test.ts supabase/functions/process-trial-balance/l5l6Evidence.test.ts supabase/functions/process-trial-balance/normalize.test.ts supabase/functions/process-trial-balance/publicSectorClassification_test.ts supabase/functions/process-trial-balance/requestIdentity.test.ts supabase/functions/process-trial-balance/tierProvenance.test.ts supabase/functions/_shared/pagedSelect.test.ts
+        run: deno test --allow-env --allow-read --allow-net=esm.sh,deno.land supabase/functions/process-trial-balance/balanceSheetCheck_test.ts supabase/functions/process-trial-balance/l5l6Evidence.test.ts supabase/functions/process-trial-balance/normalize.test.ts supabase/functions/process-trial-balance/publicSectorClassification_test.ts supabase/functions/process-trial-balance/requestIdentity.test.ts supabase/functions/process-trial-balance/tierProvenance.test.ts supabase/functions/_shared/pagedSelect.test.ts
 
   golden-tests:
     name: Golden Fixture Tests (vitest)
