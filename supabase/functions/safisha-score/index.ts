@@ -33,6 +33,8 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { resolveFirmMemberActor } from "../_shared/actor.ts";
+import { hasWorkspaceCapability } from "../_shared/namedUserAccess.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin":  "*",
@@ -68,10 +70,30 @@ serve(async (req: Request) => {
     // Load reconciliation for match counts
     const { data: recon, error: reconErr } = await supabase
       .from("safisha_reconciliations")
-      .select("id,matched_count,total_tb_lines,exception_count,status")
+      .select("id,matched_count,total_tb_lines,exception_count,status,tb_upload_id")
       .eq("id", reconciliation_id)
       .single();
     if (reconErr || !recon) throw new Error("Reconciliation not found");
+
+    // Authority (20261221100000): clients can no longer write safisha_exceptions / safisha_reconciliations, so the
+    // scores below are written with the service role — only after the caller (who can see this reconciliation under
+    // its own RLS, above) is proven an ACCEPTED, active named member of its company (an invited-but-not-accepted row is
+    // refused like an outsider) holding prepare_close: the check reconciliation_write_wall makes for a caller's own
+    // writes and skips for the service role. Reads stay on the caller's own client.
+    const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const { data: scopeUpload } = await admin
+      .from("trial_balance_uploads")
+      .select("company_id")
+      .eq("id", recon.tb_upload_id)
+      .maybeSingle();
+    const companyId: string = scopeUpload?.company_id ?? "";
+    const actor = await resolveFirmMemberActor(admin, user.id, companyId, corsHeaders);
+    if (actor instanceof Response) return actor;
+    if (!(await hasWorkspaceCapability((fn, args) => admin.rpc(fn, args), companyId, user.id, "prepare_close"))) {
+      return new Response(JSON.stringify({ error: "Forbidden", message: "Reconciliation changes need prepare_close in this workspace" }), {
+        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     // Load all exceptions
     const { data: exceptions, error: excErr } = await supabase
@@ -123,10 +145,11 @@ serve(async (req: Request) => {
     // Batch-update exception confidence scores (no trigger conflicts — only updates confidence_score)
     // We do individual updates because Supabase doesn't support batch UPDATE with different values per row
     for (const u of updates) {
-      const { error: updErr } = await supabase
+      const { error: updErr } = await admin
         .from("safisha_exceptions")
         .update({ confidence_score: u.confidence_score })
-        .eq("id", u.id);
+        .eq("id", u.id)
+        .eq("reconciliation_id", reconciliation_id);
       if (updErr) throw new Error(`Failed to score exception ${u.id}: ${updErr.message}`);
     }
 
@@ -158,7 +181,7 @@ serve(async (req: Request) => {
 
     overallScore = clamp(Math.round(overallScore), 0, 100);
 
-    await supabase.from("safisha_reconciliations")
+    await admin.from("safisha_reconciliations")
       .update({ confidence_score: overallScore })
       .eq("id", reconciliation_id);
 
