@@ -430,7 +430,7 @@ jobs:
           # downloaded within the month; the account's artifact storage quota is otherwise exhausted.
           retention-days: 30
 
-      - name: Real application journey (the production build on loopback in headless Chrome; real Auth, PostgREST, RLS, Storage and Edge Functions; sign-in, first run, non-calendar periods, upload and review, next actions, Close Review, comparatives, adjustments, evidence, sign-off, sealed export, stale result, two-account isolation, 1280 and 375 px)
+      - name: Real application journey (the production build on loopback in headless Chrome; real Auth, PostgREST, RLS, Storage and Edge Functions; sign-in, first run, non-calendar periods, upload and review, next actions, Close Review, comparatives (and the governed first-period review - prepare, approval by a second person, stale, re-review), adjustments, evidence, sign-off, sealed export, stale result, two-account isolation, 1280 and 375 px)
         if: always()
         run: node scripts/e2e/localStackJourney.mjs real-app-evidence
 
@@ -1432,6 +1432,41 @@ jobs:
           echo "$code" > proof-results/publicationIntegrityGate.absent.exit
           grep -v '^\[PTB' proof-results/publicationIntegrityGate.absent.log || true
           node scripts/ci/validateProofResult.mjs proof-results/publicationIntegrityGate.absent.json --manifest scripts/db-proof/publicationIntegrityGate.manifest.mjs --mode absent --exit-code "$code"
+
+      - name: First-period governed review proof (20261223100000, S2-A03 - the exception is a verified decision by a different approver bound to the entity, the server's period dates, immutable evidence revisions and the rule version, not a declaration; the old-certificate bypass refused; a genuine first period, activity before bookkeeping, dormancy and opening support; later evidence, facts, period or identity make it stale; the comparative path and the server-compilation splice unchanged; the rollout preflight read-only; evidence and decision changes racing with sign-off in both orderings; the Comparatives page calls in its order through its own client - prepare, the same person refused, a second person approves, new evidence stales it, a decision on the binding shown before refused, a re-review)
+        shell: bash
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/first_period_proof
+          PROOF_RESULT_FILE: proof-results/firstPeriodGovernedReview.present.json
+        run: |
+          createdb first_period_proof
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/firstPeriodGovernedReview.mjs > proof-results/firstPeriodGovernedReview.present.log 2>&1
+          code=$?
+          set -e
+          echo "$code" > proof-results/firstPeriodGovernedReview.present.exit
+          grep -v '^\[PTB' proof-results/firstPeriodGovernedReview.present.log || true
+          node scripts/ci/validateProofResult.mjs proof-results/firstPeriodGovernedReview.present.json --manifest scripts/db-proof/firstPeriodGovernedReview.manifest.mjs --mode present --exit-code "$code"
+
+      - name: First-period regression run without 20261223100000 (main's chain - exactly the weakness cases must fail, and their failure is the old-certificate bypass; every setup case, including the bypass reproduction on the old rule, must pass)
+        shell: bash
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/first_period_absent
+          FIRST_PERIOD_GATE_ABSENT: "1"
+          PROOF_RESULT_FILE: proof-results/firstPeriodGovernedReview.absent.json
+        run: |
+          createdb first_period_absent
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/firstPeriodGovernedReview.mjs > proof-results/firstPeriodGovernedReview.absent.log 2>&1
+          code=$?
+          set -e
+          echo "$code" > proof-results/firstPeriodGovernedReview.absent.exit
+          grep -v '^\[PTB' proof-results/firstPeriodGovernedReview.absent.log || true
+          node scripts/ci/validateProofResult.mjs proof-results/firstPeriodGovernedReview.absent.json --manifest scripts/db-proof/firstPeriodGovernedReview.manifest.mjs --mode absent --exit-code "$code"
 
       - name: Publication FINAL authority proof (20261125100000 - one current FINAL per company and period across draft lineages, decided under one scope lock - two concurrent first FINALs of different lineages yield one authority and one named refusal; a plain FINAL of a competing lineage is refused; a replacement needs approve_certification, a different approver and the exact current authority; the explicit replacement moves the authority, records a REPLACED event and leaves the replaced lineage's FINAL, bindings and sealed pack untouched; a retry is a replay; the replaced lineage gets no new issuance or seal and its pack is disclosed superseded; sealing and replacement wait for each other in both orders with real transaction barriers; expiry and capability revocation at seal; the comparative selection names the explicit authority; tenant and scope isolation; the append-only history)
         shell: bash

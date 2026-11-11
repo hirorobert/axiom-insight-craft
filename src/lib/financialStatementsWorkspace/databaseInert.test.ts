@@ -651,6 +651,9 @@ describe("database inertness — schema and functions", () => {
     added.add("supabase/migrations/20261222100000_fs_cash_transfers_and_post_closing.sql");
     added.add("supabase/migrations/20261222200000_statement_compiler_transfers_post_closing.sql");
     for (const file of ["supabase/functions/_shared/statementCompiler.generated.mjs", "supabase/functions/_shared/statementCompiler.manifest.mjs"]) modified.add(file);
+    // First-period governed review, standalone on main (S2-A03; docs/release/first-period-governed-review): ONE forward-only migration (the exception becomes a
+    // verified, bound decision by a different approver; the blockers function is spliced, not copied). AUTHORED, NOT APPLIED. Supersedes 20261217100000 (PR #256).
+    added.add("supabase/migrations/20261223100000_first_period_governed_review_standalone.sql");
     expect(unreviewedChanges(changed, { added, modified, removed })).toEqual([]);
   });
 
@@ -972,6 +975,10 @@ describe("database inertness — schema and functions", () => {
     for (const file of ["scripts/db-proof/financialWriteBoundary.mjs", "scripts/db-proof/financialWriteBoundary.manifest.mjs",
       "scripts/db-proof/serviceWithholding.mjs", "scripts/db-proof/trackAHardening.mjs",
       "scripts/db-proof/reconciliationAuthority.mjs", "scripts/db-proof/safishaIngestion.mjs"]) allowed.add(file);
+    // First-period governed review, standalone on main (S2-A03): its loopback-only real-PostgreSQL proof with its case manifest, the shared helper, the old-rule
+    // bypass reproduction, and the two earlier proofs whose first-period expectations changed (a declaration is a claim; only a verified review is the
+    // exception). No deploy behaviour.
+    for (const f of ["firstPeriodGovernedReview", "firstPeriodGovernedReview.manifest", "firstPeriodBypassReproduction", "lib/firstPeriodKit", "comparatives", "closeReviewAuthority"]) allowed.add(`scripts/db-proof/${f}.mjs`);
     // Lovable's own markdown planning notes (.lovable/plan.md, .lovable/plan/*.md, .lovable/north-star/*.md) deploy nothing
     // (scripts/ci/inertBase.mjs isLovablePlanningNote). Every other .lovable path is still reviewed by exact file.
     expect(unreviewedPaths(changed, allowed).filter((p) => !isLovablePlanningNote(p))).toEqual([]);

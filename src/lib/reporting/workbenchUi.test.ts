@@ -14,6 +14,7 @@ import type { ReportingPage } from "@/components/reporting/shared";
 import { composition } from "@/lib/statements/compositionFixture";
 import { axeViolations, click, mount, typeInto, type Mounted } from "@/lib/workbench/testkit/dom";
 import type { ReportingDb } from "./signoff";
+import { fpStatus, item, subject } from "@/lib/comparatives/firstPeriodReviewFixture";
 
 let m: Mounted | null = null;
 afterEach(() => { m?.unmount(); m = null; document.body.innerHTML = ""; });
@@ -107,21 +108,26 @@ describe("the commercial candidate's journey fixes", () => {
     expect(na.textContent).toMatch(/^Next for this report: Complete 1 note requirement/);
     expect(na.textContent).not.toMatch(/smes\./);
   });
-  it("comparatives missing: the recovery names both supported paths; only an approver may declare a first period", async () => {
+  it("comparatives missing: the recovery names both supported paths; the first-period route is the governed review, never a single-person declaration", async () => {
     const missing = { ...CMP, comparative: { ...CMP.comparative, state: "missing", composedComparativeState: "missing", comparativeSha256: null, blockers: ["COMPARATIVE_REQUIRED_MISSING"] } };
-    await render(server({ fs_comparatives_status: () => missing }), "fs-comparatives", ["prepare_close"]);
+    // 20261223100000: the declaration (fs_declare_first_period, one approver alone) no longer has a browser route; the page reads
+    // fs_first_period_status and offers the governed review (FirstPeriodReview.test.ts covers its states and roles).
+    const status = fpStatus(subject("first_period", { items: [item("FIRST_PERIOD_FACTS_MISSING")] }));
+    await render(server({ fs_comparatives_status: () => missing, fs_first_period_status: () => status }), "fs-comparatives", ["prepare_close"]);
     const rec = document.querySelector('[data-testid="comparative-recovery"]')!;
     expect(rec.textContent).toContain("Import the FY2025 trial balance");
     expect(rec.querySelector('[data-testid="recover-intake"]')!.getAttribute("href")).toBe("/workspace/c1/2026/trial-balance/intake");
     expect(rec.querySelector('[data-testid="open-first-period"]')).toBeNull();
-    expect(rec.textContent).toContain("A member who approves certifications records it.");
+    expect(rec.querySelector('[data-testid="first-period-review"]')).not.toBeNull();
+    expect(rec.querySelector('[data-testid="fp-first_period-primary"]')!.textContent).toBe("Record the first-period facts");
     // The server code stays available, behind Technical details, never as the message itself.
     expect(document.querySelector('[data-testid="comparative-technical"] code')!.textContent).toBe("COMPARATIVE_REQUIRED_MISSING");
     m?.unmount(); m = null; document.body.innerHTML = "";
-    await render(server({ fs_comparatives_status: () => missing }), "fs-comparatives", ["approve_certification"]);
-    click(document.querySelector('[data-testid="open-first-period"]')!);
-    await settle();
-    expect((document.querySelector('[data-testid="record-first-period"]') as HTMLButtonElement).disabled).toBe(true);
+    const db = server({ fs_comparatives_status: () => missing, fs_first_period_status: () => status });
+    await render(db, "fs-comparatives", ["approve_certification"]);
+    // An approver alone has nothing to declare: the facts are a preparer's, and nothing was written by reading the page.
+    expect(document.querySelector('[data-testid="fp-first_period-primary"]')).toBeNull();
+    expect(db.calls.filter((c) => /declare|record|submit|decide|withdraw/.test(c))).toEqual([]);
     expect(await axeViolations(document.body)).toEqual([]);
   });
   it("evidence is collected on Statements with explicit states; Sign-off shows them read-only", async () => {

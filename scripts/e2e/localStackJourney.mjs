@@ -13,6 +13,10 @@
 //   journey     reporting enabled for the company (service role, as an operator would); the ONE next action follows the
 //               server's prerequisites: Close Review findings first (run from the page), then comparatives (missing →
 //               recovery offered → prior year reviewed → approved by a reviewer), notes, evidence on Statements
+//   first period while FY2026 is the only trial balance: the governed first-period review on Comparatives (20261223100000) -
+//               the owner records the certificate (fingerprint taken in the browser) and the facts against the server's dates;
+//               no approve control for them and the server refuses their decision; the partner verifies what is bound; new
+//               evidence makes it out of date; the partner reviews again. FY2025 is then imported (the exception no longer applies)
 //   adjustment  proposed by the preparer, approved by the partner on Close Review › Adjustments (one adjustment path;
 //               Reconcile shows history read-only)
 //   sign-off    evidence stored with a version; REVIEWED by the partner; FINAL by the owner; the sealed pack on Exports
@@ -535,6 +539,77 @@ async function main() {
     await widths("09-comparatives-missing");
     return /Import the FY2025 trial balance/.test(t) && !/^COMPARATIVE_REQUIRED_MISSING/m.test(t) ? true : t.slice(0, 500);
   });
+  // 20261223100000: the governed first-period review, through the page, while FY2026 is still the company's only trial balance.
+  // The owner prepares (they also hold the approval capability, so separation of duties is visible), the partner approves,
+  // new evidence makes the approval stale and the partner reviews again. Importing FY2025 below then makes the exception
+  // inapplicable (earlier books exist) and the journey continues on the comparative path.
+  startGroup("First-period review: prepare, separation of duties, approval by a second person, stale, re-review");
+  const fpState = () => page.waitFor(() => document.querySelector('[data-testid="fp-first_period"]')?.getAttribute("data-state"), [], { label: "first-period state", timeout: 45000 });
+  const certificate = writeFile("synthetic-certificate-of-incorporation.txt", "Synthetic certificate of incorporation CN-2025-0701, Mto Holdings Limited, registered 1 July 2025 (invented for this journey).\n");
+  await check("the preparer records the certificate (fingerprint taken in the browser) and the facts against the server's reporting dates; the page shows awaiting approval", async () => {
+    await go(`${base}/statements/comparatives`, "first-period review");
+    const st0 = await fpState();
+    await page.click('[data-testid="fp-add-evidence"]');
+    await page.waitForSelector('[data-testid="fp-evidence-form"]');
+    await setByLabel("Reference", "Certificate of incorporation CN-2025-0701");
+    await setByLabel("Issue date", PERIODS.current.start);
+    await setByLabel("Registration date on the certificate", PERIODS.current.start);
+    await page.setFiles('[data-testid="fp-evidence-file"]', [certificate]);
+    await page.waitForSelector('[data-testid="fp-evidence-fingerprint"]', { timeout: 15000 });
+    await page.click('[data-testid="fp-evidence-submit"]');
+    await page.waitForText("Recorded as revision 1.", { timeout: 30000 });
+    await page.click('[data-testid="fp-first_period-primary"]');
+    await page.waitForSelector('[data-testid="fp-first_period-form"]');
+    const dates = await page.evaluate(() => document.querySelector('[data-testid="fp-server-dates"]')?.textContent ?? "");
+    await setByLabel("Registration number", "CN-2025-0701");
+    await setByLabel("Registration date", PERIODS.current.start);
+    await setByLabel("Effective start date", PERIODS.current.start);
+    await setByLabel("Certificate of incorporation: Certificate of incorporation CN-2025-0701", true);
+    await setByLabel("Written basis for the judgment", "Registered on the first day of FY2026; the certificate establishes the registration date and no earlier period exists.");
+    await page.click('[data-testid="fp-submit"]');
+    const st1 = await page.waitFor(() => document.querySelector('[data-testid="fp-first_period"]')?.getAttribute("data-state") === "awaiting_approval", [], { label: "awaiting approval", timeout: 30000 });
+    const w = await widths("09a-first-period-awaiting");
+    return w === true && st0 === "not_started" && dates.includes(`${PERIODS.current.start} to ${PERIODS.current.end}`) && st1 ? true : { st0, dates, w };
+  });
+  await check("the person who recorded the facts is offered no approve control; the server refuses the same person's decision by name", async () => {
+    const offered = await page.evaluate(() => !!document.querySelector('[data-testid="fp-first_period-primary"], [data-testid="fp-first_period-decide"]'));
+    const note = await page.evaluate(() => document.querySelector('[data-testid="fp-first_period-note"]')?.textContent ?? "");
+    const s = await rpc(owner.api, "fs_first_period_status", { p_company_id: A, p_period_year: 2026 });
+    const d = await rpc(owner.api, "fs_decide_first_period", { p_company_id: A, p_period_year: 2026, p_subject: "first_period", p_verify: true, p_reason: "Approving my own facts", p_request_id: uuid(), p_expected_binding: s.firstPeriod.binding });
+    return !offered && /cannot approve them/.test(note) && d.outcome === "separate_approver_required" ? true : { offered, note, d };
+  });
+  await signOut(); await signIn(U.partner);
+  await check("a second person (the partner) sees exactly what is bound and verifies it with a reason; the comparatives become a first-period exception", async () => {
+    await go(`${base}/statements/comparatives`, "first-period review");
+    if ((await fpState()) !== "awaiting_approval") return await fpState();
+    await page.click('[data-testid="fp-first_period-primary"]');
+    await page.waitForSelector('[data-testid="fp-first_period-decide"]');
+    const bound = await page.evaluate(() => ({ entity: document.querySelector('[data-testid="bound-entity"]')?.textContent, period: document.querySelector('[data-testid="bound-period"]')?.textContent,
+      rules: document.querySelector('[data-testid="bound-rules"]')?.textContent, cited: document.querySelector('[data-testid="bound-cited"]')?.textContent ?? "" }));
+    await page.click({ text: "Verify: the cited evidence supports these facts" });
+    await setByLabel("Reason", "Certificate agrees to the registration date; the dates agree to the reviewed trial balance.");
+    await page.click('[data-testid="fp-first_period-record-decision"]');
+    await page.waitFor(() => document.querySelector('[data-testid="fp-first_period"]')?.getAttribute("data-state") === "approved", [], { label: "approved", timeout: 30000 });
+    const cmp = await page.waitFor(() => document.querySelector('[data-testid="comparative-state"]')?.getAttribute("data-state") === "first_period_exception", [], { label: "first-period exception", timeout: 30000 }).catch(() => false);
+    const w = await widths("09b-first-period-approved");
+    return w === true && bound.entity === "Mto Holdings Limited" && bound.period === `${PERIODS.current.start} to ${PERIODS.current.end}` && bound.rules === "first-period-rules/1" && bound.cited.includes("CN-2025-0701") && cmp ? true : { bound, cmp, w };
+  });
+  await check("new evidence makes the approval out of date with the server's one next action; the partner reviews again and the exception is restored", async () => {
+    const e = await rpc(preparer.api, "fs_record_first_period_evidence", { p_company_id: A, p_period_year: 2026, p_kind: "certificate_of_registration", p_reference: "Certified copy CN-2025-0701",
+      p_issued_on: PERIODS.current.start, p_asserted_date: PERIODS.current.start, p_document_sha256: crypto.createHash("sha256").update("synthetic certified copy").digest("hex"), p_note: null, p_retract: false, p_request_id: uuid() });
+    await go(`${base}/statements/comparatives`, "first-period review");
+    const st = await fpState();
+    const next = await page.evaluate(() => document.querySelector('[data-testid="fp-first_period-next"]')?.textContent ?? "");
+    if (st !== "stale") return { e, st, next };
+    await page.click('[data-testid="fp-first_period-primary"]');
+    await page.waitForSelector('[data-testid="fp-first_period-decide"]');
+    await page.click({ text: "Verify: the cited evidence supports these facts" });
+    await setByLabel("Reason", "Certified copy agrees to the original certificate.");
+    await page.click('[data-testid="fp-first_period-record-decision"]');
+    const again = await page.waitFor(() => document.querySelector('[data-testid="fp-first_period"]')?.getAttribute("data-state") === "approved", [], { label: "approved again", timeout: 30000 }).catch(() => false);
+    return e.outcome === "recorded" && /changed after the approval/.test(next) && again ? true : { e, st, next, again };
+  });
+  await signOut(); await signIn(U.owner);
   await check("FY2025 is uploaded through the uploader (after its period is opened) and reviewed; FY2026 stays certified; the comparatives are no longer missing", async () => {
     await uploadAndReview(2025, tbPrior);
     const { data: c26 } = await owner.api.rpc("get_authoritative_certification", { p_company_id: A, p_period_year: 2026 });
