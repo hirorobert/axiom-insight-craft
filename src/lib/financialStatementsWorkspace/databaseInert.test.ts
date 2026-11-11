@@ -949,7 +949,11 @@ describe("database inertness — schema and functions", () => {
     // Adding any other package/version still fails this guard. None creates a database or provider connection.
     const REVIEWED_LOCAL_DOCUMENT_DEPENDENCIES = new Map([["@tesseract.js-data/eng", "1.0.0"], ["pdfjs-dist", "6.4.299"], ["tesseract.js", "6.0.1"]]);
     const reviewedRuntimeLines = new Set([...REVIEWED_LOCAL_DOCUMENT_DEPENDENCIES].map(([name, version]) => `+    "${name}": "${version}",`));
-    expect(diff.filter((l) => /"[@\w./-]+":\s*"[\^~]?\d/.test(l) && !REVIEWED_DEV_DEPENDENCIES.has(l) && !reviewedRuntimeLines.has(l))).toEqual([]);
+    // SheetJS 0.20.3 (CVE-2023-30533, CVE-2024-22363): SheetJS publishes only to its own CDN, so the dependency is the
+    // official tarball URL (bun.lock records its sha512). A dependency given by URL, git, file or npm: alias is checked
+    // like a version: an unreviewed one fails.
+    const REVIEWED_SHEETJS = '+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",';
+    expect(diff.filter((l) => /"[@\w./-]+":\s*"(?:[\^~]?\d|https?:|git|file:|link:|npm:)/.test(l) && !REVIEWED_DEV_DEPENDENCIES.has(l) && !reviewedRuntimeLines.has(l) && l !== REVIEWED_SHEETJS)).toEqual([]);
     const pkgNow = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
     for (const name of ["axe-core", "jsdom"]) {
       expect(pkgNow.dependencies?.[name], `${name} must never be a runtime dependency`).toBeUndefined();
