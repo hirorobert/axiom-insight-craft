@@ -428,7 +428,8 @@ describe("9/10. no public claim — in source or rendered — promises a withhel
 
   it("the legal pages describe the service as offered today; the ownership clause covers historical records", () => {
     const terms = flat("src/pages/Terms.tsx");
-    expect(terms).not.toMatch(/\btax\b|compliance review|filing pack/i);
+    // "sales tax" is the merchant-of-record payment disclosure in Terms §3 (S2-C03), not a tax module.
+    expect(terms).not.toMatch(/(?<!sales )\btax\b|compliance review|filing pack/i);
     expect(terms).toMatch(/including records created with services that are no longer offered — belong to you and your firm/);
     expect(flat("src/pages/Privacy.tsx")).not.toMatch(/\btax\b|compliance, and filing/i);
   });
