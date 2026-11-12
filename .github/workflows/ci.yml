@@ -204,6 +204,9 @@ jobs:
       - name: Type-check the QuickBooks connector functions including authorized disconnect against the real Supabase client types
         run: deno check supabase/functions/qbo-connect-start/index.ts supabase/functions/qbo-oauth-callback/index.ts supabase/functions/qbo-finish-connection/index.ts supabase/functions/qbo-pull-trial-balance/index.ts supabase/functions/qbo-disconnect/index.ts
 
+      - name: Type-check the functions that now write financial evidence with the service role after verifying the caller (20261221100000)
+        run: deno check supabase/functions/safisha-efdms-ingest/index.ts supabase/functions/maono-cashflow/index.ts supabase/functions/maono-risk/index.ts supabase/functions/safisha-categorize/index.ts supabase/functions/safisha-score/index.ts
+
       - name: Upload policy probe in Deno under a 150 MB V8 heap cap (invented files; the real gate and reader; each case in its own process, fits or terminated, measured)
         run: deno run --allow-read --allow-write --allow-run --allow-env --allow-net=esm.sh scripts/bench/tbUploadPolicyDenoProbe.ts 150
 
@@ -712,6 +715,26 @@ jobs:
           set -e
           cat proof-results/qboConnectorStorage.present.log
           node scripts/ci/validateProofResult.mjs proof-results/qboConnectorStorage.present.json --manifest scripts/db-proof/qboConnectorStorage.manifest.mjs --mode present --exit-code "$code"
+
+      - name: Financial table write boundary proof (20261221100000 - absent then present; members cannot write the eighteen server-written tables, input tables capability-bound, rows byte-identical, lock-timeout and wait under contention, service role still writes)
+        env:
+          DB_PROOF_MODE: external
+        run: |
+          mkdir -p proof-results
+          createdb financial_write_boundary_absent
+          set +e
+          DB_PROOF_CONN=postgres://postgres:postgres@127.0.0.1:5432/financial_write_boundary_absent PROOF_MODE=absent PROOF_RESULT_FILE=proof-results/financialWriteBoundary.absent.json bun scripts/db-proof/financialWriteBoundary.mjs > proof-results/financialWriteBoundary.absent.log 2>&1
+          code=$?
+          set -e
+          cat proof-results/financialWriteBoundary.absent.log
+          node scripts/ci/validateProofResult.mjs proof-results/financialWriteBoundary.absent.json --manifest scripts/db-proof/financialWriteBoundary.manifest.mjs --mode absent --exit-code "$code"
+          createdb financial_write_boundary
+          set +e
+          DB_PROOF_CONN=postgres://postgres:postgres@127.0.0.1:5432/financial_write_boundary PROOF_MODE=present PROOF_RESULT_FILE=proof-results/financialWriteBoundary.present.json bun scripts/db-proof/financialWriteBoundary.mjs > proof-results/financialWriteBoundary.present.log 2>&1
+          code=$?
+          set -e
+          cat proof-results/financialWriteBoundary.present.log
+          node scripts/ci/validateProofResult.mjs proof-results/financialWriteBoundary.present.json --manifest scripts/db-proof/financialWriteBoundary.manifest.mjs --mode present --exit-code "$code"
 
       - name: QuickBooks readiness candidate proof (local-only fiscal provenance and both disconnect/import lock orders)
         env:

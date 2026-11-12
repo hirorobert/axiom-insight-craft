@@ -650,6 +650,13 @@ describe("database inertness — schema and functions", () => {
       "src/lib/statements/canonicalDocument.ts", "supabase/functions/_shared/statementCompiler.generated.mjs", "supabase/functions/_shared/statementCompiler.manifest.mjs"]) modified.add(f);
     modified.add("supabase/functions/_shared/readiness/engine.ts");
     modified.add("src/lib/readiness/present.ts");
+    // Second-pass S2-S01/S2-S03/S2-S04: one forward-only migration that REMOVES client write policies and write-class privileges on
+    // eighteen financial/evidence tables and tightens three professional-input tables (no row changed, SELECT and service_role kept;
+    // proof: scripts/db-proof/financialWriteBoundary.mjs), and the five functions that wrote those tables with the caller's token now
+    // verify an accepted member holding prepare_close and write with the service role. No financial-statements schema.
+    added.add("supabase/migrations/20261221100000_financial_table_member_write_revocation.sql");
+    for (const file of ["supabase/functions/safisha-efdms-ingest/index.ts", "supabase/functions/safisha-categorize/index.ts", "supabase/functions/safisha-score/index.ts",
+      "supabase/functions/maono-cashflow/index.ts", "supabase/functions/maono-risk/index.ts"]) modified.add(file);
     for (const file of ["supabase/functions/qbo-oauth-callback/index.ts", "supabase/functions/trial-balance-draft/index.ts", "supabase/functions/trial-balance-source-download/index.ts",
       "supabase/functions/trial-balance-source-signer/index.ts", "supabase/functions/_shared/sourceDownload.ts"]) modified.add(file);
     expect(unreviewedChanges(changed, { added, modified, removed })).toEqual([]);
@@ -970,6 +977,13 @@ describe("database inertness — schema and functions", () => {
     // Client-data containment (2026-11-11): a local, read-only scan of tracked files with a hash-only denylist, and the
     // invented trial balance the guarded staging scripts now upload instead of a client-derived file. No hosted access.
     for (const file of ["scripts/ci/clientDataGuard.mjs", "scripts/ci/clientDataDenylist.json", "scripts/fixtures/synthetic-sme-tb-2025.csv"]) allowed.add(file);
+    // Financial table write boundary (20261221100000): a loopback-only disposable-database proof and its manifest, and the two
+    // migration-tail lists that pin the newest migration. No hosted access, no deploy capability.
+    // The two parked-candidate proofs (20261004100000 / 20261005100000) replay client SAFISHA writes the revocation removes,
+    // so they now stop the chain just before it (loopback only, no deploy behaviour).
+    for (const file of ["scripts/db-proof/financialWriteBoundary.mjs", "scripts/db-proof/financialWriteBoundary.manifest.mjs",
+      "scripts/db-proof/serviceWithholding.mjs", "scripts/db-proof/trackAHardening.mjs",
+      "scripts/db-proof/reconciliationAuthority.mjs", "scripts/db-proof/safishaIngestion.mjs"]) allowed.add(file);
     // Lovable's own markdown planning notes (.lovable/plan.md, .lovable/plan/*.md, .lovable/north-star/*.md) deploy nothing
     // (scripts/ci/inertBase.mjs isLovablePlanningNote). Every other .lovable path is still reviewed by exact file.
     expect(unreviewedPaths(changed, allowed).filter((p) => !isLovablePlanningNote(p))).toEqual([]);
