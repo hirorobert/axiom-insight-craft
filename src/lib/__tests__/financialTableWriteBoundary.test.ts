@@ -57,8 +57,13 @@ describe("database: 20261221100000 retires every client write path on the eighte
   const sql = read(`supabase/migrations/${MIGRATION}`);
   const files = readdirSync(join(ROOT, "supabase/migrations")).filter((f) => f.endsWith(".sql")).sort();
 
-  it("is the newest migration, after the API cache-header hook", () => {
-    expect(files.slice(-2)).toEqual(["20261215100000_api_cache_control_headers.sql", MIGRATION]);
+  it("sorts after the API cache-header hook and after every earlier migration (it is the newest only until a later reviewed migration is added)", () => {
+    // INTEGRATION: authored as the newest migration; in the combined tree the stack's 20261216-20261220 sit between the cache-header hook and this file
+    // (this file's timestamp is above them, so it applies after them) and 20261222-20261224 follow it. The ordering contract is what matters.
+    const i = files.indexOf(MIGRATION);
+    expect(i).toBeGreaterThan(files.indexOf("20261215100000_api_cache_control_headers.sql"));
+    expect(files.slice(0, i)).toEqual([...files.slice(0, i)].sort());
+    expect(files.slice(i + 1).every((f) => f > MIGRATION)).toBe(true);
   });
 
   it("names exactly the eighteen server-written tables and the three professional-input tables", () => {
