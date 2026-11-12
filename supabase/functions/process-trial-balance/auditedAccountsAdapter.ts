@@ -61,7 +61,8 @@
 //   }
 // ============================================================
 
-import * as XLSX from "https://esm.sh/xlsx@0.18.5";
+// @deno-types="../_shared/vendor/sheetjs-0.20.3/types/index.d.ts"
+import * as XLSX from "../_shared/vendor/sheetjs-0.20.3/xlsx.mjs";
 
 // ── Sheet name detection patterns ─────────────────────────────────────────────
 

@@ -42,7 +42,8 @@ const TS = Date.now()
 const PASSWORD = `${randomBytes(18).toString('base64url')}!9aZ`
 const opts = { auth: { autoRefreshToken: false, persistSession: false } }
 const svc = createClient(URL_, SERVICE, opts)
-const REAL_TB = readFileSync(new URL('../KAMANGA_MEDICS_TB_2025.csv', import.meta.url))
+// Independently invented, balanced SME trial balance (scripts/fixtures/synthetic-sme-tb-2025.csv).
+const SAMPLE_TB = readFileSync(new URL('./fixtures/synthetic-sme-tb-2025.csv', import.meta.url))
 
 const results = []
 let group = ''
@@ -89,7 +90,7 @@ async function callFn(who, name, body) {
 const cleanup = (who, body) => callFn(who, 'trial-balance-storage-cleanup', body)
 
 // The browser path (src/lib/workspace/sourceUpload.ts): reserve → signed single-object upload → register.
-async function reserveAndUpload(who, company, bytes = REAL_TB, name = 'tb.csv') {
+async function reserveAndUpload(who, company, bytes = SAMPLE_TB, name = 'tb.csv') {
   const r = await rpc(who, 'reserve_trial_balance_source', { p_company_id: company, p_file_name: name })
   if (r.outcome !== 'reserved') return { outcome: r.outcome }
   const s = await callFn(who, 'trial-balance-source-signer', { reservation_id: r.reservation_id })
@@ -102,7 +103,7 @@ async function reserveAndUpload(who, company, bytes = REAL_TB, name = 'tb.csv') 
 async function workspaceUpload(who, company, period, bytes) {
   const u = await reserveAndUpload(who, company, bytes)
   if (u.outcome !== 'uploaded') throw new Error(`upload: ${u.outcome}`)
-  const g = await rpc(who, 'register_trial_balance_upload', { p_reservation_id: u.reservation, p_file_size: REAL_TB.length, p_period_year: period, p_period_id: null, p_engagement_id: null })
+  const g = await rpc(who, 'register_trial_balance_upload', { p_reservation_id: u.reservation, p_file_size: SAMPLE_TB.length, p_period_year: period, p_period_id: null, p_engagement_id: null })
   if (g.outcome !== 'registered') throw new Error(`register: ${g.outcome}`)
   return { id: g.upload_id, path: u.path }
 }
@@ -112,7 +113,7 @@ const restore = (who, op) => rpc(who, 'restore_trial_balance_upload', { p_operat
 const cancel = (who, id, v) => rpc(who, 'cancel_trial_balance_replacement', { p_replacement_upload_id: id, p_expected_version: v })
 const grant = (who, company, grantee, cap) => rpc(who, 'grant_workspace_capability', { p_company_id: company, p_grantee_user_id: grantee, p_capability: cap })
 const revoke = (who, company, grantee, cap) => rpc(who, 'revoke_workspace_capability', { p_company_id: company, p_grantee_user_id: grantee, p_capability: cap })
-async function retireWith(who, id, v, company, bytes = REAL_TB) {
+async function retireWith(who, id, v, company, bytes = SAMPLE_TB) {
   const u = await reserveAndUpload(who, company, bytes, 'replacement.csv')
   if (u.outcome !== 'uploaded') return { outcome: u.outcome }
   const r = await rpc(who, 'retire_trial_balance_upload', { p_old_upload_id: id, p_expected_version: v, p_reservation_id: u.reservation, p_new_file_size: bytes.length, p_reason: 'staging proof' })
@@ -329,7 +330,7 @@ async function main() {
   section('Legacy uploader-folder objects stay manageable')
   await check('a legacy upload (owner folder, direct insert) is discarded, restored by the collaborator, and purged', async () => {
     const path = `${U.owner.id}/${TS}-legacy.csv`
-    const { error: upErr } = await U.owner.c.storage.from(BUCKET).upload(path, new Blob([REAL_TB]))
+    const { error: upErr } = await U.owner.c.storage.from(BUCKET).upload(path, new Blob([SAMPLE_TB]))
     if (upErr) return upErr.message
     created.objects.add(path)
     const { data, error } = await U.owner.c.from('trial_balance_uploads').insert({ file_name: 'legacy.csv', file_path: path, file_size: 10, status: 'processing', user_id: U.owner.id, company_id: A, period_year: 2050 }).select('id').single()
@@ -356,7 +357,7 @@ async function main() {
     const live = await workspaceUpload(U.collab, A, 2061)
     const t = await workspaceUpload(U.owner, A, 2062); const { b } = await discardFully(U.owner, t.id); await expireOp(b.operation_id)
     const w = await workspaceUpload(U.owner, A, 2063); const { b: bw } = await discardFully(U.owner, w.id)
-    const ab = await reserveAndUpload(U.collab, A, REAL_TB, 'abandoned.csv')
+    const ab = await reserveAndUpload(U.collab, A, SAMPLE_TB, 'abandoned.csv')
     await svc.from('trial_balance_source_reservations').update({ expires_at: new Date(Date.now() - 16 * 60000).toISOString() }).eq('id', ab.reservation)
     const ticket = await svcRpc('tbu_mint_source_sweeper_ticket')
     const r = await sweeper({ ticket })
@@ -506,10 +507,10 @@ async function main() {
   })
   await check('N-02: a legitimate personal (own-folder) upload still inserts and processes', async () => {
     const path = `${U.ownerB.id}/${randomUUID()}.csv`
-    const up = await U.ownerB.c.storage.from(BUCKET).upload(path, new Blob([REAL_TB], { type: 'text/csv' }))
+    const up = await U.ownerB.c.storage.from(BUCKET).upload(path, new Blob([SAMPLE_TB], { type: 'text/csv' }))
     if (up.error) return `storage: ${up.error.message}`
     created.objects.add(path)
-    const { data, error } = await U.ownerB.c.from('trial_balance_uploads').insert({ file_name: 'personal.csv', file_path: path, file_size: REAL_TB.length, status: 'processing', user_id: U.ownerB.id }).select('id').single()
+    const { data, error } = await U.ownerB.c.from('trial_balance_uploads').insert({ file_name: 'personal.csv', file_path: path, file_size: SAMPLE_TB.length, status: 'processing', user_id: U.ownerB.id }).select('id').single()
     if (error) return `insert: ${error.message}`
     const p = await process_(U.ownerB, data.id)
     return p.status === 200 && p.body.status === 'valid' || `ptb=${p.status}/${p.body.status} ${p.body.error ?? ''} ${p.body.message ?? ''}`
@@ -525,10 +526,10 @@ async function main() {
   // A personal upload of U.ownerB with a real object in their own folder.
   const personalOf = async (who) => {
     const path = `${who.id}/${randomUUID()}.csv`
-    const up = await who.c.storage.from(BUCKET).upload(path, new Blob([REAL_TB], { type: 'text/csv' }))
+    const up = await who.c.storage.from(BUCKET).upload(path, new Blob([SAMPLE_TB], { type: 'text/csv' }))
     if (up.error) throw new Error(`storage: ${up.error.message}`)
     created.objects.add(path)
-    const { data, error } = await who.c.from('trial_balance_uploads').insert({ file_name: 'personal.csv', file_path: path, file_size: REAL_TB.length, status: 'processing', user_id: who.id }).select('id').single()
+    const { data, error } = await who.c.from('trial_balance_uploads').insert({ file_name: 'personal.csv', file_path: path, file_size: SAMPLE_TB.length, status: 'processing', user_id: who.id }).select('id').single()
     if (error) throw new Error(`insert: ${error.message}`)
     return data.id
   }

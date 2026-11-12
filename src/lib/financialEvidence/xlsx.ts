@@ -1,9 +1,9 @@
 // financialEvidence/xlsx.ts — secure, values-only XLSX intake.
 //
-// Why not SheetJS (the `xlsx` package already in this repository, used only to WRITE
-// exports): version 0.18.5 is affected by CVE-2023-30533 (prototype pollution when reading
-// a crafted file) and CVE-2024-22363 (ReDoS), and it hands back IEEE doubles, which cannot
-// carry an exact decimal. This reader therefore reads the OOXML package directly on top of
+// Why not SheetJS (the `xlsx` package already in this repository): it hands back IEEE
+// doubles, which cannot carry an exact decimal. (The version this reader was written
+// against, 0.18.5, was also affected by CVE-2023-30533, prototype pollution when reading a
+// crafted file, and CVE-2024-22363, ReDoS; the repository now uses 0.20.3, which fixes both.) This reader therefore reads the OOXML package directly on top of
 // fflate (a zip inflater, not a spreadsheet stack) and keeps the file's own decimal TEXT.
 //
 // Policy, all of it enforced here and tested:

@@ -155,8 +155,14 @@ describe("UI call sites defer to the server", () => {
     expect(inserters.map((f) => path.relative(ROOT, f))).toEqual([]);
   });
   it("sign-off, publication and management-letter paths recognise the structured refusal", () => {
-    expect(read("src/jurisdiction-packs/tz/KingaTaxPanel.tsx")).toMatch(/entitlementRefusal\(\w+\) === "STATEMENT_CERTIFICATION"/);
-    expect(read("src/components/PeriodCloseManager.tsx")).toMatch(/entitlementRefusal\(error\) === "STATEMENT_CERTIFICATION"/);
+    // The two unrouted panels that signed statements directly no longer write statement_sign_offs at all (server-written
+    // only since 20261221100000), so there is no refusal of theirs left to recognise: they must stay write-free instead.
+    for (const f of ["src/jurisdiction-packs/tz/KingaTaxPanel.tsx", "src/components/PeriodCloseManager.tsx"]) {
+      expect(read(f), f).not.toMatch(/\.from\("statement_sign_offs"\)\s*\.(insert|update|upsert|delete)\(/);
+      expect(read(f), f).toContain("20261221100000_financial_table_member_write_revocation.sql");
+    }
+    // KingaTaxPanel still explains a plan without Close Certification (the status view stays).
+    expect(read("src/jurisdiction-packs/tz/KingaTaxPanel.tsx")).toMatch(/lockedCopy\("STATEMENT_CERTIFICATION"\)/);
     expect(read("src/lib/financialStatementsWorkspace/rpcTransport.ts")).toMatch(/e\.code === "PT402" \? "ENTITLEMENT_REQUIRED"/);
     expect(read("src/components/MgmtLetterPanel.tsx")).toMatch(/functionEntitlementRefusal\(error\)\)\s*===\s*"REPORTING_PACK_EXPORT"/);
   });

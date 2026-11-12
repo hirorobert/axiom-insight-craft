@@ -356,6 +356,26 @@ async function findingsProof({ U, A }) {
     const r = await refresh(U.preparer, cur.year);
     return s.state === "no_authority" && r.outcome === "no_authority" ? true : { s, r };
   });
+
+  // DEFECT S2-A05 — VERIFIED, NOT FIXED here (see the PR for the design). A01 tests class_side_minor < 0 (20261014100000), so the
+  // correctly signed accumulated depreciation 1510 (credit, classified non_current_assets) always raises A01 above, while a
+  // sign-flipped one (debit) would raise nothing and compose as a positive asset. No reviewed fact says an account is a contra
+  // account; the repair is a reviewed tri-state designation (account_mappings.is_contra_account through resolve_account_review_batch,
+  // the precedent of is_cash_account) that A01 tests the EXPECTED side against. This reproduction asserts the repaired behaviour and
+  // is SKIPPED until that designation exists: CONTRA_DESIGNATION=1 runs it (it fails on this tree). Run last: it certifies a new year.
+  if (process.env.CONTRA_DESIGNATION === "1") {
+    await check("S2-A05 reproduction: 1510 reviewed as a contra asset, in credit (its expected side), raises no A01", async () => {
+      const u = await upload();
+      const reviewed = decisions.map((d) => (d.account_code === "1510" ? { ...d, is_contra_account: true } : d));
+      await asUser(U.owner, "SELECT public.resolve_account_review_batch($1,$2,$3,$4::jsonb)", [A, u.id, uuid(), JSON.stringify(reviewed)]);
+      await certify(u);
+      const r = await refresh(U.preparer, u.year);
+      const keys = (await admin.query("SELECT finding_key FROM public.close_review_findings WHERE run_id=$1 ORDER BY finding_key", [r.runId])).rows.map((x) => x.finding_key);
+      return !keys.includes("A01:1510") ? true : { keys };
+    });
+  } else {
+    console.log("  SKIP  S2-A05 reproduction (reviewed contra designation not implemented; CONTRA_DESIGNATION=1 runs it and it fails on this tree)");
+  }
   return { upload, certify, refresh, summary, act };
 }
 
