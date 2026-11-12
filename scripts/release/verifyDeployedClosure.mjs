@@ -50,8 +50,12 @@ export const KNOWN_CLOSURES = Object.freeze({
   // 20261123100000 (server compilation): the FULL function closure. Not the embedded compiler bundle digest (49fc0852…), which
   // the migration pins separately; a matching compiler digest alone never proves this closure is deployed.
   "compile-financial-report": Object.freeze({
-    required: { sha256: "bc7c3a62103bae4614cfa173f323a775a57d8f58fe9731e7541d0d1db030d2c8", source: "compiler follow-up (restated comparatives and one-period lines cast; compiler 112c5847…, rule pack 2.3.0): needs 20261220100000 applied first" },
-    known: [{ sha256: "745c8170099329911db55ee2ee20f5a989c0ae2a10003be0860c8cb679e4db59", source: "merged 27f48f7 (PR #191 + PR #192 combined candidate): server compilation with the compiler 49fc0852…; still accepted by the database after 20261220100000, but cannot sign a restated comparative or a one-period line" }],
+    required: { sha256: "1c35997b30fd02b65d26618ae708b36c3cce93a82a92722d0285aeda7daed2c2", source: "integration of PR #259 (restated comparatives and one-period lines cast; compiler 112c5847…, rule pack 2.3.0) and PR #268 (transfers between cash accounts, post-closing finding; ledger evidence schema 1.1.0) — compiler 9f79ce71…, rule pack 2.4.0: needs 20261220100000, 20261222100000 and 20261222200000 applied first" },
+    known: [
+      { sha256: "745c8170099329911db55ee2ee20f5a989c0ae2a10003be0860c8cb679e4db59", source: "merged 27f48f7 (PR #191 + PR #192 combined candidate): server compilation with the compiler 49fc0852…; still accepted by the database after 20261222200000, but cannot sign a restated comparative or a one-period line and presents transfers between cash accounts as cash flows" },
+      { sha256: "bc7c3a62103bae4614cfa173f323a775a57d8f58fe9731e7541d0d1db030d2c8", source: "PR #259 alone (compiler 112c5847…, rule pack 2.3.0): authored and never deployed; still accepted by the database after 20261222200000, but has no post-closing finding and presents transfers as cash flows" },
+      { sha256: "ed84408ecdef0c30a28b97015bdacc7fecce1c5e3eee05c32361728c65f6f8a0", source: "PR #268 alone (compiler 12314dad…, rule pack 2.4.0 before integration): authored and never deployed; its identity is NOT accepted by the integrated database chain" },
+    ],
   }),
   "trial-balance-storage-cleanup": Object.freeze({
     required: { sha256: "04ebf148992f85b0b224215bfacb36bcd6a1342f822346c0e018594bfc410b7f", source: "main since 80384d1 (PR #76): knows source_shared" },

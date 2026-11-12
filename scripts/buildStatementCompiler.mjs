@@ -14,10 +14,12 @@ const code = result.outputFiles[0].text.replace(/^\/\/ (?:\.\.\/)+[^\n]*?\/node_
 const digest = crypto.createHash('sha256').update(code).digest('hex');
 const manifestPath = path.join(root, 'supabase/functions/_shared/statementCompiler.manifest.mjs');
 const manifest = `// GENERATED. SHA-256 of the complete deployed compiler closure.\nexport const STATEMENT_COMPILER_SHA256 = '${digest}';\n`;
-// The digest is accepted by the database only through the migrations that pin it: the original receipt table (20261123100000, applied; it pins the
-// first digest) and the forward migration that accepts the current one.
+// The database accepts a digest only through the migrations that pin it: the receipt table (20261123100000, applied; it pins the first digest),
+// 20261220100000 (the second identity, the restated-comparative casting compiler) and 20261222200000 (the third, carrying the transfers and
+// post-closing change as well). The CURRENT bundle's digest is the one 20261222200000 accepts; the earlier two stay accepted for recorded receipts.
 const migration = fs.readFileSync(path.join(root, 'supabase/migrations/20261123100000_fs_server_compilation.sql'), 'utf8')
-  + fs.readFileSync(path.join(root, 'supabase/migrations/20261220100000_statement_compiler_casting_declaration.sql'), 'utf8');
+  + fs.readFileSync(path.join(root, 'supabase/migrations/20261220100000_statement_compiler_casting_declaration.sql'), 'utf8')
+  + fs.readFileSync(path.join(root, 'supabase/migrations/20261222200000_statement_compiler_transfers_post_closing.sql'), 'utf8');
 if (process.argv.includes('--check')) {
   if (!fs.existsSync(target) || fs.readFileSync(target, 'utf8') !== code) throw Error('STATEMENT_COMPILER_DEPLOYMENT_DRIFT: regenerate with node scripts/buildStatementCompiler.mjs');
   if (!fs.existsSync(manifestPath) || fs.readFileSync(manifestPath, 'utf8') !== manifest || !migration.includes(`'${digest}'`)) throw Error('STATEMENT_COMPILER_MANIFEST_DRIFT: regenerate and review the pending migration compiler digest');
