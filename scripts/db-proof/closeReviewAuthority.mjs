@@ -213,13 +213,13 @@ const CSV_TB = "Account code,Account name,Debit,Credit\n" + TB.map((r) => `${r[0
 async function findingsProof({ U, A }) {
   const ptb = (await loadFunctionTree(REPO, "process-trial-balance")).handler;
   let year = 2010;
-  const upload = async (y = ++year) => {
+  const upload = async (y = ++year, csv = CSV_TB) => {
     const pid = (await one("INSERT INTO public.fiscal_periods (company_id, fiscal_year_end, period_label, created_by, reporting_currency, reporting_start, reporting_end) VALUES ($1,$2,$3,$4,'TZS',$5,$2) RETURNING id",
       [A, `${y}-12-31`, `FY${y}`, U.owner, `${y}-01-01`])).id;
     const filePath = `${U.owner}/${uuid()}.csv`;
     const id = (await one(`INSERT INTO public.trial_balance_uploads (file_name, file_path, file_size, status, company_id, period_year, period_id, user_id)
-      VALUES ('tb.csv',$1,$2,'processing',$3,$4,$5,$6) RETURNING id`, [filePath, CSV_TB.length, A, y, pid, U.owner])).id;
-    shim.storage.set(`trial-balance-files/${filePath}`, new TextEncoder().encode(CSV_TB));
+      VALUES ('tb.csv',$1,$2,'processing',$3,$4,$5,$6) RETURNING id`, [filePath, csv.length, A, y, pid, U.owner])).id;
+    shim.storage.set(`trial-balance-files/${filePath}`, new TextEncoder().encode(csv));
     return { id, year: y };
   };
   const decisions = TB.map(([code, name, cls, st, nb, , , cash]) => ({ account_code: code, account_name: name, proposal_type: "NONE",
@@ -356,27 +356,91 @@ async function findingsProof({ U, A }) {
     const r = await refresh(U.preparer, cur.year);
     return s.state === "no_authority" && r.outcome === "no_authority" ? true : { s, r };
   });
+  return { upload, certify, refresh, summary, act, decisions };
+}
 
-  // DEFECT S2-A05 — VERIFIED, NOT FIXED here (see the PR for the design). A01 tests class_side_minor < 0 (20261014100000), so the
-  // correctly signed accumulated depreciation 1510 (credit, classified non_current_assets) always raises A01 above, while a
-  // sign-flipped one (debit) would raise nothing and compose as a positive asset. No reviewed fact says an account is a contra
-  // account; the repair is a reviewed tri-state designation (account_mappings.is_contra_account through resolve_account_review_batch,
-  // the precedent of is_cash_account) that A01 tests the EXPECTED side against. This reproduction asserts the repaired behaviour and
-  // is SKIPPED until that designation exists: CONTRA_DESIGNATION=1 runs it (it fails on this tree). Run last: it certifies a new year.
-  if (process.env.CONTRA_DESIGNATION === "1") {
-    await check("S2-A05 reproduction: 1510 reviewed as a contra asset, in credit (its expected side), raises no A01", async () => {
-      const u = await upload();
-      const reviewed = decisions.map((d) => (d.account_code === "1510" ? { ...d, is_contra_account: true } : d));
-      await asUser(U.owner, "SELECT public.resolve_account_review_batch($1,$2,$3,$4::jsonb)", [A, u.id, uuid(), JSON.stringify(reviewed)]);
-      await certify(u);
-      const r = await refresh(U.preparer, u.year);
-      const keys = (await admin.query("SELECT finding_key FROM public.close_review_findings WHERE run_id=$1 ORDER BY finding_key", [r.runId])).rows.map((x) => x.finding_key);
-      return !keys.includes("A01:1510") ? true : { keys };
-    });
-  } else {
-    console.log("  SKIP  S2-A05 reproduction (reviewed contra designation not implemented; CONTRA_DESIGNATION=1 runs it and it fails on this tree)");
-  }
-  return { upload, certify, refresh, summary, act };
+// ── S2-A05: the reviewed contra-account designation (20261224100000) ─────────────────────────────────────────────────
+// A01 tested class_side_minor < 0 only, so a correctly signed contra account (accumulated depreciation in credit) was always
+// raised and a sign-flipped one (in debit) never was. With account_mappings.is_contra_account (reviewed, tri-state, set only
+// through resolve_account_review_batch) A01 tests the EXPECTED side: TRUE expects class side <= 0 and raises > 0; FALSE and
+// NULL keep the original test (< 0). Composition and presentation are unchanged.
+//
+// Expected figures, computed by hand from the fixtures (TZS, exponent 2, minor units; the class side of an asset class is
+// debit − credit):
+//   CSV_TB       1510 Accumulated depreciation  credit 2,000.00 → debit 0, credit 200000, class side −200000
+//                1010 Petty cash                credit   200.00 → class side −20000 (A01 and A03, unaffected by 1510)
+//   CSV_FLIPPED  1500 Equipment debit 6,000.00 and 1510 Accumulated depreciation DEBIT 2,000.00 (the sign-flipped contra)
+//                → 1510 debit 200000, credit 0, class side +200000. The file still balances: debits 5,000 + 6,000 + 2,000 +
+//                7,000 + 1,200 + 800 = 22,000.00 = credits 200 + 3,000 + 800 + 8,000 + 9,000 + 1,000.
+//   1510 TRUE,  CSV_TB       −200000 <= 0 → no A01:1510                  (failed before: A01 raised the correct contra)
+//   1510 TRUE,  CSV_FLIPPED  +200000 >  0 → A01:1510, detail contraAccount (failed before: the flipped contra was silent)
+//   1510 FALSE, CSV_TB       −200000 <  0 → A01:1510, detail {} (exactly as before; NULL is proven by the main run above)
+// The years are far from every other group's (no authoritative prior year, no shared period). Run last: the designation is
+// a company-wide reviewed fact that every later certification of company A would read.
+const TB_FLIPPED = TB.map((r) => (r[0] === "1500" ? [...r.slice(0, 5), "6000.00", "", r[7]] : r[0] === "1510" ? [...r.slice(0, 5), "2000.00", "", r[7]] : r));
+const CSV_FLIPPED = "Account code,Account name,Debit,Credit\n" + TB_FLIPPED.map((r) => `${r[0]},${r[1]},${r[5]},${r[6]}`).join("\n") + "\n";
+
+async function contraProof({ U, A }, kit) {
+  group("Contra designation (S2-A05) — A01 tests the reviewed expected side");
+  const review = (u, decisions, requestId = uuid()) =>
+    asUser(U.owner, "SELECT public.resolve_account_review_batch($1,$2,$3,$4::jsonb) r", [A, u.id, requestId, JSON.stringify(decisions)]);
+  const designated = (value) => kit.decisions.map((d) => (d.account_code === "1510" ? { ...d, is_contra_account: value } : d));
+  // Tolerant read, so the failing-before run reports the findings rather than only the missing column.
+  const mapping1510 = async () => {
+    try { return await one("SELECT is_contra_account, review_decision_id FROM public.account_mappings WHERE company_id=$1 AND account_key='1510'", [A]); }
+    catch (e) { return { is_contra_account: `unavailable (${e.code})`, review_decision_id: null }; }
+  };
+  const findingsOf = async (u) => {
+    await kit.certify(u);
+    const r = await kit.refresh(U.preparer, u.year);
+    if (r.outcome !== "generated") throw new Error(`findings not generated: ${JSON.stringify(r)}`);
+    return (await admin.query("SELECT finding_key, severity, kind, required_resolution, debit_minor::text d, credit_minor::text c, class_side_minor::text s, detail FROM public.close_review_findings WHERE run_id=$1 ORDER BY finding_key", [r.runId])).rows;
+  };
+
+  await check("existing mappings carry no designation (NULL: not reviewed); nothing is back-filled", async () => {
+    const n = await count("SELECT count(*) n FROM public.account_mappings WHERE is_contra_account IS NOT NULL");
+    return n === 0 && (await mapping1510()).is_contra_account === null ? true : { n };
+  });
+  await refused("a member cannot write the designation directly (only the review service writes mappings)", "42501", () =>
+    asRole("authenticated", U.owner, "UPDATE public.account_mappings SET is_contra_account = true WHERE company_id=$1 AND account_key='1510'", [A]));
+
+  await check("S2-A05 reproduction: 1510 reviewed as a contra asset, in credit (its expected side), raises no A01", async () => {
+    const u = await kit.upload(2081);
+    await review(u, designated(true));
+    const rows = await findingsOf(u);
+    const keys = rows.map((x) => x.finding_key);
+    const a01 = rows.find((x) => x.finding_key === "A01:1010");
+    const m = await mapping1510();
+    const d = m.review_decision_id ? (await one("SELECT new_value FROM public.account_review_decisions WHERE id=$1", [m.review_decision_id])).new_value : null;
+    return m.is_contra_account === true && d?.mapping?.is_contra_account === true && !keys.includes("A01:1510")
+      && keys.includes("A03:1010") && a01?.s === "-20000" ? true : { keys, contra: m.is_contra_account, decided: d?.mapping?.is_contra_account };
+  });
+  await check("S2-A05 flipped contra: a decision that does not review the flag keeps TRUE; 1510 in DEBIT is raised (+200000)", async () => {
+    const u = await kit.upload(2083, CSV_FLIPPED);
+    await review(u, kit.decisions); // no is_contra_account key: not reviewed in this decision
+    const m = await mapping1510();
+    const rows = await findingsOf(u);
+    const f = rows.find((x) => x.finding_key === "A01:1510");
+    return m.is_contra_account === true && f && f.severity === "warning" && f.kind === "risk_indicator" && f.required_resolution === "explanation"
+      && f.d === "200000" && f.c === "0" && f.s === "200000" && f.detail.contraAccount === true ? true : { m, rows };
+  });
+  await check("reviewed NOT a contra account (FALSE): 1510 in credit is raised exactly as before (−200000, detail {})", async () => {
+    const u = await kit.upload(2085);
+    await review(u, designated(false));
+    const m = await mapping1510();
+    const rows = await findingsOf(u);
+    const f = rows.find((x) => x.finding_key === "A01:1510");
+    return m.is_contra_account === false && f && f.d === "0" && f.c === "200000" && f.s === "-200000" && JSON.stringify(f.detail) === "{}" ? true : { m, rows };
+  });
+  await check("replay identity: the same request with the same designation replays; a different designation is refused", async () => {
+    const u = await kit.upload(2087);
+    const id = uuid();
+    const a = await review(u, designated(true), id);
+    const b = await review(u, designated(true), id);
+    let refusedCode = null;
+    try { await review(u, designated(false), id); } catch (e) { refusedCode = `${e.code} ${String(e.message).split("\n")[0]}`; }
+    return JSON.stringify(a.r) === JSON.stringify(b.r) && refusedCode === "22023 IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD" ? true : { a, b, refusedCode };
+  });
 }
 
 // ── Adjustments (I3) ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -933,6 +997,7 @@ async function main() {
   await adjustmentsProof(ctx, kit);
   await reportingInputProof(ctx, kit);
   await signoffProof(ctx, kit);
+  await contraProof(ctx, kit);
 }
 
 let crashed = false;

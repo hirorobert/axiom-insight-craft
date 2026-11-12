@@ -47,6 +47,13 @@ export interface ReviewFlagDecisions {
   is_cash_account?: boolean;
   is_retained_earnings?: boolean;
   is_payroll_account?: boolean;
+  /**
+   * S2-A05 (20261224100000): the reviewed contra-account designation, under exactly the same tri-state-by-omission rule.
+   * true = the account reduces its class (accumulated depreciation, an allowance), so its expected balance is opposite to
+   * the class's normal side; false = reviewed as not a contra account; absent = not reviewed (the server keeps the value).
+   * Close Review check A01 tests the expected side it implies; nothing about composition or presentation changes.
+   */
+  is_contra_account?: boolean;
 }
 
 export interface ReviewDecisionPayload {
@@ -61,6 +68,7 @@ export interface ReviewDecisionPayload {
   is_cash_account?: boolean;
   is_retained_earnings?: boolean;
   is_payroll_account?: boolean;
+  is_contra_account?: boolean;
   reason?: string;
   /** CONFIRM_ACCOUNT_TREATMENT only (20261007100000): the engine's treatment request and the treatment kept. */
   treatment_request_id?: string;
@@ -152,6 +160,9 @@ export function buildReviewDecision(
   }
   if (flagDecisions?.is_payroll_account !== undefined) {
     payload.is_payroll_account = flagDecisions.is_payroll_account;
+  }
+  if (flagDecisions?.is_contra_account !== undefined) {
+    payload.is_contra_account = flagDecisions.is_contra_account;
   }
 
   return payload;

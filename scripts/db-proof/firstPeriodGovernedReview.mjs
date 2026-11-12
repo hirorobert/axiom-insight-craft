@@ -87,9 +87,9 @@ async function main() {
   group(ABSENT ? "Replay WITHOUT the migration (regression run: exactly the weakness cases must fail)" : "Replay (the chain before the migration)");
   await kase("setup.chain-before", `the chain before ${FILE} applies`, async () => (await applyChainBefore(db, FILE)) ?? true);
   // The reviewed pending tail after main's PREVIOUS, in timestamp order: the financial-table revocation, the cash-transfer /
-  // post-closing pair and its compiler identity, then this migration.
+  // post-closing pair and its compiler identity, this migration, then the contra-account designation.
   const TAIL = [PREVIOUS, "20261221100000_financial_table_member_write_revocation.sql", "20261222100000_fs_cash_transfers_and_post_closing.sql",
-    "20261222200000_statement_compiler_transfers_post_closing.sql", FILE];
+    "20261222200000_statement_compiler_transfers_post_closing.sql", FILE, "20261224100000_contra_account_designation.sql"];
   await kase("setup.chain-tail", `${FILE} sits in the reviewed pending tail after main's ${PREVIOUS} (${TAIL.length - 1} files, timestamp order; no Ready for Reporting pilot)`, async () =>
     JSON.stringify(chainFiles().slice(-TAIL.length)) === JSON.stringify(TAIL) && !chainFiles().some((f) => /ready_for_reporting|20261217100000/.test(f)) ? true : chainFiles().slice(-TAIL.length));
 
