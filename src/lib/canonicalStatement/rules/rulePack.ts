@@ -19,6 +19,7 @@ import { equityClosingTieRule, equityProfitTieRule } from "./equityTies";
 import { scheduleCastingRule } from "./scheduleCasting";
 import { cashPerimeterReconciliationRule } from "./cashPerimeterReconciliation";
 import { cashLedgerRollforwardRule } from "./cashLedgerRollforward";
+import { comprehensiveIncomeActivityRule } from "./comprehensiveIncomeActivity";
 
 export const ENGINE_VERSION = "1.0.0";
 
@@ -57,11 +58,34 @@ export function runCanonicalRulePackV2(ctx: RuleContext, clock?: Clock) {
   return runRulePack(CANONICAL_RULE_PACK_V2, CANONICAL_RULE_PACK_V2_RULES, ctx, ENGINE_VERSION_V2, clock);
 }
 
+/**
+ * Rule pack 2.4.0 = every 2.3.0 rule (unchanged, same versions: that is 2.2.0 with `subtotal-casting` 1.1.0, the declared-nil
+ * casting of a restated comparative or a line present in one period) plus `comprehensive-income-activity` 1.0.0 (S2-A02: a
+ * post-closing trial balance — a nil statement of comprehensive income beside a statement of financial position with balances —
+ * is a HIGH finding). The pack in force for new evaluations; 2.3.0, 2.2.0 and 1.0.0 stay defined, byte for byte, so every
+ * recorded evaluation remains reproducible. INTEGRATION: 2.4.0 was authored beside a reserved 2.3.0 and, once both changes
+ * are in one tree, includes it; neither identity has been applied to any hosted database, so no receipt carries the earlier
+ * meaning of 2.4.0 (the compiler identity migrations accept 2.2.0, 2.3.0 and this 2.4.0 as three distinct triples).
+ */
+export const CANONICAL_RULE_PACK_V2_4: RulePackIdentity = {
+  rulePackId: "canonical-statement-rules",
+  rulePackVersion: "2.4.0",
+};
+
+export const CANONICAL_RULE_PACK_V2_4_RULES: readonly RuleDefinition[] = [...CANONICAL_RULE_PACK_V2_RULES, comprehensiveIncomeActivityRule];
+
+export const ENGINE_VERSION_V2_4 = "2.4.0";
+
+export function runCanonicalRulePackV2_4(ctx: RuleContext, clock?: Clock) {
+  return runRulePack(CANONICAL_RULE_PACK_V2_4, CANONICAL_RULE_PACK_V2_4_RULES, ctx, ENGINE_VERSION_V2_4, clock);
+}
+
 export function runCanonicalRulePackV1(ctx: RuleContext, clock?: Clock) {
   return runRulePack(CANONICAL_RULE_PACK_V1, CANONICAL_RULE_PACK_V1_RULES, ctx, ENGINE_VERSION, clock);
 }
 
 export {
+  comprehensiveIncomeActivityRule,
   cashPerimeterReconciliationRule,
   cashLedgerRollforwardRule,
   equityClosingTieRule,

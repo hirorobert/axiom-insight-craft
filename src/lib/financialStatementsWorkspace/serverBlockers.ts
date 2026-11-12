@@ -12,6 +12,11 @@ const WORDS: Record<string, (detail: string) => string> = {
   COMPARATIVE_PERIOD_MISSING: () => "The framework requires comparative figures. Add the prior year. Only a first reporting period that has been reviewed can replace them: record the first-period facts, cite the evidence, and have a different partner or manager verify it. A declaration alone does not.",
   // First-period and opening-balance items: each carries its one next action (the server's own sentence).
   ...Object.fromEntries(Object.entries(FIRST_PERIOD_NEXT_ACTIONS).map(([code, words]) => [code, () => words])),
+  // [20261222100000] role:account:account:net minor units
+  CASHFLOW_TRANSFER_UNMATCHED: (d) => {
+    const [role, a, b] = d.split(":");
+    return `In the ${role === "COMPARATIVE" ? "comparative" : "current"} cash ledger, the transfers recorded between cash accounts ${a ?? "?"} and ${b ?? "?"} do not net to zero. Record both legs of each transfer, one on each account, naming the other account; money leaving the two accounts is a cash flow, not a transfer.`;
+  },
 };
 
 /** "CODE" or "CODE:detail" → a sentence (or null when there are no words for the code). */

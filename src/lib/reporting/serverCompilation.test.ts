@@ -25,6 +25,22 @@ describe("server-side evidence validation", () => {
     const b = ledger(); expect(() => validateStoredEvidence({ ...b, document: { ...b.document, currency: "USD" } }, dates)).toThrow("SERVER_EVIDENCE_SCHEMA_INVALID");
     expect(() => validateStoredEvidence({ ...b, document: { ...b.document, reportingPeriodId: "FY2025" } }, dates)).toThrow("SERVER_EVIDENCE_SCHEMA_INVALID");
   });
+  it("accepts a 1.1.0 ledger with transfers between cash accounts, and refuses a batch whose declared version is not the one its columns are read under", () => {
+    const p = ingestEvidence({ companyId, evidenceType: "TRANSACTION_LEDGER", periodRole: "CURRENT", reportingPeriodId: "FY2026", currency: "TZS", scale: 2,
+      text: "transaction_id,date,cash_account_code,description,receipt,payment,activity,cash_flow_line,counter_cash_account_code\n"
+        + "t1,2026-05-01,1000,Receipt,12.00,,OPERATING,Customer receipts,\nx1,2026-05-02,1000,To petty cash,,5.00,TRANSFER_BETWEEN_CASH_ACCOUNTS,Transfer,1010\nx2,2026-05-02,1010,From the bank,5.00,,TRANSFER_BETWEEN_CASH_ACCOUNTS,Transfer,1000\n" });
+    if (p.outcome !== "PARSED") throw Error("fixture rejected");
+    const b = p.batch;
+    expect(b.schemaVersion).toBe("1.1.0");
+    expect(validateStoredEvidence(b, dates).validationStatus).toBe("VALID");
+    expect(() => validateStoredEvidence({ ...b, schemaVersion: "1.0.0", document: { ...b.document, schemaVersion: "1.0.0" } }, dates)).toThrow("SERVER_EVIDENCE_SCHEMA_INVALID");
+    const old = ledger();
+    expect(() => validateStoredEvidence({ ...old, schemaVersion: "1.1.0", document: { ...old.document, schemaVersion: "1.1.0" } }, dates)).toThrow("SERVER_EVIDENCE_SCHEMA_INVALID");
+    expect(() => validateStoredEvidence({ ...old, schemaVersion: "9.9.9", document: { ...old.document, schemaVersion: "9.9.9" } }, dates)).toThrow("SERVER_EVIDENCE_SCHEMA_INVALID");
+    // An unpaired transfer leg forged as VALID is re-derived as INVALID.
+    const forged = { ...b, document: { ...b.document, rows: b.document.rows.slice(0, 2) } };
+    expect(() => validateStoredEvidence(forged, dates)).toThrow("SERVER_EVIDENCE_INVALID");
+  });
 });
 
 function world() {
