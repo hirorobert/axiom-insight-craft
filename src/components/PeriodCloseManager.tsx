@@ -9,47 +9,22 @@
  *   draft → preparer_signed → reviewer_signed → approved → locked
  *
  * Rules (Iron Dome):
- *   - No silent status changes.
- *   - Locked periods are immutable — DB RLS enforces this.
- *   - Sign-off buttons only visible to people holding the capability for that step (never a job title).
- *   - Preparer signs first; reviewer signs second; approver locks.
+ *   - Read-only. statement_sign_offs is server-written only since
+ *     20261221100000_financial_table_member_write_revocation.sql: this panel shows each period's sign-off status and
+ *     never signs, approves or locks (it used to UPDATE the table directly from the browser).
  *   - Once locked_at IS NOT NULL → new TB uploads for that company+year are BLOCKED by DB trigger.
  */
 
-import { canExercise, parseMyWorkspaceCapabilities, type MyWorkspaceCapabilities } from "@/lib/auth/workspaceCapabilities";
+import { parseMyWorkspaceCapabilities, type MyWorkspaceCapabilities } from "@/lib/auth/workspaceCapabilities";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { toast } from "sonner";
-import { entitlementRefusal, lockedCopy } from "@/lib/commercial/paidActions";
 import { resolveActiveSession, endExpiredSession, handleIfAuthorizationFailure } from "@/lib/auth/sessionGuard";
 import {
   Lock,
@@ -126,42 +101,6 @@ function stepDone(status: SignOffStatus, stepKey: string): boolean {
   return statusOrder.indexOf(status) >= statusOrder.indexOf(stepKey as SignOffStatus);
 }
 
-// ── Sign action payloads ──────────────────────────────────────────────────────
-
-function nextStatusPayload(currentStatus: SignOffStatus, userId: string, note: string): Record<string, unknown> | null {
-  switch (currentStatus) {
-    case "draft":
-      return { status: "preparer_signed", preparer_id: userId, preparer_signed_at: new Date().toISOString(), preparer_note: note || null };
-    case "preparer_signed":
-      return { status: "reviewer_signed", reviewer_id: userId, reviewer_signed_at: new Date().toISOString(), reviewer_note: note || null };
-    case "reviewer_signed":
-      return { status: "approved", approver_id: userId, approver_signed_at: new Date().toISOString(), approver_note: note || null };
-    case "approved":
-      return { status: "locked", locked_by: userId, locked_at: new Date().toISOString() };
-    default:
-      return null;
-  }
-}
-
-function nextActionLabel(status: SignOffStatus): string {
-  switch (status) {
-    case "draft":           return "Sign as Preparer";
-    case "preparer_signed": return "Sign as Reviewer";
-    case "reviewer_signed": return "Approve Statements";
-    case "approved":        return "Lock Period";
-    default:                return "";
-  }
-}
-
-// The capability the next step needs: preparer → prepare_close, reviewer → review_close, approve / lock →
-// approve_certification. The database policies decide; this only shows or hides the button.
-function canUserAct(status: SignOffStatus, capabilities: MyWorkspaceCapabilities | null): boolean {
-  if (status === "locked") return false;
-  if (status === "draft") return canExercise(capabilities, "prepare_close");
-  if (status === "preparer_signed") return canExercise(capabilities, "review_close");
-  return canExercise(capabilities, "approve_certification");
-}
-
 // ── Component ─────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -172,11 +111,6 @@ export function PeriodCloseManager({ userId }: Props) {
   const [companies, setCompanies] = useState<CompanyRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-
-  // Sign dialog state
-  const [signDialogCompany, setSignDialogCompany] = useState<CompanyRow | null>(null);
-  const [signNote, setSignNote] = useState("");
-  const [signing, setSigning] = useState(false);
 
   // ── Fetch data ────────────────────────────────────────────────────────────
   const fetchAll = async () => {
@@ -262,40 +196,6 @@ export function PeriodCloseManager({ userId }: Props) {
 
   useEffect(() => { fetchAll(); }, [userId]);
 
-  // ── Sign / lock action ────────────────────────────────────────────────────
-  const handleSign = async () => {
-    if (!signDialogCompany?.signOff) return;
-    setSigning(true);
-
-    const payload = nextStatusPayload(signDialogCompany.signOff.status, userId, signNote);
-    if (!payload) { toast.error("Invalid sign-off state"); setSigning(false); return; }
-
-    const { error } = await supabase
-      .from("statement_sign_offs")
-      .update(payload)
-      .eq("id", signDialogCompany.signOff.id);
-
-    if (error) {
-      // A structured Close Certification refusal (PT402 + capability code) gets the plan explanation, not the raw error.
-      if (entitlementRefusal(error) === "STATEMENT_CERTIFICATION") {
-        const copy = lockedCopy("STATEMENT_CERTIFICATION");
-        toast.error(copy.title, { description: `${copy.unavailable} ${copy.history}` });
-      } else {
-        toast.error("Sign-off failed: " + error.message);
-      }
-    } else {
-      const newStatus = payload.status as string;
-      toast.success(newStatus === "locked"
-        ? `Period locked for ${signDialogCompany.name} — new uploads are now blocked`
-        : `${signDialogCompany.name} signed successfully`
-      );
-      setSignDialogCompany(null);
-      setSignNote("");
-      fetchAll();
-    }
-    setSigning(false);
-  };
-
   // ── Portfolio summary ─────────────────────────────────────────────────────
   const lockedCount = companies.filter(c => c.signOff?.status === "locked").length;
   const pendingCount = companies.filter(c => c.signOff && c.signOff.status !== "locked").length;
@@ -358,7 +258,6 @@ export function PeriodCloseManager({ userId }: Props) {
               const status: SignOffStatus = so?.status ?? "draft";
               const meta = STATUS_META[status];
               const isExpanded = expandedId === company.id;
-              const canAct = canUserAct(status, company.capabilities);
               const isLocked = status === "locked";
 
               return (
@@ -487,60 +386,11 @@ export function PeriodCloseManager({ userId }: Props) {
                           </>
                         )}
 
-                        {/* Action button */}
-                        {so && canAct && !isLocked && (
-                          <div className="pt-1">
-                            {status === "approved" ? (
-                              // Lock requires extra confirmation dialog
-                              <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                  <Button size="sm" className="gap-1.5 bg-emerald-700 hover:bg-emerald-800 text-white">
-                                    <Lock className="w-3.5 h-3.5" />
-                                    Lock Period
-                                  </Button>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                    <AlertDialogTitle className="flex items-center gap-2">
-                                      <Lock className="w-4 h-4 text-emerald-600" />
-                                      Lock FY{so.period_year} for {company.name}?
-                                    </AlertDialogTitle>
-                                    <AlertDialogDescription className="space-y-2">
-                                      <p>This is an <strong>irreversible action</strong>. Once locked:</p>
-                                      <ul className="list-disc ml-4 space-y-1 text-sm">
-                                        <li>All statements for FY{so.period_year} become immutable</li>
-                                        <li>New trial balance uploads for this period are blocked</li>
-                                        <li>The DB enforces immutability via RLS — no user can override</li>
-                                        <li>Statements hash is preserved for non-repudiation</li>
-                                      </ul>
-                                      <p className="text-xs text-muted-foreground">Audit-trail preservation applies. Unlock requires database admin intervention.</p>
-                                    </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                    <AlertDialogAction
-                                      className="bg-emerald-700 hover:bg-emerald-800"
-                                      onClick={() => {
-                                        setSignDialogCompany(company);
-                                        setSignNote("");
-                                      }}
-                                    >
-                                      Confirm Lock
-                                    </AlertDialogAction>
-                                  </AlertDialogFooter>
-                                </AlertDialogContent>
-                              </AlertDialog>
-                            ) : (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="gap-1.5 border-indigo-300 text-indigo-700 hover:bg-indigo-50"
-                                onClick={() => { setSignDialogCompany(company); setSignNote(""); }}
-                              >
-                                <Pen className="w-3.5 h-3.5" />
-                                {nextActionLabel(status)}
-                              </Button>
-                            )}
+                        {/* Sign-off is not recorded here: statement_sign_offs is server-written only
+                            (20261221100000_financial_table_member_write_revocation.sql). This panel only shows status. */}
+                        {so && !isLocked && (
+                          <div className="pt-1 text-xs text-muted-foreground" data-testid="period-close-signoff-read-only">
+                            Sign-off is recorded by the server-side statements workflow, not from this panel.
                           </div>
                         )}
                       </div>
@@ -558,87 +408,6 @@ export function PeriodCloseManager({ userId }: Props) {
           )}
         </CardContent>
       </Card>
-
-      {/* ── Sign dialog ─────────────────────────────────────────────────────── */}
-      <Dialog
-        open={!!signDialogCompany && signDialogCompany.signOff?.status !== "approved"}
-        onOpenChange={(open) => { if (!open) { setSignDialogCompany(null); setSignNote(""); } }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <UserCheck className="w-4 h-4 text-indigo-600" />
-              {signDialogCompany ? nextActionLabel(signDialogCompany.signOff?.status ?? "draft") : "Sign"}
-            </DialogTitle>
-            <DialogDescription>
-              {signDialogCompany?.name} — FY{signDialogCompany?.signOff?.period_year}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3 py-2">
-            <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
-              By signing, you confirm that the financial statements for this period have been reviewed and are accurate under the applicable reporting framework.
-            </div>
-            <div>
-              <Label className="text-xs font-medium">Reviewer note (optional)</Label>
-              <Textarea
-                className="mt-1 text-sm resize-none"
-                rows={3}
-                placeholder="Add any notes, qualifications, or conditions…"
-                value={signNote}
-                onChange={(e) => setSignNote(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setSignDialogCompany(null); setSignNote(""); }}>
-              Cancel
-            </Button>
-            <Button
-              disabled={signing}
-              onClick={handleSign}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white gap-1.5"
-            >
-              {signing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Pen className="w-3.5 h-3.5" />}
-              Confirm Signature
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Lock confirmation dialog (separate, triggered from AlertDialogAction) */}
-      {signDialogCompany?.signOff?.status === "approved" && (
-        <Dialog
-          open={true}
-          onOpenChange={(open) => { if (!open) { setSignDialogCompany(null); setSignNote(""); } }}
-        >
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <Lock className="w-4 h-4 text-emerald-600" />
-                Locking FY{signDialogCompany.signOff.period_year} — {signDialogCompany.name}
-              </DialogTitle>
-              <DialogDescription>
-                This action is irreversible. The period will be immutably sealed.
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => { setSignDialogCompany(null); setSignNote(""); }}>
-                Cancel
-              </Button>
-              <Button
-                disabled={signing}
-                onClick={handleSign}
-                className="bg-emerald-700 hover:bg-emerald-800 text-white gap-1.5"
-              >
-                {signing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Lock className="w-3.5 h-3.5" />}
-                Lock Period
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      )}
     </>
   );
 }

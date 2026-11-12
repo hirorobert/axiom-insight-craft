@@ -12,3 +12,8 @@
 *.pdf binary
 *.xlsx binary
 *.zip binary
+# Vendored third-party code is stored byte-for-byte as its publisher released it: no end-of-line conversion on any platform,
+# so the SHA-256 pins in scripts/ci/assertVendoredDependencies.mjs hold on Windows and Linux alike.
+*.tgz binary
+vendor/sheetjs/LICENSE -text
+supabase/functions/_shared/vendor/** -text
