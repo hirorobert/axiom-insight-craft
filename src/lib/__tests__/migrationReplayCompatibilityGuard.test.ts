@@ -293,7 +293,8 @@ describe("migration directory integrity", () => {
     // 212 -> 213: first-period governed review (the exception is a verified decision, not a declaration), authored and not applied.
     // 214 -> 215: the prior FINAL pack becomes the readiness opening position (rfr_import_prior_pack), authored and not applied.
     // 213 -> 214: statements issued outside CFOClose become a reviewed, hash-bound source of the comparative, authored and not applied.
-    expect(files.length).toBe(215);
+    // 215 -> 216: 20261221100000 financial table member write revocation (second-pass S2-S01/S2-S03/S2-S04), pending hosted apply.
+    expect(files.length).toBe(216);
   });
 });
 

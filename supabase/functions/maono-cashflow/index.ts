@@ -29,6 +29,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { readOptionalTaxAmount } from "../_shared/maonoAnalyticalContract.ts";
 import { requirePaidActionAsCaller } from "../_shared/paidAction.ts";
+import { resolveFirmMemberActor } from "../_shared/actor.ts";
+import { hasWorkspaceCapability } from "../_shared/namedUserAccess.ts";
 import {
   loadCertifiedTb, loadCashPerimeter, resolveCashState, certifiedRowKey,
   type CertifiedTbClient,
@@ -138,6 +140,16 @@ serve(async (req: Request) => {
     // database refuses the same writes (trg_close_insights_wall) whatever the caller.
     const notEntitled = await requirePaidActionAsCaller((fn, args) => supabase.rpc(fn, args), companyId, "CLOSE_INSIGHTS", corsHeaders);
     if (notEntitled) return notEntitled;
+
+    // Clients can no longer write cashflow_forecasts (20261221100000): the forecast is written below with the service
+    // role, so the caller must first be proven an ACCEPTED, active named member of the run's company (an invited-but-not-
+    // accepted row is refused like an outsider) holding prepare_close. Reads stay on the caller's own client.
+    const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const actor = await resolveFirmMemberActor(admin, user.id, companyId, corsHeaders);
+    if (actor instanceof Response) return actor;
+    if (!(await hasWorkspaceCapability((fn, args) => admin.rpc(fn, args), companyId, user.id, "prepare_close"))) {
+      return json({ error: "Forbidden", message: "Recording a forecast needs prepare_close in this workspace" }, 403);
+    }
 
     // Load materiality thresholds (for cash warning days)
     const { data: mat } = await supabase
@@ -445,8 +457,8 @@ serve(async (req: Request) => {
       });
     }
 
-    // Insert forecast rows
-    const { error: insErr } = await supabase
+    // Insert forecast rows (service role, after the authority check above)
+    const { error: insErr } = await admin
       .from("cashflow_forecasts")
       .insert(forecastRows);
     if (insErr) throw new Error("Insert cashflow_forecasts failed: " + insErr.message);

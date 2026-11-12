@@ -13,9 +13,29 @@ export interface CorpusCase { name: string; fileName: string; bytes: Uint8Array;
 const FIX = path.join(__dirname, "__fixtures__");
 const enc = (s: string) => new TextEncoder().encode(s);
 
+/**
+ * The sheet's range is the box around the array's entries (every entry that is not undefined, null included), as SheetJS
+ * 0.18.5's aoa_to_sheet made it. SheetJS 0.20 starts the range at A1 even when the leading rows are empty (offset-rows),
+ * which writes a different file (a <dimension> from A1, so rows 1 and 2 become blank rows of the range); the corpus pins
+ * what the reader does with the files it was generated from, so every case keeps the range it had. Both SheetJS versions
+ * read either file identically.
+ */
+function sheetOf(aoa: unknown[][]): XLSX.WorkSheet {
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const at: { r: number; c: number }[] = [];
+  aoa.forEach((row, r) => row?.forEach((v, c) => { if (v !== undefined) at.push({ r, c }); }));
+  if (at.length > 0) {
+    ws["!ref"] = XLSX.utils.encode_range({
+      s: { r: Math.min(...at.map((p) => p.r)), c: Math.min(...at.map((p) => p.c)) },
+      e: { r: Math.max(...at.map((p) => p.r)), c: Math.max(...at.map((p) => p.c)) },
+    });
+  }
+  return ws;
+}
+
 function workbook(sheets: Record<string, unknown[][]>): Uint8Array {
   const wb = XLSX.utils.book_new();
-  for (const [name, aoa] of Object.entries(sheets)) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), name);
+  for (const [name, aoa] of Object.entries(sheets)) XLSX.utils.book_append_sheet(wb, sheetOf(aoa), name);
   return new Uint8Array(XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer);
 }
 

@@ -56,6 +56,8 @@
 
 import { serve }       from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { resolveFirmMemberActor } from "../_shared/actor.ts";
+import { hasWorkspaceCapability } from "../_shared/namedUserAccess.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin":  "*",
@@ -341,16 +343,19 @@ serve(async (req: Request) => {
       return json({ error: "period_month must be 1–12" }, 400);
     }
 
-    // Verify user is a member of this company
-    const { data: membership } = await supabase
-      .from("firm_members")
-      .select("id")
-      .eq("company_id", companyId)
-      .eq("user_id", user.id)
-      .single();
-    if (!membership) return json({ error: "Access denied: not a member of this company" }, 403);
+    // Authority (20261221100000): clients can no longer write efdms_z_reports / efdms_reconciliation, so this function
+    // writes them with the service role — only after it has established, from the verified JWT, that the caller is an
+    // ACCEPTED, active named member of this company (resolveFirmMemberActor) holding prepare_close. That is the check
+    // reconciliation_write_wall applies to a caller's own writes; it skips it for the service role (auth.uid() is null),
+    // so it is made here, before any write. An invited-but-not-accepted row is refused, as an outsider is.
+    const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const actor = await resolveFirmMemberActor(admin, user.id, companyId, corsHeaders);
+    if (actor instanceof Response) return json({ error: "Access denied: not a member of this company" }, 403);
+    if (!(await hasWorkspaceCapability((fn, args) => admin.rpc(fn, args), companyId, user.id, "prepare_close"))) {
+      return json({ error: "Access denied: recording EFDMS evidence needs prepare_close in this workspace" }, 403);
+    }
     // v2.3 Phase 1: firmMemberId is the canonical actor identity for imported_by_member_id
-    const firmMemberId: string = membership.id;
+    const firmMemberId: string = actor.firmMemberId;
 
     // Load company TIN for anti-impersonation check
     const { data: company } = await supabase
@@ -416,7 +421,7 @@ serve(async (req: Request) => {
       }));
 
       for (const row of toInsert) {
-        const { error } = await supabase
+        const { error } = await admin
           .from("efdms_z_reports")
           .insert(row);
         if (error?.code === "23505") skipped++;  // UNIQUE violation = duplicate, safe
@@ -474,8 +479,8 @@ serve(async (req: Request) => {
     // Compute gap
     const recon = computeGap(totalGross, totalVat, returnSales, returnVat, mat);
 
-    // Upsert reconciliation row
-    const { error: reconErr } = await supabase
+    // Upsert reconciliation row (service role, after the authority check above; the reads stay on the caller's client)
+    const { error: reconErr } = await admin
       .from("efdms_reconciliation")
       .upsert({
         company_id:        companyId,
@@ -494,7 +499,8 @@ serve(async (req: Request) => {
 
     if (reconErr) throw new Error("Reconciliation upsert failed: " + reconErr.message);
 
-    // Fire TRA risk alert if critical
+    // Fire TRA risk alert if critical. Unchanged by 20261221100000: maono_write_alert is not executable by
+    // `authenticated` (20260720082546), so this caller-client call is refused and its result ignored, as before.
     if (recon.risk_level === "critical") {
       await supabase.rpc("maono_write_alert", {
         p_company_id:    companyId,

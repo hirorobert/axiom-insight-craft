@@ -14,7 +14,7 @@ import path from "node:path";
 import { execSync } from "node:child_process";
 import { FINANCIAL_STATEMENT_PERSISTENCE_ENABLED } from "./persistenceGate";
 import { FINANCIAL_STATEMENTS_WORKSPACE_ENABLED } from "./workspaceGate";
-import { resolveComparisonBase, unreviewedChanges, unreviewedPaths } from "../../../scripts/ci/inertBase.mjs";
+import { isLovablePlanningNote, resolveComparisonBase, unreviewedChanges, unreviewedPaths } from "../../../scripts/ci/inertBase.mjs";
 
 const ROOT = path.join(__dirname, "../../../");
 const rel = (p: string) => path.relative(ROOT, p).split(path.sep).join("/");
@@ -101,6 +101,12 @@ describe("database inertness — schema and functions", () => {
     // Neither migration modifies or deletes any pre-existing migration, function or config, and neither touches the
     // financial-statements schema this file otherwise documents.
     const added = new Set([
+      // SheetJS 0.20.3 vendored (CVE-2023-30533, CVE-2024-22363; vendor/sheetjs/PROVENANCE.md): the official ESM build, its type
+      // declarations and its Apache-2.0 licence, byte-identical to vendor/sheetjs/xlsx-0.20.3.tgz and pinned by
+      // scripts/ci/assertVendoredDependencies.mjs. Third-party library code: no schema, no query, no network.
+      "supabase/functions/_shared/vendor/sheetjs-0.20.3/xlsx.mjs",
+      "supabase/functions/_shared/vendor/sheetjs-0.20.3/types/index.d.ts",
+      "supabase/functions/_shared/vendor/sheetjs-0.20.3/LICENSE",
       // Independent saved-report compilation; no existing migration is edited or hosted write performed.
       "supabase/migrations/20261123100000_fs_server_compilation.sql",
       "supabase/functions/compile-financial-report/index.ts",
@@ -534,6 +540,12 @@ describe("database inertness — schema and functions", () => {
       // PR #32 user-based validation: process-trial-balance resolves its actor with tbu_resolve_processing_actor, and the
       // idempotency claim records a workspace_user actor (actor_user_id) with no firm membership.
       "supabase/functions/process-trial-balance/index.ts",
+      // SheetJS 0.20.3 (CVE-2023-30533, CVE-2024-22363): the spreadsheet import names the vendored ESM build
+      // (_shared/vendor/sheetjs-0.20.3/xlsx.mjs) instead of esm.sh 0.18.5. One import line each (and its @deno-types line);
+      // no schema, no query.
+      "supabase/functions/process-trial-balance/auditedAccountsAdapter.ts",
+      "supabase/functions/trial-balance-layout/index.ts",
+      "supabase/functions/layout-assist/index.ts",
       // PR #34 release blocker P-1 (after main received PR #34 in production): the processing entitlement helpers
       // (processingEntitlementRefusal, isEntitlementWallError) added to the reviewed paid-action gate. No financial-statements schema.
       "supabase/functions/_shared/paidAction.ts",
@@ -645,13 +657,21 @@ describe("database inertness — schema and functions", () => {
     modified.add("src/lib/financialStatementsWorkspace/firstPeriodNextActions.ts");
     modified.add("supabase/functions/_shared/readiness/engine.ts");
     modified.add("src/lib/readiness/present.ts");
+    // Second-pass S2-S01/S2-S03/S2-S04: one forward-only migration that REMOVES client write policies and write-class privileges on
+    // eighteen financial/evidence tables and tightens three professional-input tables (no row changed, SELECT and service_role kept;
+    // proof: scripts/db-proof/financialWriteBoundary.mjs), and the five functions that wrote those tables with the caller's token now
+    // verify an accepted member holding prepare_close and write with the service role. No financial-statements schema.
+    added.add("supabase/migrations/20261221100000_financial_table_member_write_revocation.sql");
+    for (const file of ["supabase/functions/safisha-efdms-ingest/index.ts", "supabase/functions/safisha-categorize/index.ts", "supabase/functions/safisha-score/index.ts",
+      "supabase/functions/maono-cashflow/index.ts", "supabase/functions/maono-risk/index.ts"]) modified.add(file);
     for (const file of ["supabase/functions/qbo-oauth-callback/index.ts", "supabase/functions/trial-balance-draft/index.ts", "supabase/functions/trial-balance-source-download/index.ts",
       "supabase/functions/trial-balance-source-signer/index.ts", "supabase/functions/_shared/sourceDownload.ts"]) modified.add(file);
     expect(unreviewedChanges(changed, { added, modified, removed })).toEqual([]);
   });
 
   it("changes no automation-deploy surface other than the reviewed CI/RLS hardening, the disposable-database proof and the guarded hosted-staging acceptance script", () => {
-    const changed = gitStrict(`diff --name-only ${baseSha()}...HEAD -- .github package.json supabase/config.toml .lovable scripts`);
+    // core.quotepath=off: a non-ASCII path is listed as itself, not git-quoted (an unregistered one is still unreviewed).
+    const changed = gitStrict(`-c core.quotepath=off diff --name-only ${baseSha()}...HEAD -- .github package.json supabase/config.toml .lovable scripts`);
     // Every file the branch touches in these locations must be part of the reviewed RLS-regression safety hardening.
     const allowed = new Set([
       // Deterministic local shared-code bundle generation/check only; no deployment or hosted access.
@@ -961,7 +981,23 @@ describe("database inertness — schema and functions", () => {
     // expectations changed (a declaration is a claim; only a verified review is the exception). No deploy behaviour.
     for (const f of ["firstPeriodGovernedReview", "firstPeriodBypassReproduction", "lib/firstPeriodKit", "comparatives", "closeReviewAuthority", "returningClientJourney", "lib/returningClientKit", "lib/returningClientWorld", "lib/pgQuery"]) allowed.add(`scripts/db-proof/${f}.mjs`);
     allowed.add("scripts/readiness/writePilotFixtures.mjs");
-    expect(unreviewedPaths(changed, allowed)).toEqual([]);
+    // Client-data containment (2026-11-11): a local, read-only scan of tracked files with a hash-only denylist, and the
+    // invented trial balance the guarded staging scripts now upload instead of a client-derived file. No hosted access.
+    for (const file of ["scripts/ci/clientDataGuard.mjs", "scripts/ci/clientDataDenylist.json", "scripts/fixtures/synthetic-sme-tb-2025.csv"]) allowed.add(file);
+    // SheetJS 0.20.3 vendored (vendor/sheetjs/PROVENANCE.md): the offline CI guard that pins the vendored files and refuses any
+    // externally hosted spreadsheet code (reads files only), and the manual re-verification script (never run by CI; downloads
+    // the publisher's tarball and tagged files into memory and compares hashes). Neither deploys, applies or touches a database.
+    for (const file of ["scripts/ci/assertVendoredDependencies.mjs", "scripts/vendor/reverifySheetjs.mjs"]) allowed.add(file);
+    // Financial table write boundary (20261221100000): a loopback-only disposable-database proof and its manifest, and the two
+    // migration-tail lists that pin the newest migration. No hosted access, no deploy capability.
+    // The two parked-candidate proofs (20261004100000 / 20261005100000) replay client SAFISHA writes the revocation removes,
+    // so they now stop the chain just before it (loopback only, no deploy behaviour).
+    for (const file of ["scripts/db-proof/financialWriteBoundary.mjs", "scripts/db-proof/financialWriteBoundary.manifest.mjs",
+      "scripts/db-proof/serviceWithholding.mjs", "scripts/db-proof/trackAHardening.mjs",
+      "scripts/db-proof/reconciliationAuthority.mjs", "scripts/db-proof/safishaIngestion.mjs"]) allowed.add(file);
+    // Lovable's own markdown planning notes (.lovable/plan.md, .lovable/plan/*.md, .lovable/north-star/*.md) deploy nothing
+    // (scripts/ci/inertBase.mjs isLovablePlanningNote). Every other .lovable path is still reviewed by exact file.
+    expect(unreviewedPaths(changed, allowed).filter((p) => !isLovablePlanningNote(p))).toEqual([]);
   });
 
   it("package.json adds only exact reviewed local PDF/OCR runtime packages and the existing test-only exceptions relative to the exact base", () => {
@@ -973,7 +1009,14 @@ describe("database inertness — schema and functions", () => {
     // Adding any other package/version still fails this guard. None creates a database or provider connection.
     const REVIEWED_LOCAL_DOCUMENT_DEPENDENCIES = new Map([["@tesseract.js-data/eng", "1.0.0"], ["pdfjs-dist", "6.4.299"], ["tesseract.js", "6.0.1"]]);
     const reviewedRuntimeLines = new Set([...REVIEWED_LOCAL_DOCUMENT_DEPENDENCIES].map(([name, version]) => `+    "${name}": "${version}",`));
-    expect(diff.filter((l) => /"[@\w./-]+":\s*"[\^~]?\d/.test(l) && !REVIEWED_DEV_DEPENDENCIES.has(l) && !reviewedRuntimeLines.has(l))).toEqual([]);
+    // SheetJS 0.20.3 (CVE-2023-30533, CVE-2024-22363): SheetJS publishes 0.19+ only on its own CDN, and the owner does not
+    // accept an externally hosted dependency, so the official tarball is vendored and the dependency names that file
+    // (vendor/sheetjs/PROVENANCE.md; pinned by scripts/ci/assertVendoredDependencies.mjs; bun.lock records its sha512).
+    // Exactly this local-file line is reviewed. A dependency given by any URL scheme, git, owner/repo shorthand, another
+    // file:/link: path or an npm: alias is checked like a version: an unreviewed one fails (the first revision's
+    // cdn.sheetjs.com URL line included).
+    const REVIEWED_SHEETJS = '+    "xlsx": "file:vendor/sheetjs/xlsx-0.20.3.tgz",';
+    expect(diff.filter((l) => /"[@\w./-]+":\s*"(?:[\^~]?\d|[a-z][a-z0-9+.-]*:|git|[\w.-]+\/[\w.-]+)/i.test(l) && !REVIEWED_DEV_DEPENDENCIES.has(l) && !reviewedRuntimeLines.has(l) && l !== REVIEWED_SHEETJS)).toEqual([]);
     const pkgNow = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
     for (const name of ["axe-core", "jsdom"]) {
       expect(pkgNow.dependencies?.[name], `${name} must never be a runtime dependency`).toBeUndefined();
@@ -981,6 +1024,7 @@ describe("database inertness — schema and functions", () => {
     }
     for (const [name, version] of REVIEWED_LOCAL_DOCUMENT_DEPENDENCIES) expect(pkgNow.dependencies[name]).toBe(version);
     expect(pkgNow.dependencies.fflate).toBeDefined();
+    expect(pkgNow.dependencies.xlsx).toBe("file:vendor/sheetjs/xlsx-0.20.3.tgz");
   });
 });
 
