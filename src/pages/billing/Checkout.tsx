@@ -23,6 +23,7 @@ import { formatMoney, parseCheckoutPlan } from "@/lib/commercial/planOffers";
 import { BillingHelpLine } from "@/components/contact/ContactChannels";
 import { getCheckoutOptions, rememberCheckoutPlan, startCheckout, type CheckoutOptions, type PaymentRoute, type RouteOption } from "@/lib/commercial/checkoutClient";
 import { UnfinishedCheckoutBanner } from "@/components/commercial/UnfinishedCheckoutBanner";
+import { REFUNDS_AND_CANCELLATION } from "@/lib/commercial/purchaseTerms";
 
 const TZ_MOBILE = /^(?:\+?255|0)[67]\d{8}$/;
 const formatDate = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
@@ -216,6 +217,13 @@ export default function Checkout() {
               <p className="mt-1 text-xs text-muted-foreground">{chosen.paymentRoute === "CARD" ? "Secure card payment by Polar, our merchant of record. Sales tax may apply and is shown before you pay." : "Snippe sends a prompt to your phone; approve it with your PIN."}</p>
             </div>
           )}
+
+          {/* The refund and cancellation terms, the same text as Terms §4, before anything leaves for the payment page. */}
+          <section className="mt-6 border-t border-border pt-4" aria-labelledby="checkout-refunds-title" data-testid="checkout-refunds">
+            <h2 id="checkout-refunds-title" className="text-sm font-medium">{REFUNDS_AND_CANCELLATION.heading}</h2>
+            <p className="mt-1 text-xs text-muted-foreground">{REFUNDS_AND_CANCELLATION.text}</p>
+            <Link to={`/terms#${REFUNDS_AND_CANCELLATION.anchor}`} className="mt-1 inline-block text-xs font-medium underline" data-testid="checkout-terms-link">Read the Terms of Service</Link>
+          </section>
 
           {error?.kind === "open" && error.ref && (
             // Cleared (closed just now, or found already closed or paid): read the options again, so the placement reflects

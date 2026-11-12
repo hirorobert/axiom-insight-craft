@@ -538,6 +538,38 @@ describe("settlement (the one path from a provider answer to the database)", () 
     expect(calls.map((c) => c.fn)).toEqual(["commit_verified_commercial_payment", "record_payment_reversal"]);
     expect(calls[1].args).toMatchObject({ p_original_event_id: "evt-1", p_reversal_type: "REFUND", p_provider_event_id: `${ORDER}:refunded:49000`, p_amount_minor: "49000" });
   });
+  // Commercial-accuracy evidence (S2-C03 PR): the two reversal paths no test exercised offline.
+  it("a chargeback is recorded as a CHARGEBACK at its own amount — never netted against refunds already recorded — and changes no licence here", async () => {
+    const calls: { fn: string; args: Record<string, unknown> }[] = [];
+    let priorAsked = false;
+    const db: ServiceDb = {
+      rpc: (fn, args) => { calls.push({ fn, args }); return Promise.resolve({ data: fn === "commit_verified_commercial_payment" ? { status: "ALREADY_COMMITTED" } : { status: "REVERSAL_RECORDED" }, error: null }); },
+      from: () => ({ select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: { id: "evt-1", checkout_intent_id: "intent-1", provider: "POLAR" }, error: null }) }) }) }) }),
+      priorRefundedMinor: async () => { priorAsked = true; return 20000n; },
+    };
+    const out = await settleIntent(db, adapterWith({ verified: true, transaction: tx({ reversals: [{ type: "CHARGEBACK", providerEventId: "cb-1", amountMinor: 49000n, currencyCode: "USD" }] }) }), intent);
+    expect(out.result).toBe("REVERSAL_RECORDED");
+    expect(priorAsked).toBe(false);
+    expect(calls.map((c) => c.fn)).toEqual(["commit_verified_commercial_payment", "record_payment_reversal"]);
+    expect(calls[1].args).toMatchObject({ p_original_event_id: "evt-1", p_reversal_type: "CHARGEBACK", p_amount_minor: "49000", p_currency_code: "USD" });
+    const expectedKey = (await import("node:crypto")).createHash("sha256").update("POLAR:reversal:cb-1").digest("hex");
+    expect(calls[1].args.p_idempotency_key).toBe(expectedKey);
+  });
+  it("a reversal the ledger refuses is a definite, named answer (no endless redelivery); a database failure is still ERROR", async () => {
+    for (const [message, expected] of [
+      ["REVERSAL_EXCEEDS_PAYMENT: more than was paid", "AMOUNT_MISMATCH"], ["REVERSAL_AMOUNT_INVALID", "AMOUNT_MISMATCH"],
+      ["REVERSAL_CURRENCY_MISMATCH", "CURRENCY_MISMATCH"], ["REVERSAL_PROVIDER_MISMATCH", "MERCHANT_MISMATCH"],
+      ["REVERSAL_ORIGINAL_NOT_FOUND", "REFERENCE_MISMATCH"], ["connection reset", "ERROR"],
+    ] as const) {
+      const db: ServiceDb = {
+        rpc: (fn) => Promise.resolve(fn === "commit_verified_commercial_payment" ? { data: { status: "ALREADY_COMMITTED" }, error: null } : { data: null, error: { message } }),
+        from: () => ({ select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: { id: "evt-1", checkout_intent_id: "intent-1", provider: "POLAR" }, error: null }) }) }) }) }),
+        priorRefundedMinor: async () => 0n,
+      };
+      const out = await settleIntent(db, adapterWith({ verified: true, transaction: tx({ reversals: [{ type: "REFUND", providerEventId: "r9", amountMinor: 1000n, currencyCode: "USD" }] }) }), intent);
+      expect(out.result, message).toBe(expected);
+    }
+  });
 });
 
 describe("polar describeCheckout (abandoned-checkout recovery, read-only)", () => {

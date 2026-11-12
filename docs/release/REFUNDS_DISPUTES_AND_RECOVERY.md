@@ -37,7 +37,7 @@
 
 ### 2.2 Refund
 
-1. Decide under the owner's refund policy, and issue the refund in **Polar's dashboard → the order → Refund order**. Partial refunds are allowed; Polar prorates tax and keeps its fees.
+1. Decide under the owner's refund policy, and issue the refund in **Polar's dashboard → the order → Refund order**. Partial refunds are allowed; Polar prorates tax and keeps its fees. The customer-facing text of that policy (a pro-rata refund of the unused whole days on request, by e-mail to billing@; a person decides; access reviewed afterwards) is `REFUNDS_AND_CANCELLATION` in `src/lib/commercial/purchaseTerms.ts`, shown in Terms §4 and on the checkout page. **It is a draft until the owner and counsel approve it** (handoff row 19).
 2. Polar's notification is recorded automatically. If it does not arrive, use **Check with the provider** on the order.
 3. Under **Payments needing attention → Refunds and disputes**, the reversal appears with its amount.
 4. If access should end, end the licence under **Accounts**: **End now** for a current term, or **Cancel (not started)** for a future one.

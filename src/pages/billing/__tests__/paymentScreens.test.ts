@@ -34,6 +34,8 @@ vi.mock("@/integrations/supabase/client", () => ({ supabase: { rpc: (...a: unkno
 import Checkout from "@/pages/billing/Checkout";
 import PaymentReturn from "@/pages/billing/PaymentReturn";
 import CommercialAdmin from "@/pages/commercial/CommercialAdmin";
+import { PlanCatalogue } from "@/components/commercial/PlanCatalogue";
+import { REFUNDS_AND_CANCELLATION } from "@/lib/commercial/purchaseTerms";
 
 const flush = async () => { for (let i = 0; i < 6; i++) await act(async () => { await Promise.resolve(); }); };
 let where = "";
@@ -415,6 +417,13 @@ describe("payment status page", () => {
     await showStatus({ status: "SUCCEEDED", paymentRecorded: true, reversalType: "REFUND" });
     expect(byTestId(m!, "payment-heading")!.textContent).toBe("Payment refunded");
     expect(byTestId(m!, "next-start-review")).toBeNull();
+    // Access after a refund is reviewed by a person (the same rule the refund terms state): never "ended" or "kept" here.
+    expect(textOf(m!)).toContain("This payment was refunded. Our team reviews the plan's access and will contact you.");
+  });
+  it("disputed (chargeback): says so, states the same access review, and offers no review start", async () => {
+    await showStatus({ status: "SUCCEEDED", paymentRecorded: true, reversalType: "CHARGEBACK" });
+    expect(textOf(m!)).toContain("This payment was disputed. Our team reviews the plan's access and will contact you.");
+    expect(byTestId(m!, "next-start-review")).toBeNull();
   });
   it("the provider reports the session open and unpaid: no spinner; Resume, or Choose another plan → confirm → closed in CFOClose → the plans page", async () => {
     rpcMod.abandonUnfinishedCheckout.mockResolvedValue({ outcome: "ABANDONED", status: null, error: null });
@@ -601,5 +610,42 @@ describe("checkout · additional named users are never lost silently", () => {
     m = mount(at("/billing/checkout?plan=SOLO", h(Checkout)));
     await flush();
     expect(byTestId(m, "checkout-seats-note")!.textContent).toContain("3 additional named users");
+  });
+});
+
+describe("S2-C02 · a first purchase from /plans shows the purchase terms before any provider page", () => {
+  const OPEN_PRICES = { onlinePayment: true, offers: [{ planCode: "SOLO", marketCode: "GLOBAL", currencyCode: "USD", currencyExponent: 2, amountMinor: 49000 }] };
+  const ONE_CARD = { ...BOTH, options: [BOTH.options[0]] };
+  const journey = () => h(MemoryRouter, { initialEntries: ["/plans"] }, h(Routes, null,
+    h(Route, { path: "/plans", element: h("div", null, h(PlanCatalogue, { prices: OPEN_PRICES, signedIn: true }), h(Where)) }),
+    h(Route, { path: "/billing/checkout", element: h("div", null, h(Checkout), h(Where)) })));
+
+  it("signed in, one production card route, a NEW purchase: the CFOClose checkout page renders the term, the merchant of record and the refund terms; the provider page opens only from its Continue button", async () => {
+    client.getCheckoutOptions.mockResolvedValue({ data: ONE_CARD, error: null });
+    client.startCheckout.mockResolvedValue({ ok: true, saffReference: "SAFF-1", checkoutUrl: "https://polar.sh/checkout/x", provider: "POLAR", paymentRoute: "CARD", reused: false });
+    // What the customer had on screen at the moment the browser was sent to another origin.
+    let onScreenWhenLeaving: string | null = null;
+    const assign = vi.fn(() => { onScreenWhenLeaving = document.body.textContent; });
+    Object.defineProperty(window, "location", { value: { ...window.location, assign }, configurable: true });
+    m = mount(journey());
+    click(byTestId(m, "choose-plan-SOLO")!);
+    await flush();
+    expect(assign).not.toHaveBeenCalled();
+    expect(client.startCheckout).not.toHaveBeenCalled();
+    expect(where).toBe("/billing/checkout?plan=SOLO");
+    const shown = textOf(m);
+    expect(shown).toContain("12 months, no automatic renewal");
+    expect(shown).toContain("Polar, our merchant of record");
+    expect(shown).toContain("Refunds and cancellation");
+    // S2-C03: the same refund text as Terms §4, and a link to it.
+    expect(byTestId(m, "checkout-refunds")!.textContent).toContain(REFUNDS_AND_CANCELLATION.text);
+    expect(byTestId(m, "checkout-terms-link")!.getAttribute("href")).toBe("/terms#refunds");
+    click(byTestId(m, "checkout-continue")!);
+    await flush();
+    expect(client.startCheckout).toHaveBeenCalledWith("SOLO", "CARD", null);
+    expect(assign).toHaveBeenCalledWith("https://polar.sh/checkout/x");
+    expect(onScreenWhenLeaving).toContain("no automatic renewal");
+    expect(onScreenWhenLeaving).toContain("merchant of record");
+    expect(onScreenWhenLeaving).toContain("Refunds and cancellation");
   });
 });
