@@ -21,7 +21,8 @@
 
 import { serve }        from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import * as XLSX        from "https://esm.sh/xlsx@0.18.5";
+// @deno-types="../_shared/vendor/sheetjs-0.20.3/types/index.d.ts"
+import * as XLSX        from "../_shared/vendor/sheetjs-0.20.3/xlsx.mjs";
 import {
   isAuditedAccountsFormat,
   parseAuditedAccounts,
