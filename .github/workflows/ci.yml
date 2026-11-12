@@ -129,6 +129,9 @@ jobs:
           node scripts/ci/assertSingleLockfile.mjs
           node scripts/buildStatementCompiler.mjs --check
 
+      - name: Vendored dependencies (SheetJS tarball and Deno build pinned and identical, no externally hosted spreadsheet code)
+        run: node scripts/ci/assertVendoredDependencies.mjs
+
       - name: Migration authority (the hosted Drizzle apply journal mirrors the authored supabase/migrations exactly)
         run: node scripts/ci/assertMigrationAuthority.mjs
 
@@ -208,7 +211,7 @@ jobs:
         run: deno check supabase/functions/safisha-efdms-ingest/index.ts supabase/functions/maono-cashflow/index.ts supabase/functions/maono-risk/index.ts supabase/functions/safisha-categorize/index.ts supabase/functions/safisha-score/index.ts
 
       - name: Upload policy probe in Deno under a 150 MB V8 heap cap (invented files; the real gate and reader; each case in its own process, fits or terminated, measured)
-        run: deno run --allow-read --allow-write --allow-run --allow-env --allow-net=esm.sh scripts/bench/tbUploadPolicyDenoProbe.ts 150
+        run: deno run --allow-read --allow-write --allow-run --allow-env scripts/bench/tbUploadPolicyDenoProbe.ts 150
 
       - name: Type-check the online payment functions (checkout, recovery, provider diagnostics and the Polar and Snippe webhooks) against the real Supabase client types
         run: deno check supabase/functions/commercial-create-checkout/index.ts supabase/functions/commercial-payment-status/index.ts supabase/functions/commercial-provider-diagnostics/index.ts supabase/functions/commercial-webhook-polar/index.ts supabase/functions/commercial-webhook-snippe/index.ts supabase/functions/commercial-payment-webhook/index.ts
