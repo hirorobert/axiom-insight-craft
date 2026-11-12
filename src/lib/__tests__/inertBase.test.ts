@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { execSync } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { resolveComparisonBase, unreviewedChanges, unreviewedPaths } from "../../../scripts/ci/inertBase.mjs";
+import { isLovablePlanningNote, resolveComparisonBase, unreviewedChanges, unreviewedPaths } from "../../../scripts/ci/inertBase.mjs";
 import { executionProblems } from "../../../scripts/ci/assertTestsExecuted.mjs";
 
 const ROOT = path.resolve(__dirname, "../../..");
@@ -150,6 +150,67 @@ describe("exact-file matching cannot be bypassed", () => {
   it("an extra tab field or a missing status is unsupported, never accepted", () => {
     expect(unreviewedChanges(`A\t${REVIEWED_MIGRATION}\textra\n`, { added, modified })).toHaveLength(1);
     expect(unreviewedChanges(`${REVIEWED_MIGRATION}\n`, { added, modified })).toHaveLength(1);
+  });
+});
+
+describe("Lovable's planning notes are not an automation-deploy surface; every other .lovable path and every other surface still is", () => {
+  // The exact notes Lovable's bot (gpt-engineer-app[bot]) committed to main: f366367, ae5122e, d20a36b and earlier.
+  const NOTES = [
+    ".lovable/plan.md",
+    ".lovable/plan/capability-check-no-store-on-auth-and-gateway-responses-read-2026-11-10.md",
+    ".lovable/north-star/north-star.md",
+    ".lovable/plan/ω2-auth-contract-repair-controlled-redeploy-2026-09-06.md",
+  ];
+
+  it("the markdown notes Lovable writes under .lovable/plan(.md) and .lovable/north-star/ are recognised", () => {
+    for (const p of NOTES) expect(isLovablePlanningNote(p), p).toBe(true);
+  });
+
+  it("a non-markdown .lovable file, a nested, suffix, case, padding or quoting variant, or a markdown file anywhere else is NOT", () => {
+    const notNotes = [
+      ".lovable/config.json", ".lovable/project.toml", ".lovable/plan/run.sh", ".lovable/plan/note.md.sh", ".lovable/plan/note.mdx",
+      ".lovable/plan/note.MD", ".lovable/plan/sub/note.md", ".lovable/plan/", ".lovable/plan/.md", ".lovable/notes.md",
+      ".lovable/north-star.md", ".lovable/north-star/deploy/x.md", "./.lovable/plan/note.md", ".lovable/plan/../../scripts/x.md",
+      `".lovable/plan/\\317\\2111-x.md"`, " .lovable/plan.md", ".lovable/plan.md ", ".lovable/plan.md\r", ".LOVABLE/plan.md",
+      ".lovable\\plan\\note.md", "docs/.lovable/plan/x.md", "scripts/ci/x.md", ".github/workflows/x.md", "package.json", "bun.lock",
+      "supabase/config.toml",
+    ];
+    for (const p of notNotes) expect(isLovablePlanningNote(p), JSON.stringify(p)).toBe(false);
+  });
+
+  it("on a real repository, the guard's own diff and filter leave every non-note change unreviewed (fail-closed)", () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), "inert-lovable-"));
+    const run = (cmd: string) => execSync(cmd, { cwd: d, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    const write = (f: string, c: string) => { fs.mkdirSync(path.dirname(path.join(d, f)), { recursive: true }); fs.writeFileSync(path.join(d, f), c); };
+    try {
+      run("git init -q -b main");
+      write("README.md", "base\n");
+      write("package.json", "{}\n");
+      run("git add -A && git -c user.email=t@example.test -c user.name=t commit -q -m base");
+      const b = run("git rev-parse HEAD").trim();
+      for (const n of NOTES) write(n, "# note\n");
+      write(".lovable/project.json", "{}\n");
+      write("scripts/ci/new.mjs", "//\n");
+      write(".github/workflows/deploy.yml", "on: push\n");
+      write("package.json", '{"devDependencies":{"x":"^1.0.0"}}\n');
+      run("git add -A && git -c user.email=t@example.test -c user.name=t commit -q -m bot");
+      const surface = "-- .github package.json supabase/config.toml .lovable scripts";
+      const names = run(`git -c core.quotepath=off diff --name-only ${b}...HEAD ${surface}`);
+      expect(unreviewedPaths(names, new Set()).filter((p) => !isLovablePlanningNote(p)).sort())
+        .toEqual([".github/workflows/deploy.yml", ".lovable/project.json", "package.json", "scripts/ci/new.mjs"]);
+      // Without core.quotepath=off git quotes the non-ASCII note; the quoted form is never recognised (still caught).
+      const quoted = run(`git diff --name-only ${b}...HEAD ${surface}`);
+      expect(unreviewedPaths(quoted, new Set()).filter((p) => !isLovablePlanningNote(p))).toContainEqual(expect.stringMatching(/^"\.lovable\/plan\//));
+    } finally {
+      try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
+  });
+
+  it("the guard applies the note rule only to its automation-surface check, on an unquoted diff", () => {
+    const src = fs.readFileSync(path.join(ROOT, "src/lib/financialStatementsWorkspace/databaseInert.test.ts"), "utf8");
+    expect(src.match(/isLovablePlanningNote\(/g)).toHaveLength(1);
+    expect(src).toContain("gitStrict(`-c core.quotepath=off diff --name-only ${baseSha()}...HEAD -- .github package.json supabase/config.toml .lovable scripts`)");
+    expect(src).toContain("expect(unreviewedPaths(changed, allowed).filter((p) => !isLovablePlanningNote(p))).toEqual([]);");
   });
 });
 
