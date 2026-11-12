@@ -215,6 +215,14 @@ export interface StatementLine {
   readonly factBindings: readonly FactBinding[];
   /** For SUBTOTAL/TOTAL lines only: the sibling lineIds (within the same statement) this total is declared to sum. Never inferred. */
   readonly castingChildLineIds: readonly string[];
+  /**
+   * For SUBTOTAL/TOTAL lines only, optional. The periods in which a declared casting child that has NO binding at all for the
+   * period is declared NIL for it: the line's own value for that period is composed from a complete source, so a child with no
+   * row in that period (an account that exists in the other year only; a restatement, which restates the comparative only)
+   * contributed nothing. A child that IS bound but whose fact is missing, and every period not listed, remain missing evidence.
+   * Absent (the default, and every report extracted from a document) means an unbound child is missing evidence, never zero.
+   */
+  readonly castingNilPeriodIds?: readonly string[];
 }
 
 export interface StatementSection {

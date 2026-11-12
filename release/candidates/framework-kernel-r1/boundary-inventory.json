@@ -38,7 +38,7 @@
     },
     {
       "file": "src/lib/financialGeneration/composedReport.ts",
-      "sha256": "214931219cbd31d0ba1c043ff419c596e7f2543d1278cb8a26fe2f2d838e7af3",
+      "sha256": "337c66fe68180c583b4615a7a80da825d7602076953d13b3fd06226028a65457",
       "matches": [
         {
           "line": 83,
@@ -100,7 +100,7 @@
     },
     {
       "file": "scripts/buildStatementCompiler.mjs",
-      "sha256": "19c27991e58ddcb7c4a85e78bd8fd142cdde1ce404c45310ddd3f58ff815ff7d",
+      "sha256": "f15ce907c42cd99c29cba8f79b8ae2ef601ad256a2fe9e2090167025f61e1a8a",
       "matches": [
         {
           "line": 15,
@@ -111,7 +111,7 @@
           "text": "const migration = fs.readFileSync(path.join(root, 'supabase/migrations/20261123100000_fs_server_compilation.sql'), 'utf8')"
         },
         {
-          "line": 21,
+          "line": 22,
           "text": "if (!fs.existsSync(manifestPath) || fs.readFileSync(manifestPath, 'utf8') !== manifest || !migration.includes(`'${digest}'`)) throw Error('STATEMENT_COMPILER_MANIFEST_DRIFT: regenerate and review the pending migration compiler digest');"
         }
       ]

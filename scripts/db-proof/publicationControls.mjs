@@ -705,11 +705,11 @@ async function main() {
     const absent = d.figures.filter((x) => docFacts.get(x.factId) !== x.amountMinor).map((x) => x.factId);
     return wrong.length === 0 && transferLines.length === 0 && absent.length === 0 && d.blockers.length === 0 ? true : { wrong, transferLines, absent: absent.slice(0, 4), blockers: d.blockers };
   });
-  await check("T3. REVIEWED (partner) then FINAL (owner): the server compilation of the 1.1.0 ledger matches the document (rule pack 2.4.0)", async () => {
+  await check("T3. REVIEWED (partner) then FINAL (owner): the server compilation of the 1.1.0 ledger matches the document (rule pack 2.5.0, the pack in force: 2.4.0 with subtotal-casting 1.1.0)", async () => {
     const rv = await T.partner.c.setState(T.w.A, ridT, vT, "REVIEWED", "Reviewed: the transfer is in both roll-forwards and in no line");
     const fin = await T.owner.c.setState(T.w.A, ridT, vT, "FINAL", "Approved for issue");
     const rc = await db.one("SELECT matches, evaluation->>'rulePackVersion' AS pack FROM public.fs_server_compilations WHERE report_id=$1 AND report_version=$2 ORDER BY id DESC LIMIT 1", [ridT, vT]);
-    return rv.state === "REVIEWED" && fin.state === "FINAL" && rc?.matches === true && rc.pack === "2.4.0" ? true : { rv: rv.state, fin: fin.state, rc };
+    return rv.state === "REVIEWED" && fin.state === "FINAL" && rc?.matches === true && rc.pack === "2.5.0" ? true : { rv: rv.state, fin: fin.state, rc };
   });
   // As a defective or tampering client would: a ledger batch the intake refuses, stored with a VALID claim. The server's twin refuses it.
   const forgeLedger = async (text, schemaVersion) => {

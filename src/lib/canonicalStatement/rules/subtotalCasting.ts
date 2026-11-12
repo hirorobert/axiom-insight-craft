@@ -13,8 +13,11 @@ import type { Statement, StatementLine } from "../types";
 
 export const RULE_ID = "subtotal-casting";
 export const RULE_VERSION = "1.0.0";
+/** V2 additionally honours a line's castingNilPeriodIds declaration (see StatementLine). V1 is unchanged byte for byte. */
+export const RULE_VERSION_V2 = "1.1.0";
 
 function evaluateLineForPeriod(
+  honourNilDeclaration: boolean,
   ctx: RuleContext,
   statement: Statement,
   line: StatementLine,
@@ -42,11 +45,16 @@ function evaluateLineForPeriod(
   }
 
   const own = resolveFact(ctx, ownFactId);
-  const childResolutions = line.castingChildLineIds.map((childId) => {
+  const nilPeriod = honourNilDeclaration && (line.castingNilPeriodIds ?? []).includes(periodId);
+  const allChildResolutions = line.castingChildLineIds.map((childId) => {
     const childLine = findLineById(ctx.report, childId);
     const childFactId = childLine ? factIdForPeriod(childLine, periodId) : undefined;
-    return { childId, resolved: resolveFact(ctx, childFactId) };
+    return { childId, resolved: resolveFact(ctx, childFactId), unbound: childLine !== undefined && childFactId === undefined };
   });
+  // A child with no binding for a period the line declares NIL contributed nothing there (e.g. an account that exists in the other
+  // year only, or a restatement of the comparative, which has no current-year amount). A bound child whose fact is missing, or a
+  // child that does not exist, is still missing evidence: only an explicit declaration by the line turns absence into nil.
+  const childResolutions = nilPeriod ? allChildResolutions.filter((r) => !r.unbound) : allChildResolutions;
 
   const missing = childResolutions.filter((r) => r.resolved.status !== "PRESENT");
   if (own.status !== "PRESENT" || missing.length > 0) {
@@ -70,7 +78,10 @@ function evaluateLineForPeriod(
   const present = childResolutions as ReadonlyArray<{ childId: string; resolved: { status: "PRESENT"; money: Money } }>;
   let sum: Money;
   try {
-    sum = sumMoney(present.map((r) => r.resolved.money)) as Money; // non-empty by construction (castingChildLineIds.length > 0, all PRESENT)
+    // Non-empty unless every declared child is unbound in a period the line declares nil, when the sum is exactly nil.
+    sum = present.length === 0
+      ? ({ currency: (own as { money: Money }).money.currency, scale: (own as { money: Money }).money.scale, minorUnits: 0n } as Money)
+      : (sumMoney(present.map((r) => r.resolved.money)) as Money);
   } catch {
     return {
       outcome: "INSUFFICIENT_EVIDENCE",
@@ -109,20 +120,25 @@ function evaluateLineForPeriod(
   };
 }
 
-export const subtotalCastingRule: RuleDefinition = {
-  ruleId: RULE_ID,
-  ruleVersion: RULE_VERSION,
-  title: "Statement subtotal and total casting",
-  evaluate(ctx: RuleContext): readonly RuleEvaluationResult[] {
-    const results: RuleEvaluationResult[] = [];
-    for (const statement of ctx.report.statements) {
-      for (const line of allLines(statement)) {
-        for (const periodId of allPeriodIds(ctx.report)) {
-          const result = evaluateLineForPeriod(ctx, statement, line, periodId);
-          if (result) results.push(result);
+function makeRule(honourNilDeclaration: boolean, ruleVersion: string): RuleDefinition {
+  return {
+    ruleId: RULE_ID,
+    ruleVersion,
+    title: "Statement subtotal and total casting",
+    evaluate(ctx: RuleContext): readonly RuleEvaluationResult[] {
+      const results: RuleEvaluationResult[] = [];
+      for (const statement of ctx.report.statements) {
+        for (const line of allLines(statement)) {
+          for (const periodId of allPeriodIds(ctx.report)) {
+            const result = evaluateLineForPeriod(honourNilDeclaration, ctx, statement, line, periodId);
+            if (result) results.push(result);
+          }
         }
       }
-    }
-    return results;
-  },
-};
+      return results;
+    },
+  };
+}
+
+export const subtotalCastingRule: RuleDefinition = makeRule(false, RULE_VERSION);
+export const subtotalCastingRuleV2: RuleDefinition = makeRule(true, RULE_VERSION_V2);

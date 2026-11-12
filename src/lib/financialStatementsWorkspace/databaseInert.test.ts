@@ -636,6 +636,30 @@ describe("database inertness — schema and functions", () => {
     // Cache-Control: no-cache, no-store; no RLS, policy or table change), the Cache-Control value of eight functions, and proxied delivery of the
     // original file after the unchanged issuance decision. No financial write, authority or schema change of an existing object.
     added.add("supabase/migrations/20261215100000_api_cache_control_headers.sql");
+    // Ready for Reporting pilot (docs/ready-for-reporting-v3, branch feat/ready-for-reporting-pilot): ONE forward-only migration (an opt-in readiness gate spliced
+    // into fs_publication_blockers, immutable readiness tables, writers that take the existing scope lock), one Edge Function that runs the engine for a signed-in
+    // member, the pure engine under _shared/readiness, and the registration of that function. AUTHORED, NOT APPLIED.
+    added.add("supabase/migrations/20261225100000_ready_for_reporting_pilot.sql");
+    added.add("supabase/functions/rfr-check-books/index.ts");
+    for (const f of ["types", "money", "evidence", "rulePack", "corrections", "finalization", "engine", "load", "index"]) added.add(`supabase/functions/_shared/readiness/${f}.ts`);
+    modified.add("supabase/config.toml");
+    // First-period governed review: #256's 20261217100000 is NOT in this tree - the merged standalone 20261223100000 (below) is the first-period
+    // governed review; #256's remaining unique change is the browser client's tolerance for a comparative with no dates (signoff.ts).
+    modified.add("src/lib/reporting/signoff.ts");
+    // Returning-client integration (docs/release/returning-client): one forward-only migration (statements issued outside CFOClose as a hash-bound comparative source; AUTHORED, NOT APPLIED),
+    // the readiness engine's treatment of an unposted prior-year adjustment, and its wording.
+    added.add("supabase/migrations/20261226100000_issued_comparative_schedules.sql");
+    // The prior FINAL pack read as the approved opening position (rfr_import_prior_pack): derived on the server, never typed; AUTHORED, NOT APPLIED.
+    added.add("supabase/migrations/20261227100000_rfr_prior_pack_basis.sql");
+    modified.add("src/lib/readiness/client.ts");
+    modified.add("src/components/readiness/CheckBooksView.tsx");
+    // Compiler follow-up (restated comparative and one-period lines cast): a second reviewed compiler identity, accepted by ONE forward migration; AUTHORED, NOT APPLIED.
+    added.add("supabase/migrations/20261228100000_statement_compiler_casting_declaration.sql");
+    added.add("src/lib/statements/castingNil.test.ts"); added.add("src/lib/reporting/missingComparativeDates.test.ts");
+    for (const f of ["src/lib/canonicalStatement/types.ts", "src/lib/canonicalStatement/validation.ts", "src/lib/canonicalStatement/rules/subtotalCasting.ts", "src/lib/canonicalStatement/rules/rulePack.ts",
+      "src/lib/statements/canonicalDocument.ts", "supabase/functions/_shared/statementCompiler.generated.mjs", "supabase/functions/_shared/statementCompiler.manifest.mjs"]) modified.add(f);
+    modified.add("supabase/functions/_shared/readiness/engine.ts");
+    modified.add("src/lib/readiness/present.ts");
     // Second-pass S2-S01/S2-S03/S2-S04: one forward-only migration that REMOVES client write policies and write-class privileges on
     // eighteen financial/evidence tables and tightens three professional-input tables (no row changed, SELECT and service_role kept;
     // proof: scripts/db-proof/financialWriteBoundary.mjs), and the five functions that wrote those tables with the caller's token now
@@ -805,7 +829,7 @@ describe("database inertness — schema and functions", () => {
       // The reporting workbench: its loopback-only real-PostgreSQL proof, the loopback bridge for the dev harness (a
       // throwaway database; reads and the reporting functions only) and the headless-browser journey over it. No deploy
       // behaviour.
-      "scripts/db-proof/reportingWorkbench.mjs", "scripts/db-proof/serveReporting.mjs", "scripts/browser-acceptance/reportingJourney.mjs",
+      "scripts/db-proof/reportingWorkbench.mjs", "scripts/db-proof/serveReporting.mjs", "scripts/browser-acceptance/reportingJourney.mjs", "scripts/db-proof/serveReturning.mjs", "scripts/browser-acceptance/returningClientJourney.mjs",
       "scripts/db-proof/reportingClosure.mjs",
       // The reporting release: its loopback-only mixed-version / forward-recovery proof, the read-only deployed-bundle
       // verifier (hashes a downloaded tree; executes nothing) and the review-package renderer (writes docs only).
@@ -966,6 +990,14 @@ describe("database inertness — schema and functions", () => {
     for (const file of ["scripts/db-proof/apiCacheHeaders.mjs", "scripts/db-proof/qboRealmProtectionCandidate.mjs", "scripts/ci/releaseJournal.mjs",
       "scripts/db-proof/serviceWithholding.mjs", "scripts/db-proof/trackAHardening.mjs", "scripts/e2e/sourceDownloadJourney.mjs",
       "scripts/e2e/localStackJourney.mjs", "scripts/browser-acceptance/cdp.mjs"]) allowed.add(file);
+    // Ready for Reporting pilot: the acceptance contract (fixtures, strict runner, adapter, regression), its PostgreSQL proof and the pilot fixture writer.
+    for (const f of ["implementation.mjs"]) allowed.add(`scripts/acceptance/rfr-v3/adapters/${f}`);
+    for (const f of ["auditRegression", "cases", "compare", "referenceModel", "run", "sandboxProof"]) allowed.add(`scripts/acceptance/rfr-v3/${f}.mjs`);
+    for (const f of ["readinessFinalization.manifest", "readinessFinalization"]) allowed.add(`scripts/db-proof/${f}.mjs`);
+    // First-period governed review: its loopback-only real-PostgreSQL proof, the shared helper, the old-rule bypass reproduction and the two earlier proofs whose first-period
+    // expectations changed (a declaration is a claim; only a verified review is the exception). No deploy behaviour.
+    for (const f of ["firstPeriodGovernedReview", "firstPeriodBypassReproduction", "lib/firstPeriodKit", "comparatives", "closeReviewAuthority", "returningClientJourney", "lib/returningClientKit", "lib/returningClientWorld", "lib/pgQuery"]) allowed.add(`scripts/db-proof/${f}.mjs`);
+    allowed.add("scripts/readiness/writePilotFixtures.mjs");
     // Client-data containment (2026-11-11): a local, read-only scan of tracked files with a hash-only denylist, and the
     // invented trial balance the guarded staging scripts now upload instead of a client-derived file. No hosted access.
     for (const file of ["scripts/ci/clientDataGuard.mjs", "scripts/ci/clientDataDenylist.json", "scripts/fixtures/synthetic-sme-tb-2025.csv"]) allowed.add(file);
@@ -1036,7 +1068,7 @@ describe("database inertness — the workspace code cannot mutate a database", (
     const offenders: string[] = [];
     for (const f of workspaceSources) {
       if (TRANSPORT_FILES.has(rel(f))) continue; // audited separately below
-      if (rel(f) === "dev-harness/bridgeBackend.ts" || rel(f) === "dev-harness/reporting/bridgeDb.ts") continue; // loopback-only dev tools, audited below
+      if (rel(f) === "dev-harness/bridgeBackend.ts" || rel(f) === "dev-harness/reporting/bridgeDb.ts" || rel(f) === "dev-harness/returning/bridgeClient.ts" || rel(f) === "dev-harness/returning/bridgeSupabase.ts") continue; // loopback-only dev tools, audited below
       if (SYNTHETIC_JOURNEY_HARNESS.has(rel(f))) continue; // in-memory synthetic backend, audited below
       const src = stripComments(fs.readFileSync(f, "utf8"));
       for (const [re, what] of forbidden) if (re.test(src)) offenders.push(`${rel(f)}: ${what}`);
@@ -1083,6 +1115,11 @@ describe("database inertness — the workspace code cannot mutate a database", (
     const reportingBridge = stripComments(fs.readFileSync(path.join(ROOT, "dev-harness/reporting/bridgeDb.ts"), "utf8"));
     expect(reportingBridge).toMatch(/assertLoopback\(bridge\);\n {2}const post/);
     expect(reportingBridge).toMatch(/host !== "127\.0\.0\.1" && host !== "localhost"/);
+    // the returning-client start harness replaces the Supabase client by a stand-in that talks ONLY to the loopback bridge (dev-only, never part of a build)
+    const startShim = stripComments(fs.readFileSync(path.join(ROOT, "dev-harness/returning/bridgeSupabase.ts"), "utf8"));
+    expect(startShim).toMatch(/assertLoopback\(BRIDGE\)/);
+    expect(startShim).not.toMatch(/@supabase\/supabase-js|createClient|service_role|VITE_/i);
+    expect(stripComments(fs.readFileSync(path.join(ROOT, "dev-harness/returning/startMain.tsx"), "utf8"))).toMatch(/if \(!import\.meta\.env\.DEV\)/);
     const adapter = stripComments(fs.readFileSync(path.join(ROOT, "src/lib/financialStatementsWorkspace/supabaseFsBackend.ts"), "utf8"));
     expect(adapter).toMatch(/return gate \? new FsRpcTransport\(supabaseFsBackend\) : null/);
   });

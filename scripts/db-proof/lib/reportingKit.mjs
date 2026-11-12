@@ -16,7 +16,9 @@ const PRODUCTION_REF = "bvyivmmfjejbmqoydezk";
 const PG_CRON_FILE = "20260810044930_fcf7b034-7dc7-445d-a77d-99be66c3c4f4.sql";
 const MODULES_DIR = process.env.DB_PROOF_MODULES_DIR;
 const req = createRequire(MODULES_DIR ? path.join(path.resolve(MODULES_DIR), "noop.js") : import.meta.url);
-const { Pool, Client } = req("pg");
+const { Pool, Client, types: pgTypes } = req("pg");
+// PostgREST answers a DATE as the text 'YYYY-MM-DD'; node-pg would build a local-midnight Date (and shift the day through JSON). rawDates asks for the text.
+const rawDateTypes = { getTypeParser: (oid, format) => (oid === 1082 ? (v) => v : pgTypes.getTypeParser(oid, format)) };
 export const uuid = () => crypto.randomUUID();
 
 // ── Results ──────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -66,12 +68,12 @@ export async function openDatabase(name) {
   const admin = new Client({ connectionString: url }); await admin.connect();
   const pool = new Pool({ connectionString: url, max: 30 });
   // readOnly: the transaction PostgREST opens for a STABLE or IMMUTABLE function (BEGIN READ ONLY).
-  const asRole = async (role, uid, sql, params, { readOnly = false } = {}) => {
+  const asRole = async (role, uid, sql, params, { readOnly = false, rawDates = false } = {}) => {
     const c = await pool.connect();
     try {
       await c.query(readOnly ? "BEGIN READ ONLY" : "BEGIN"); await c.query(`SET LOCAL ROLE ${role}`);
       await c.query("SELECT set_config('request.jwt.claim.role',$1,true), set_config('request.jwt.claim.sub',$2,true)", [role, uid ?? ""]);
-      const r = await c.query(sql, params); await c.query("COMMIT"); return r.rows;
+      const r = await c.query(rawDates ? { text: sql, values: params, types: rawDateTypes } : sql, rawDates ? undefined : params); await c.query("COMMIT"); return r.rows;
     } catch (e) { try { await c.query("ROLLBACK"); } catch { /* */ } throw e; } finally { c.release(); }
   };
   const db = {
@@ -121,13 +123,16 @@ export async function applyChainBefore(db, file) {
   // COMPILER_IDENTITY_FILE (idempotent). A proof that stops the chain before it, but after the receipt table (20261123100000),
   // would otherwise have every report compilation refused; so that file alone is applied too (it changes nothing else).
   const receipts = chain.indexOf("20261123100000_fs_server_compilation.sql");
-  if (chain.indexOf(COMPILER_IDENTITY_FILE) > stop && receipts >= 0 && receipts < stop) {
+  if (chain.indexOf(COMPILER_IDENTITY_FILE) >= stop && receipts >= 0 && receipts < stop) {
+    for (const pred of COMPILER_IDENTITY_PREDECESSORS) if (chain.indexOf(pred) >= stop) { try { await db.admin.query(migrationSql(REPO, pred)); } catch (e) { return `${pred}: ${String(e.message).split("\n")[0]}`; } }
     try { await db.admin.query(migrationSql(REPO, COMPILER_IDENTITY_FILE)); } catch (e) { return `${COMPILER_IDENTITY_FILE}: ${String(e.message).split("\n")[0]}`; }
   }
   return null;
 }
 /** The migration that makes the database accept the current compiler bundle's identity (see applyChainBefore). */
-export const COMPILER_IDENTITY_FILE = "20261222200000_statement_compiler_transfers_post_closing.sql";
+export const COMPILER_IDENTITY_FILE = "20261228100000_statement_compiler_casting_declaration.sql";
+// The identities the database must already accept before COMPILER_IDENTITY_FILE applies (its PREFLIGHT requires the two-digest state).
+export const COMPILER_IDENTITY_PREDECESSORS = ["20261222200000_statement_compiler_transfers_post_closing.sql"];
 export const migrationText = (f) => migrationSql(REPO, f);
 
 // ── Synthetic world ──────────────────────────────────────────────────────────────────────────────────────────────────
@@ -195,17 +200,17 @@ export async function certifier(db, U) {
   const decisionsAuthority = (await db.one("SELECT to_regprocedure('public.tb_current_finding_decisions(uuid)') IS NOT NULL AS ok")).ok;
   const ptb = (await loadFunctionTree(REPO, "process-trial-balance", decisionsAuthority ? {}
     : { functionsDir: functionsAtCommit(REPO, GENERATION_6_COMMIT, "process-trial-balance") })).handler;
-  const upload = async (company, y, text, { currency = "TZS", start = `${y}-01-01`, end = `${y}-12-31` } = {}) => {
-    const pid = (await db.one("INSERT INTO public.fiscal_periods (company_id, fiscal_year_end, period_label, created_by, reporting_currency, reporting_start, reporting_end) VALUES ($1,$2,$3,$4,$5,$6,$2) RETURNING id",
+  const upload = async (company, y, text, { currency = "TZS", start = `${y}-01-01`, end = `${y}-12-31`, periodId = null } = {}) => {
+    const pid = periodId ?? (await db.one("INSERT INTO public.fiscal_periods (company_id, fiscal_year_end, period_label, created_by, reporting_currency, reporting_start, reporting_end) VALUES ($1,$2,$3,$4,$5,$6,$2) RETURNING id",
       [company, end, `FY${y}`, U.owner, currency, start])).id;
     const filePath = `${U.owner}/${uuid()}.csv`;
     const id = (await db.one(`INSERT INTO public.trial_balance_uploads (file_name, file_path, file_size, status, company_id, period_year, period_id, user_id)
       VALUES ('tb.csv',$1,$2,'processing',$3,$4,$5,$6) RETURNING id`, [filePath, text.length, company, y, pid, U.owner])).id;
     shim.storage.set(`trial-balance-files/${filePath}`, new TextEncoder().encode(text));
-    return { id, year: y };
+    return { id, year: y, periodId: pid };
   };
-  const decisions = (rows = TB) => rows.map(([code, name, cls, st, nb]) => ({ account_code: code, account_name: name, proposal_type: "NONE",
-    decision_action: "USER_MANUAL_CLASSIFICATION", statement: st, classification: cls, normal_balance: nb, is_cash_account: CASH_CODES.has(code) }));
+  const decisions = (rows = TB) => rows.map(([code, name, cls, st, nb, flagRe]) => ({ account_code: code, account_name: name, proposal_type: "NONE",
+    decision_action: "USER_MANUAL_CLASSIFICATION", statement: st, classification: cls, normal_balance: nb, is_cash_account: CASH_CODES.has(code), ...(flagRe === true ? { is_retained_earnings: true } : {}) }));
   const review = (company, u, rows = TB) => db.asUser(U.owner, "SELECT public.resolve_account_review_batch($1,$2,$3,$4::jsonb)", [company, u.id, uuid(), JSON.stringify(decisions(rows))]);
   const certify = async (company, u) => {
     const r = await call(ptb, db.pool, mintTestJwt(U.owner), { uploadId: u.id, clientRequestId: uuid() });

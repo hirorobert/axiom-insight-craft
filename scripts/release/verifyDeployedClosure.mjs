@@ -50,7 +50,7 @@ export const KNOWN_CLOSURES = Object.freeze({
   // 20261123100000 (server compilation): the FULL function closure. Not the embedded compiler bundle digest (49fc0852…), which
   // the migration pins separately; a matching compiler digest alone never proves this closure is deployed.
   "compile-financial-report": Object.freeze({
-    required: { sha256: "ed84408ecdef0c30a28b97015bdacc7fecce1c5e3eee05c32361728c65f6f8a0", source: "S2-A01/S2-A02 (compiler 12314dad…, rule pack 2.4.0, ledger evidence schema 1.1.0): needs 20261222100000 and 20261222200000 applied first" },
+    required: { sha256: "8419ff178ea7469ffb8ca373a71e65c1a69ce28f770bbd2ff8ae2704d82bfc9f", source: "consolidated release (compiler 85a0f362…, rule pack 2.5.0 = 2.4.0 + subtotal-casting 1.1.0; S2-A01/S2-A02 transfers and post-closing, ledger evidence schema 1.1.0, restated-comparative and one-period casting): needs 20261222100000, 20261222200000 AND 20261228100000 applied first; the intermediate 2.4.0-only bundle (closure ed84408e…) is never deployed" },
     known: [{ sha256: "745c8170099329911db55ee2ee20f5a989c0ae2a10003be0860c8cb679e4db59", source: "merged 27f48f7 (PR #191 + PR #192 combined candidate): server compilation with the compiler 49fc0852…; still accepted by the database after 20261222200000, but presents transfers between cash accounts as cash flows and has no post-closing finding" }],
   }),
   "trial-balance-storage-cleanup": Object.freeze({
