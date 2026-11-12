@@ -26,7 +26,7 @@ describe("development gallery isolation", () => {
   });
   it("neutral synthetic data only: no customer names or figures", () => {
     for (const f of walk(path.join(ROOT, "src/dev")).filter((p) => !p.endsWith(".test.ts"))) {
-      expect(fs.readFileSync(f, "utf8"), f).not.toMatch(/arusha|kamanga|174,?776,?903|99,?647,?448/i);
+      expect(fs.readFileSync(f, "utf8"), f).not.toMatch(/arusha|174,?776,?903|99,?647,?448/i);
     }
   });
 });

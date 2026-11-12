@@ -289,8 +289,9 @@ describe("migration directory integrity", () => {
     // 207 -> 209: CF-03 legacy write revocation and QuickBooks connector storage, both pending hosted apply.
     // 209 -> 210: canonical QBO readiness controls, registered but not installed.
     // 210 -> 211: intuit-security-r1 API Cache-Control pre-request hook, registered but not installed.
-    // 211 -> 213: transfers between cash accounts and the post-closing finding (20261222100000) and the compiler identity that carries them (20261222200000), authored and not applied.
-    expect(files.length).toBe(213);
+    // 211 -> 212: 20261221100000 financial table member write revocation (second-pass S2-S01/S2-S03/S2-S04), pending hosted apply.
+    // 212 -> 214: transfers between cash accounts and the post-closing finding (20261222100000) and the compiler identity that carries them (20261222200000), authored and not applied.
+    expect(files.length).toBe(214);
   });
 });
 
