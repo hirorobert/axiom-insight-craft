@@ -57,8 +57,8 @@ describe("database: 20261221100000 retires every client write path on the eighte
   const sql = read(`supabase/migrations/${MIGRATION}`);
   const files = readdirSync(join(ROOT, "supabase/migrations")).filter((f) => f.endsWith(".sql")).sort();
 
-  it("is the newest migration, after the API cache-header hook", () => {
-    expect(files.slice(-2)).toEqual(["20261215100000_api_cache_control_headers.sql", MIGRATION]);
+  it("is the newest migration, after the API cache-header hook and the Ready for Reporting pilot migration", () => {
+    expect(files.slice(-3)).toEqual(["20261215100000_api_cache_control_headers.sql", "20261216100000_ready_for_reporting_pilot.sql", MIGRATION]);
   });
 
   it("names exactly the eighteen server-written tables and the three professional-input tables", () => {
