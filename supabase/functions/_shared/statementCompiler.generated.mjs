@@ -4262,6 +4262,9 @@ function subtractMoney(a, b) {
 function negateMoney(a) {
   return money(a.currency, a.scale, -a.minorUnits);
 }
+function isZeroMoney(a) {
+  return a.minorUnits === 0n;
+}
 function sumMoney(values) {
   if (values.length === 0) return null;
   let total = values[0];
@@ -6095,6 +6098,62 @@ var cashLedgerRollforwardRule = {
   }
 };
 
+// src/lib/canonicalStatement/rules/comprehensiveIncomeActivity.ts
+var RULE_ID11 = "comprehensive-income-activity";
+var RULE_VERSION11 = "1.0.0";
+var EXPECTATION2 = "when the statement of financial position carries balances, the statement of comprehensive income of the same period presents at least one non-zero income or expense";
+function nonZeroLines(ctx, statement, periodId2) {
+  const out = [];
+  for (const line of allLines(statement)) {
+    const f = resolveFactForPeriod(ctx, line, periodId2);
+    if (f.status === "PRESENT" && !isZeroMoney(f.money)) out.push({ lineId: line.lineId, factId: f.fact.factId, text: formatMoney(f.money) });
+  }
+  return out;
+}
+var comprehensiveIncomeActivityRule = {
+  ruleId: RULE_ID11,
+  ruleVersion: RULE_VERSION11,
+  title: "Statement of comprehensive income carries the period's income and expenses",
+  evaluate(ctx) {
+    const periodId2 = ctx.report.period.periodId;
+    const base = { expectedRelationship: EXPECTATION2, periodId: periodId2 };
+    const sci = resolveUniqueStatementOfType(ctx.report, "STATEMENT_OF_PROFIT_OR_LOSS");
+    const sfp = resolveUniqueStatementOfType(ctx.report, "STATEMENT_OF_FINANCIAL_POSITION");
+    if (sci.status === "NONE" || sfp.status === "NONE") {
+      return [{ ...base, outcome: "NOT_APPLICABLE", failureSeverity: "INFORMATIONAL", observedValues: {}, deterministicCalculation: "the report has no statement of comprehensive income or no statement of financial position", evidenceReferences: [], affected: {}, remediationGuidance: "No action required.", discriminator: `${periodId2}:not-applicable` }];
+    }
+    if (sci.status === "AMBIGUOUS" || sfp.status === "AMBIGUOUS") {
+      const ids = [...sci.status === "AMBIGUOUS" ? sci.statements : [], ...sfp.status === "AMBIGUOUS" ? sfp.statements : []].map((s) => s.statementId).sort();
+      return [{ ...base, outcome: "INSUFFICIENT_EVIDENCE", failureSeverity: "HIGH", observedValues: { statementIds: { kind: "TEXT", value: ids.join(", ") } }, deterministicCalculation: `more than one statement of a type: ${ids.join(", ")}`, evidenceReferences: [], affected: {}, remediationGuidance: "Remove the duplicate statement; the rule cannot choose between them.", discriminator: `${periodId2}:ambiguous` }];
+    }
+    const sciStatement = sci.statement;
+    const position = nonZeroLines(ctx, sfp.statement, periodId2);
+    const activity = nonZeroLines(ctx, sciStatement, periodId2);
+    const affected = { statementId: sciStatement.statementId };
+    const observedValues = {
+      nonZeroComprehensiveIncomeLines: { kind: "COUNT", value: activity.length },
+      nonZeroFinancialPositionLines: { kind: "COUNT", value: position.length }
+    };
+    if (position.length === 0) {
+      return [{ ...base, outcome: "NOT_APPLICABLE", failureSeverity: "INFORMATIONAL", observedValues, deterministicCalculation: `no line of the statement of financial position carries a non-zero amount for ${periodId2}`, evidenceReferences: [], affected, remediationGuidance: "No action required.", discriminator: periodId2 }];
+    }
+    if (activity.length > 0) {
+      return [{ ...base, outcome: "PASS", failureSeverity: "HIGH", observedValues, deterministicCalculation: `${activity.length} line(s) of the statement of comprehensive income carry a non-zero amount for ${periodId2} (first: ${activity[0].lineId} ${activity[0].text})`, evidenceReferences: [], affected, remediationGuidance: "No action required.", discriminator: periodId2 }];
+    }
+    return [{
+      ...base,
+      outcome: "FAIL",
+      failureSeverity: "HIGH",
+      observedValues,
+      deterministicCalculation: `no line of the statement of comprehensive income carries a non-zero amount for ${periodId2}, while ${position.length} line(s) of the statement of financial position do (first: ${position[0].lineId} ${position[0].text})`,
+      evidenceReferences: position.slice(0, 5).map((p) => ({ evidenceReferenceId: `${sfp.statement.statementId}:${p.lineId}`, factId: p.factId, lineId: p.lineId, statementId: sfp.statement.statementId })),
+      affected,
+      remediationGuidance: "The trial balance looks post-closing: the year's income and expenses were already closed into retained earnings, so the statement of comprehensive income shows nothing. Import the pre-closing trial balance (before the closing entries) for this period. Only if the entity was genuinely dormant, with no income and no expense at all in the period, may a reviewer accept this finding with the reason recorded.",
+      discriminator: periodId2
+    }];
+  }
+};
+
 // src/lib/canonicalStatement/rules/rulePack.ts
 var CANONICAL_RULE_PACK_V1_RULES = [
   financialPositionEquationRule,
@@ -6108,14 +6167,15 @@ var CANONICAL_RULE_PACK_V1_RULES = [
   missingComparativeDetectionRule,
   orphanedNoteReferenceDetectionRule
 ];
-var CANONICAL_RULE_PACK_V2 = {
-  rulePackId: "canonical-statement-rules",
-  rulePackVersion: "2.2.0"
-};
 var CANONICAL_RULE_PACK_V2_RULES = [...CANONICAL_RULE_PACK_V1_RULES.map((r) => r === cashFlowClosingReconciliationRule ? cashPerimeterReconciliationRule : r), equityClosingTieRule, equityProfitTieRule, scheduleCastingRule, cashLedgerRollforwardRule];
-var ENGINE_VERSION_V2 = "2.2.0";
-function runCanonicalRulePackV2(ctx, clock) {
-  return runRulePack(CANONICAL_RULE_PACK_V2, CANONICAL_RULE_PACK_V2_RULES, ctx, ENGINE_VERSION_V2, clock);
+var CANONICAL_RULE_PACK_V2_4 = {
+  rulePackId: "canonical-statement-rules",
+  rulePackVersion: "2.4.0"
+};
+var CANONICAL_RULE_PACK_V2_4_RULES = [...CANONICAL_RULE_PACK_V2_RULES, comprehensiveIncomeActivityRule];
+var ENGINE_VERSION_V2_4 = "2.4.0";
+function runCanonicalRulePackV2_4(ctx, clock) {
+  return runRulePack(CANONICAL_RULE_PACK_V2_4, CANONICAL_RULE_PACK_V2_4_RULES, ctx, ENGINE_VERSION_V2_4, clock);
 }
 
 // src/lib/financialStatementsWorkspace/frameworkProfiles.ts
@@ -6461,12 +6521,41 @@ function hasControlCharacter(value) {
   return CONTROL_CHARACTERS.test(value);
 }
 
+// src/lib/financialEvidence/types.ts
+var EVIDENCE_SCHEMA_VERSION = "1.0.0";
+var LEDGER_TRANSFER_SCHEMA_VERSION = "1.1.0";
+var EVIDENCE_TYPES = [
+  "TRIAL_BALANCE",
+  // A — referenced, never re-parsed here
+  "TRANSACTION_LEDGER",
+  // B — cash ledger for the direct-method cash flow
+  "EQUITY_MOVEMENTS",
+  // C
+  "BUDGET",
+  // D
+  "IPSAS_CASH_RECEIPTS_PAYMENTS",
+  // E
+  "SUPPORTING_SCHEDULE",
+  // F
+  "NOTES_AND_POLICIES",
+  // G
+  "PRIOR_PERIOD_STATEMENTS",
+  // H
+  "EXTRACTED_CANDIDATES",
+  // I — gated: may never feed a statement
+  "CASH_ACCOUNT_MAP"
+  // J — explicit account → cash-category authority for multi-account cash
+];
+
 // src/lib/financialEvidence/schemas.ts
 var req = (name, kind) => ({ name, kind, required: true });
 var opt = (name, kind) => ({ name, kind, required: false });
 var err = (code, message, row, column, value) => ({ code, severity: "ERROR", message, row, column, value });
 var warn = (code, message, row, column, value) => ({ code, severity: "WARNING", message, row, column, value });
 var ACTIVITIES = ["OPERATING", "INVESTING", "FINANCING"];
+var TRANSFER_ACTIVITY = "TRANSFER_BETWEEN_CASH_ACCOUNTS";
+var LEDGER_ACTIVITIES_WITH_TRANSFERS = [...ACTIVITIES, TRANSFER_ACTIVITY];
+var COUNTER_CASH_ACCOUNT_COLUMN = "counter_cash_account_code";
 var EQUITY_MOVEMENT_TYPES = [
   "OPENING_BALANCE",
   "PROFIT_OR_LOSS",
@@ -6626,31 +6715,68 @@ var FAMILY_SCHEMAS = {
     crossRow: (rows) => uniqueKey(rows, ["candidate_id"], "DUPLICATE_CANDIDATE_ID", "Candidate id")
   }
 };
-
-// src/lib/financialEvidence/types.ts
-var EVIDENCE_SCHEMA_VERSION = "1.0.0";
-var EVIDENCE_TYPES = [
-  "TRIAL_BALANCE",
-  // A — referenced, never re-parsed here
-  "TRANSACTION_LEDGER",
-  // B — cash ledger for the direct-method cash flow
-  "EQUITY_MOVEMENTS",
-  // C
-  "BUDGET",
-  // D
-  "IPSAS_CASH_RECEIPTS_PAYMENTS",
-  // E
-  "SUPPORTING_SCHEDULE",
-  // F
-  "NOTES_AND_POLICIES",
-  // G
-  "PRIOR_PERIOD_STATEMENTS",
-  // H
-  "EXTRACTED_CANDIDATES",
-  // I — gated: may never feed a statement
-  "CASH_ACCOUNT_MAP"
-  // J — explicit account → cash-category authority for multi-account cash
-];
+var exact = (v) => {
+  const [i, f = ""] = v.trim().split(".");
+  return BigInt(i + f.padEnd(12, "0"));
+};
+var showExact = (n) => {
+  const neg = n < 0n;
+  const s = (neg ? -n : n).toString().padStart(13, "0");
+  const frac = s.slice(-12).replace(/0+$/, "");
+  return `${neg ? "-" : ""}${s.slice(0, -12)}${frac ? `.${frac}` : ""}`;
+};
+var byCodepoint = (a, b) => a < b ? -1 : a > b ? 1 : 0;
+var TRANSACTION_LEDGER_WITH_TRANSFERS = {
+  hasAmounts: true,
+  columns: [
+    ...FAMILY_SCHEMAS.TRANSACTION_LEDGER.columns.map((c) => c.name === "activity" ? req("activity", { oneOf: LEDGER_ACTIVITIES_WITH_TRANSFERS }) : c),
+    opt(COUNTER_CASH_ACCOUNT_COLUMN, "CODE")
+  ],
+  crossRow(rows, ctx) {
+    const out = [...FAMILY_SCHEMAS.TRANSACTION_LEDGER.crossRow(rows, ctx)];
+    const pairs = /* @__PURE__ */ new Map();
+    for (let i = 0; i < rows.count; i++) {
+      const own = rows.cell(i, "cash_account_code");
+      const counter = rows.cell(i, COUNTER_CASH_ACCOUNT_COLUMN);
+      const isTransfer = rows.cell(i, "activity") === TRANSFER_ACTIVITY;
+      if (!isTransfer) {
+        if (!blank(counter)) out.push(err("COUNTER_ACCOUNT_ONLY_ON_TRANSFERS", `Row ${i + 1} is not a transfer between cash accounts, so it must not name a counter cash account.`, i + 1, COUNTER_CASH_ACCOUNT_COLUMN, counter));
+        continue;
+      }
+      if (blank(counter)) {
+        out.push(err("TRANSFER_COUNTER_ACCOUNT_REQUIRED", `Row ${i + 1} is a transfer between cash accounts and must name the other cash account in ${COUNTER_CASH_ACCOUNT_COLUMN}.`, i + 1, COUNTER_CASH_ACCOUNT_COLUMN, counter));
+        continue;
+      }
+      if (counter === own) {
+        out.push(err("TRANSFER_TO_SAME_ACCOUNT", `Row ${i + 1} records a transfer from account ${own} to itself.`, i + 1, COUNTER_CASH_ACCOUNT_COLUMN, counter));
+        continue;
+      }
+      const r = rows.cell(i, "receipt");
+      const amount = blank(r) ? -exact(rows.cell(i, "payment")) : exact(r);
+      const [a, b] = [own, counter].sort(byCodepoint);
+      const key = `${a}\0${b}`;
+      const cur = pairs.get(key) ?? { a, b, net: 0n, rows: [] };
+      pairs.set(key, { a, b, net: cur.net + amount, rows: [...cur.rows, i + 1] });
+    }
+    for (const key of [...pairs.keys()].sort(byCodepoint)) {
+      const p = pairs.get(key);
+      if (p.net !== 0n) {
+        out.push(err(
+          "TRANSFER_LEGS_DO_NOT_MATCH",
+          `The transfers recorded between cash accounts ${p.a} and ${p.b} (rows ${p.rows.join(", ")}) do not net to zero (net ${showExact(p.net)}). Each transfer needs both legs in this ledger: a payment on one account and a receipt of the same amount on the other, each naming the other account. Money leaving the two accounts is a cash flow, not a transfer; a transfer still in transit at the period end belongs to a cash-in-transit account in the cash account map.`,
+          p.rows[0],
+          COUNTER_CASH_ACCOUNT_COLUMN,
+          `${p.a}|${p.b}`
+        ));
+      }
+    }
+    return out;
+  }
+};
+function familySchemaFor(type, header) {
+  if (type === "TRANSACTION_LEDGER" && header.includes(COUNTER_CASH_ACCOUNT_COLUMN)) return { schema: TRANSACTION_LEDGER_WITH_TRANSFERS, schemaVersion: LEDGER_TRANSFER_SCHEMA_VERSION };
+  return { schema: FAMILY_SCHEMAS[type], schemaVersion: EVIDENCE_SCHEMA_VERSION };
+}
 
 // src/lib/financialEvidence/intake.ts
 var INTAKE_LIMITS = { maxChars: 2e6, maxRows: 1e3, maxColumns: 40, maxTextChars: 500, maxLongTextChars: 2e4, maxAmountDigits: 30 };
@@ -6725,11 +6851,10 @@ function ingestRecords(req2, records, source) {
   if (req2.evidenceType === "TRIAL_BALANCE") {
     return rejected(err2("USE_TRIAL_BALANCE_IMPORT", "Trial balances are imported and reviewed through the Prepare Data stage; they are not parsed here."));
   }
-  const schema = FAMILY_SCHEMAS[req2.evidenceType];
   const diagnostics = [...source.extraDiagnostics ?? []];
   let currency = null;
   let scale = null;
-  if (schema.hasAmounts) {
+  if (FAMILY_SCHEMAS[req2.evidenceType].hasAmounts) {
     if (!req2.currency || !/^[A-Z]{3}$/.test(req2.currency)) return rejected(err2("CURRENCY_REQUIRED", "This evidence type carries amounts, so an ISO 4217 currency code must be declared explicitly; none is assumed."));
     if (req2.scale === void 0 || !Number.isInteger(req2.scale) || req2.scale < 0 || req2.scale > 6) return rejected(err2("SCALE_REQUIRED", "This evidence type carries amounts, so the number of decimal places (0-6) must be declared explicitly; none is assumed."));
     currency = req2.currency;
@@ -6742,6 +6867,7 @@ function ingestRecords(req2, records, source) {
   if (header.length === 1 && /[;\t|]/.test(records[0][0])) {
     return rejected(err2("UNSUPPORTED_DELIMITER", "The header looks semicolon-, tab- or pipe-delimited. Only comma-delimited CSV is accepted."));
   }
+  const { schema, schemaVersion } = familySchemaFor(req2.evidenceType, header);
   const dupHeader = header.filter((h, i) => h !== "" && header.indexOf(h) !== i);
   for (const d of new Set(dupHeader)) diagnostics.push(err2("DUPLICATE_COLUMN", `Column "${d}" appears more than once in the header.`, { column: d }));
   const indexOf = /* @__PURE__ */ new Map();
@@ -6773,6 +6899,14 @@ function ingestRecords(req2, records, source) {
       });
     });
   }
+  if (req2.evidenceType === "TRANSACTION_LEDGER" && schemaVersion === EVIDENCE_SCHEMA_VERSION && !hasHeaderErrors) {
+    const ai = columns.indexOf("activity");
+    rows.forEach((cells, idx) => {
+      if (!misaligned.has(idx) && (cells[ai] ?? "").trim() === TRANSFER_ACTIVITY) {
+        diagnostics.push(err2("TRANSFER_NEEDS_COUNTER_ACCOUNT_COLUMN", `Row ${idx + 1} is a transfer between cash accounts. Add the column ${COUNTER_CASH_ACCOUNT_COLUMN} and name the other cash account on every transfer row (both legs are recorded, one on each account).`, { row: idx + 1, column: "activity", value: TRANSFER_ACTIVITY }));
+      }
+    });
+  }
   const cellErrors = diagnostics.some((d) => d.severity === "ERROR");
   if (!cellErrors && schema.crossRow) {
     const access = {
@@ -6790,7 +6924,7 @@ function ingestRecords(req2, records, source) {
   const contentHash = source.contentHash;
   const replayIdentity = replayIdentityOf({ companyId: req2.companyId, reportingPeriodId: req2.reportingPeriodId, evidenceType: req2.evidenceType, periodRole: req2.periodRole, seriesKey, contentHash });
   const document = {
-    schemaVersion: EVIDENCE_SCHEMA_VERSION,
+    schemaVersion,
     evidenceType: req2.evidenceType,
     periodRole: req2.periodRole,
     reportingPeriodId: req2.reportingPeriodId,
@@ -6816,7 +6950,7 @@ function ingestRecords(req2, records, source) {
       periodRole: req2.periodRole,
       reportingPeriodId: req2.reportingPeriodId,
       seriesKey,
-      schemaVersion: EVIDENCE_SCHEMA_VERSION,
+      schemaVersion,
       sourceFileName: source.fileName ?? req2.fileName ?? null,
       contentHash,
       replayIdentity,
@@ -6872,7 +7006,7 @@ function describeRows(rows) {
 function sameDenomination(batches) {
   return batches.every((b) => b.currency === batches[0].currency && b.scale === batches[0].scale);
 }
-var byCodepoint = (a, b) => a < b ? -1 : a > b ? 1 : 0;
+var byCodepoint2 = (a, b) => a < b ? -1 : a > b ? 1 : 0;
 
 // src/lib/financialGeneration/budgetActual.ts
 function percentOneDecimal(numerator, denominator) {
@@ -6986,6 +7120,7 @@ function aggregate(input) {
   const byLine = /* @__PURE__ */ new Map();
   for (let row = 1; row <= input.ledger.document.rows.length; row++) {
     const activity = read(row, "activity");
+    if (activity === TRANSFER_ACTIVITY) continue;
     const label = read(row, "cash_flow_line");
     const receipt = read(row, "receipt");
     const amount = receipt !== "" ? amountOf(input.ledger, receipt) : subtractMoney(amountOf(input.ledger, "0"), amountOf(input.ledger, read(row, "payment")));
@@ -7002,7 +7137,9 @@ function buildDirectCashFlow(periods) {
   if (!sameDenomination(periods.map((p) => p.ledger))) return gap(["The cash ledgers for the reporting periods use different currencies or scales."]);
   const current = periods.filter((p) => !p.isComparative);
   if (current.length !== 1) return gap(["Exactly one current-period cash ledger is required."]);
-  const aggs = periods.map(aggregate);
+  const all = periods.map(aggregate);
+  if (all.find((a) => !a.input.isComparative).byLine.size === 0) return gap(["The current-period cash ledger records only transfers between cash accounts; there is no cash flow to present."]);
+  const aggs = all.filter((a) => a.byLine.size > 0);
   const denomination = periods[0].ledger;
   const facts = [];
   const evidenceIndex = {};
@@ -7012,7 +7149,7 @@ function buildDirectCashFlow(periods) {
     m.set(periodId2, v);
     lineValues.set(lineId, m);
   };
-  const bindings = (lineId) => [...lineValues.get(lineId)?.keys() ?? []].sort(byCodepoint).map((periodId2) => ({ periodId: periodId2, factId: `fact:${lineId}:${periodId2}` }));
+  const bindings = (lineId) => [...lineValues.get(lineId)?.keys() ?? []].sort(byCodepoint2).map((periodId2) => ({ periodId: periodId2, factId: `fact:${lineId}:${periodId2}` }));
   const addFact = (lineId, agg, value, rows, text) => {
     const p = agg.input;
     setValue(lineId, p.periodId, value);
@@ -7022,7 +7159,7 @@ function buildDirectCashFlow(periods) {
   const sections = [];
   const subtotalIds = [];
   for (const activity of ACTIVITY_ORDER) {
-    const labels = [...new Set(aggs.flatMap((a) => [...a.byLine.get(activity)?.keys() ?? []]))].sort(byCodepoint);
+    const labels = [...new Set(aggs.flatMap((a) => [...a.byLine.get(activity)?.keys() ?? []]))].sort(byCodepoint2);
     if (labels.length === 0) continue;
     const detail = [];
     for (const label of labels) {
@@ -7242,7 +7379,7 @@ function buildIpsasCashStatement(periods) {
   const zero = (p) => subtractMoney(amountOf(p.batch, "0"), amountOf(p.batch, "0"));
   void zero;
   const build = (section, title, totalLabel, negative, includeInNet) => {
-    const keys = [...new Set(periods.flatMap((p) => [...perPeriod.get(p.periodId).lines.get(section)?.keys() ?? []]))].sort(byCodepoint);
+    const keys = [...new Set(periods.flatMap((p) => [...perPeriod.get(p.periodId).lines.get(section)?.keys() ?? []]))].sort(byCodepoint2);
     if (keys.length === 0) return;
     const detail = [];
     for (const key of keys) {
@@ -7394,7 +7531,7 @@ function assembleNotes(report, notesBatch, scheduleBatches, areas, extra) {
     const read = columnReader(batch);
     const byKey = /* @__PURE__ */ new Map();
     for (let row = 1; row <= batch.document.rows.length; row++) byKey.set(read(row, "schedule_key"), [...byKey.get(read(row, "schedule_key")) ?? [], row]);
-    for (const [key, rows] of [...byKey.entries()].sort((a, b) => byCodepoint(a[0], b[0]))) {
+    for (const [key, rows] of [...byKey.entries()].sort((a, b) => byCodepoint2(a[0], b[0]))) {
       const noteId = noteIdOf(key);
       const factIdOf = (row) => `fact:sch:${slug(key)}:r${row}`;
       const rowsByRole = (role) => rows.filter((r) => read(r, "role") === role);
@@ -7652,7 +7789,7 @@ function establishCashLedgerAuthority(input) {
   const period = periodRef(current, false);
   const knownCodes = new Set(cashAccounts.map((a) => a.accountKey));
   const orphans = [];
-  for (const code of [...byCode.keys()].sort(byCodepoint)) {
+  for (const code of [...byCode.keys()].sort(byCodepoint2)) {
     if (knownCodes.has(code)) continue;
     const v = byCode.get(code);
     orphans.push({ code, movement: v.sum });
@@ -7661,7 +7798,7 @@ function establishCashLedgerAuthority(input) {
     diagnostics.push({ code: "LEDGER_ROW_ACCOUNT_NOT_A_CASH_ACCOUNT", severity: "ERROR", message: `Ledger rows ${describeRows(v.rows)} name account ${code}, which the cash review did not establish as a cash account included in cash flows.` });
   }
   let unresolved = false;
-  for (const a of [...cashAccounts].sort((x, y) => byCodepoint(x.accountKey, y.accountKey))) {
+  for (const a of [...cashAccounts].sort((x, y) => byCodepoint2(x.accountKey, y.accountKey))) {
     const led = byCode.get(a.accountKey);
     const ledgerMovement = led?.sum ?? zero;
     facts.push(evidenceFact(ledger, cashRollFactId("ledger", a.accountKey), ledgerMovement, period, 0, led ? `ledger movement of account ${a.accountKey}: rows ${describeRows(led.rows)}` : `computed: the ledger records no row for account ${a.accountKey}`));
@@ -7710,7 +7847,7 @@ function embedBudgetComparison(report, budget, result) {
   const facts = [];
   const disclosures = [];
   const noteFactIds = [];
-  const lines = [...result.lines].sort((a, b) => byCodepoint(a.lineKey, b.lineKey));
+  const lines = [...result.lines].sort((a, b) => byCodepoint2(a.lineKey, b.lineKey));
   for (const l of lines) {
     facts.push(evidenceFact(budget, budgetFactId("comparison", l.lineKey), l.budget, period, l.evidenceRow, `${l.comparisonBasis === "FINAL_BUDGET" ? "final" : "original"} budget of ${l.lineKey}`));
     noteFactIds.push(budgetFactId("comparison", l.lineKey));
@@ -7740,7 +7877,7 @@ function embedBudgetComparison(report, budget, result) {
   return { facts, notes: [note], disclosures };
 }
 function checklistDisclosures(profile, checklist, notesBatch, derivedSource) {
-  return [...checklist].sort((a, b) => byCodepoint(a.areaId, b.areaId)).map((c) => {
+  return [...checklist].sort((a, b) => byCodepoint2(a.areaId, b.areaId)).map((c) => {
     const text = `${c.state}: ${c.label} (${c.reference})${c.satisfiedBy ? ` \u2014 ${c.satisfiedBy}` : ""}`;
     const provenance = c.state !== "MISSING" && notesBatch ? evidenceProvenance(notesBatch, 1, text) : {
       source: { sourceDocumentId: derivedSource.sourceDocumentId, sourceHash: derivedSource.sourceHash, artifactKind: "EVIDENCE_BATCH" },
@@ -8045,12 +8182,12 @@ function assembleComposedReport(input) {
 var reportContentHash = (report) => sha256Hex(canonicalStringify(report));
 function evaluateComposedReport(report, clock = () => (/* @__PURE__ */ new Date()).toISOString()) {
   const inputHash = reportContentHash(report);
-  const findings = runCanonicalRulePackV2(buildRuleContext(report, ZERO_TOLERANCE), clock);
+  const findings = runCanonicalRulePackV2_4(buildRuleContext(report, ZERO_TOLERANCE), clock);
   return {
-    evaluationRunId: sha256Hex(canonicalStringify({ reportId: report.reportIdentity.reportId, reportVersion: report.reportIdentity.reportVersion, rulePack: CANONICAL_RULE_PACK_V2, engineVersion: ENGINE_VERSION_V2, inputHash })),
-    rulePackId: CANONICAL_RULE_PACK_V2.rulePackId,
-    rulePackVersion: CANONICAL_RULE_PACK_V2.rulePackVersion,
-    engineVersion: ENGINE_VERSION_V2,
+    evaluationRunId: sha256Hex(canonicalStringify({ reportId: report.reportIdentity.reportId, reportVersion: report.reportIdentity.reportVersion, rulePack: CANONICAL_RULE_PACK_V2_4, engineVersion: ENGINE_VERSION_V2_4, inputHash })),
+    rulePackId: CANONICAL_RULE_PACK_V2_4.rulePackId,
+    rulePackVersion: CANONICAL_RULE_PACK_V2_4.rulePackVersion,
+    engineVersion: ENGINE_VERSION_V2_4,
     inputHash,
     findings
   };
@@ -8326,7 +8463,7 @@ function refuse(message) {
 }
 function validateStoredEvidence(batch, dates) {
   const d = batch.document;
-  if (!EVIDENCE_TYPES.includes(batch.evidenceType) || batch.evidenceType === "TRIAL_BALANCE" || batch.evidenceType === "EXTRACTED_CANDIDATES" || batch.schemaVersion !== EVIDENCE_SCHEMA_VERSION || d?.schemaVersion !== EVIDENCE_SCHEMA_VERSION || d.evidenceType !== batch.evidenceType || d.periodRole !== batch.periodRole || d.reportingPeriodId !== batch.reportingPeriodId || d.seriesKey !== batch.seriesKey || d.currency !== batch.currency || d.scale !== (batch.scale === null ? null : String(batch.scale)) || !Array.isArray(d.columns) || !d.columns.every((c) => typeof c === "string") || !Array.isArray(d.rows) || !d.rows.every((r) => Array.isArray(r) && r.every((c) => typeof c === "string"))) refuse("SERVER_EVIDENCE_SCHEMA_INVALID");
+  if (!EVIDENCE_TYPES.includes(batch.evidenceType) || batch.evidenceType === "TRIAL_BALANCE" || batch.evidenceType === "EXTRACTED_CANDIDATES" || ![EVIDENCE_SCHEMA_VERSION, LEDGER_TRANSFER_SCHEMA_VERSION].includes(batch.schemaVersion) || d?.schemaVersion !== batch.schemaVersion || d.evidenceType !== batch.evidenceType || d.periodRole !== batch.periodRole || d.reportingPeriodId !== batch.reportingPeriodId || d.seriesKey !== batch.seriesKey || d.currency !== batch.currency || d.scale !== (batch.scale === null ? null : String(batch.scale)) || !Array.isArray(d.columns) || !d.columns.every((c) => typeof c === "string") || !Array.isArray(d.rows) || !d.rows.every((r) => Array.isArray(r) && r.every((c) => typeof c === "string"))) refuse("SERVER_EVIDENCE_SCHEMA_INVALID");
   const parsed = ingestRecords(
     {
       companyId: batch.companyId,
@@ -8343,6 +8480,7 @@ function validateStoredEvidence(batch, dates) {
     { contentHash: batch.contentHash, format: d.sourceFormat ?? "CSV" }
   );
   if (parsed.outcome !== "PARSED" || !["VALID", "VALID_WITH_WARNINGS"].includes(parsed.batch.validationStatus)) refuse("SERVER_EVIDENCE_INVALID:" + batch.evidenceBatchId);
+  if (parsed.batch.schemaVersion !== batch.schemaVersion) refuse("SERVER_EVIDENCE_SCHEMA_INVALID");
   return { ...batch, validationStatus: parsed.batch.validationStatus, diagnostics: parsed.batch.diagnostics };
 }
 async function compileSavedReport(db, request) {

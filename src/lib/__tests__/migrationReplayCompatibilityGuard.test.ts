@@ -292,7 +292,8 @@ describe("migration directory integrity", () => {
     // 211 -> 212: Ready for Reporting pilot (opt-in readiness gate on FINAL), authored and not applied.
     // 212 -> 213: first-period governed review (the exception is a verified decision, not a declaration), authored and not applied.
     // 213 -> 214: 20261221100000 financial table member write revocation (second-pass S2-S01/S2-S03/S2-S04), pending hosted apply.
-    expect(files.length).toBe(214);
+    // 214 -> 216: transfers between cash accounts and the post-closing finding (20261222100000) and the compiler identity that carries them (20261222200000), authored and not applied.
+    expect(files.length).toBe(216);
   });
 });
 
