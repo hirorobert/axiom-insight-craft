@@ -1,7 +1,10 @@
 // reporting/blockers.ts — one plain sentence per server sign-off blocker (fs_publication_blockers v2 and the
 // dependencies' own blockers). Pure. The code is always shown beside it; an unknown code is shown as returned.
+import { FIRST_PERIOD_NEXT_ACTIONS } from "@/lib/comparatives/firstPeriodNextActions";
 
 const EXACT: Readonly<Record<string, string>> = {
+  // 20261223100000: a first period replaces the comparatives only through the governed review on the Comparatives page.
+  COMPARATIVE_PERIOD_MISSING: "The framework requires comparative figures. Add the prior year, or complete the first-period review on the Comparatives page (a different partner or manager verifies it). A declaration alone does not.",
   SERVER_COMPILATION_REQUIRED: "Save this report to run its independent server check before approval.",
   SERVER_DOCUMENT_MISMATCH: "This saved report differs from the server-built report. Save a new version from the current records.",
   SERVER_COMPILATION_STALE: "The records changed after the server check. Save a new version before approval.",
@@ -108,6 +111,9 @@ const PREFIX: readonly (readonly [string, (rest: string) => string])[] = [
 
 export function blockerText(code: string): string {
   if (EXACT[code]) return EXACT[code];
+  // First-period and opening-balance reasons: the server's own next action (pinned to _fs_fp_next_action), any detail kept beside it.
+  const fp = FIRST_PERIOD_NEXT_ACTIONS[code.split(":")[0]];
+  if (fp) return fp;
   for (const [p, f] of PREFIX) if (code === p || code.startsWith(`${p}:`) || code.startsWith(`${p}_`)) return f(code.slice(p.length).replace(/^[:_]/, ""));
   return "The server reports a blocker.";
 }

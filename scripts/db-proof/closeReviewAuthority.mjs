@@ -900,11 +900,13 @@ async function signoffProof({ U, A, B }, kit) {
   await asUser(U.ownerB, "SELECT * FROM public.fs_save_report_version($1,1,$2,$3,'DOCUMENT_REVIEWED',$4::jsonb,$5,'{}'::text[])", [ridB, B, FY, JSON.stringify({ ...doc(ridB, hex("doc"), uuid(), { comparative: false }), reportIdentity: { reportId: ridB, companyId: B, reportVersion: 1 } }), hex(`c${ridB}`)]);
   await asUser(U.ownerB, "SELECT * FROM public.fs_save_evaluation($1,$2,1,$3,'rule-pack','1','engine-1',$4,'[]'::jsonb)", [`ev-${ridB}`, ridB, B, hex(`e${ridB}`)]);
   const readyB = () => asUser(U.ownerB, "SELECT public.fs_report_readiness($1,$2,1) r", [B, ridB]).then((r) => mine(r.r));
-  await check("relevant evidence issued AFTER the period (a later certified copy) is accepted; the declaration satisfies the requirement", async () => {
+  await check("a declaration (even with a later certified copy) is recorded as a CLAIM only (20261223100000): the requirement is NOT satisfied and the blocker names the legacy declaration as unverified; the governed review is proven in firstPeriodGovernedReview.mjs", async () => {
     const before = await readyB();
     const r = await declare(U.ownerB, B, FY, true, { date: "2025-06-30" });
     const after = await readyB();
-    return before.includes("COMPARATIVE_PERIOD_MISSING") && r.outcome === "recorded" && !after.includes("COMPARATIVE_PERIOD_MISSING") ? true : { before, r, after };
+    const blockersAfter = (await asUser(U.ownerB, "SELECT public.fs_report_readiness($1,$2,1) r", [B, ridB]).then((x) => x.r)).blockers;
+    return before.includes("COMPARATIVE_PERIOD_MISSING") && r.outcome === "recorded" && after.includes("COMPARATIVE_PERIOD_MISSING")
+      && blockersAfter.includes("FIRST_PERIOD_LEGACY_DECLARATION_UNVERIFIED") ? true : { before, r, after, blockersAfter };
   });
   await check("irrelevant evidence is refused; a member of another workspace cannot declare here", async () => {
     await declare(U.ownerB, B, FY, false);

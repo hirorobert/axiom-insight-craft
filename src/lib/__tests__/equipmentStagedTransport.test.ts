@@ -74,7 +74,7 @@ describe("equipment exact-byte staged transport", () => {
       expect(fs.readFileSync(path.join(ROOT,"drizzle/migrations",`${tags[i]}.sql`),"utf8")).toBe(f.text);
       expect(RELEASE_JOURNAL[tags[i]]).toEqual({kind:"equipment_staged_transport",sha256:f.hashes[0]});
     }
-    expect(checkMigrationAuthority(ROOT).pending).toEqual(["20261215100000_api_cache_control_headers.sql", "20261221100000_financial_table_member_write_revocation.sql", "20261222100000_fs_cash_transfers_and_post_closing.sql", "20261222200000_statement_compiler_transfers_post_closing.sql"]); // intuit-security-r1: authored and registered, not installed. // Readiness installed as hosted id 102.
+    expect(checkMigrationAuthority(ROOT).pending).toEqual(["20261215100000_api_cache_control_headers.sql", "20261221100000_financial_table_member_write_revocation.sql", "20261222100000_fs_cash_transfers_and_post_closing.sql", "20261222200000_statement_compiler_transfers_post_closing.sql", "20261223100000_first_period_governed_review_standalone.sql"]); // intuit-security-r1: authored and registered, not installed. // Readiness installed as hosted id 102.
   });
   it("the canonical authority accepts future real mirrors only with reviewed registrations", () => {
     const dir=fs.mkdtempSync(path.join(os.tmpdir(),"equipment-transport-authority-"));
@@ -103,7 +103,7 @@ describe("equipment exact-byte staged transport", () => {
         registry[tag]={kind:"equipment_staged_transport",sha256:f.hashes[0]};added.push(tag);
       }
       fs.writeFileSync(jf,JSON.stringify(j));
-      const result=checkMigrationAuthority(dir);expect(result.errors).toEqual([]);expect(result.pending).toEqual(["20261207100000_ipsas_accrual_preparation.sql", "20261208100000_ipsas_grants.sql", "20261210100000_ipsas_statement_review.sql", "20261211100000_source_access_authority_repairs.sql", "20261212100000_legacy_financial_write_revocation.sql", "20261213100000_qbo_connector_storage.sql", "20261214100000_qbo_readiness_controls.sql", "20261215100000_api_cache_control_headers.sql", "20261221100000_financial_table_member_write_revocation.sql", "20261222100000_fs_cash_transfers_and_post_closing.sql", "20261222200000_statement_compiler_transfers_post_closing.sql"]);
+      const result=checkMigrationAuthority(dir);expect(result.errors).toEqual([]);expect(result.pending).toEqual(["20261207100000_ipsas_accrual_preparation.sql", "20261208100000_ipsas_grants.sql", "20261210100000_ipsas_statement_review.sql", "20261211100000_source_access_authority_repairs.sql", "20261212100000_legacy_financial_write_revocation.sql", "20261213100000_qbo_connector_storage.sql", "20261214100000_qbo_readiness_controls.sql", "20261215100000_api_cache_control_headers.sql", "20261221100000_financial_table_member_write_revocation.sql", "20261222100000_fs_cash_transfers_and_post_closing.sql", "20261222200000_statement_compiler_transfers_post_closing.sql", "20261223100000_first_period_governed_review_standalone.sql"]);
       delete registry[added[0]];
       expect(checkMigrationAuthority(dir).errors.length).toBeGreaterThan(0);
     } finally {for(const tag of added) delete registry[tag];for(const [k,e] of hiddenIpsas) registry[k]=e;fs.rmSync(dir,{recursive:true,force:true});}
