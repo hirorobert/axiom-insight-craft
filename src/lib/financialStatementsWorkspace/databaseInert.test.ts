@@ -945,6 +945,9 @@ describe("database inertness — schema and functions", () => {
     for (const f of ["auditRegression", "cases", "compare", "referenceModel", "run", "sandboxProof"]) allowed.add(`scripts/acceptance/rfr-v3/${f}.mjs`);
     for (const f of ["readinessFinalization.manifest", "readinessFinalization"]) allowed.add(`scripts/db-proof/${f}.mjs`);
     allowed.add("scripts/readiness/writePilotFixtures.mjs");
+    // Client-data containment (2026-11-11): a local, read-only scan of tracked files with a hash-only denylist, and the
+    // invented trial balance the guarded staging scripts now upload instead of a client-derived file. No hosted access.
+    for (const file of ["scripts/ci/clientDataGuard.mjs", "scripts/ci/clientDataDenylist.json", "scripts/fixtures/synthetic-sme-tb-2025.csv"]) allowed.add(file);
     // Lovable's own markdown planning notes (.lovable/plan.md, .lovable/plan/*.md, .lovable/north-star/*.md) deploy nothing
     // (scripts/ci/inertBase.mjs isLovablePlanningNote). Every other .lovable path is still reviewed by exact file.
     expect(unreviewedPaths(changed, allowed).filter((p) => !isLovablePlanningNote(p))).toEqual([]);
