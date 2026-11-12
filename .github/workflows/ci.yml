@@ -423,6 +423,9 @@ jobs:
           name: ipsas-auth-evidence-${{ github.sha }}
           path: real-app-evidence/ipsas
           if-no-files-found: ignore
+          # 30 days (GitHub's default is 90): evidence a release record cites must be committed under docs/release or
+          # downloaded within the month; the account's artifact storage quota is otherwise exhausted.
+          retention-days: 30
 
       - name: Real application journey (the production build on loopback in headless Chrome; real Auth, PostgREST, RLS, Storage and Edge Functions; sign-in, first run, non-calendar periods, upload and review, next actions, Close Review, comparatives, adjustments, evidence, sign-off, sealed export, stale result, two-account isolation, 1280 and 375 px)
         if: always()
@@ -477,6 +480,7 @@ jobs:
           name: real-app-evidence
           path: real-app-evidence
           if-no-files-found: ignore
+          retention-days: 30
 
       - name: Stop the local stack
         if: always()
@@ -846,6 +850,7 @@ jobs:
           name: ipsas-journey-evidence
           path: ipsas-journey-evidence
           if-no-files-found: ignore
+          retention-days: 30
 
       - name: Mapping and processing authority proof (S1 — mapping writes and provenance, review combinations, server-owned processing fields, reprocess requests, certification invalidation, on the same throwaway container)
         env:
@@ -1652,6 +1657,7 @@ jobs:
           name: reporting-journey-evidence
           path: reporting-journey-evidence
           if-no-files-found: ignore
+          retention-days: 30
 
       - name: Returning-client browser journey (headless Chrome drives the real Check my books, Close Review adjustments and reporting views over a loopback bridge to a throwaway database as preparer, partner and owner - one engagement, one trial balance upload per year, the prior pack FINAL in CFOClose with an approved accrual of 100.00, the one finding and its correction approved by a second person, every check ready, the comparative approved, the report saved, REVIEWED and FINAL with the exact figures; loopback only)
         if: ${{ !cancelled() }}
@@ -1702,6 +1708,7 @@ jobs:
           name: equipment-journey-evidence
           path: equipment-journey-evidence
           if-no-files-found: ignore
+          retention-days: 30
 
       - name: CFO Close entitlements proof (legacy upgrade, catalogue, paid-action authority, walls, entity capacity, concurrency, on the same throwaway container)
         env:
