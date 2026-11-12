@@ -19,7 +19,11 @@
 //
 // Synthetic users only; loopback only; refuses the production project reference; creates and drops its own databases.
 import fs from "node:fs";
-import { currentChain, migrationSql } from "./lib/parkedMigrations.mjs";
+import { chainBefore, currentChain, migrationSql } from "./lib/parkedMigrations.mjs";
+// 20261221100000 removes the client write path the OLD safisha-ingest (the "old" side of this proof) uses to create a
+// reconciliation and insert evidence rows. This proof shows what the parked candidate does on the chain it was reviewed
+// against, so it stops just before that revocation; a revival must be re-proven on top of it.
+const REVOCATION = "20261221100000_financial_table_member_write_revocation.sql";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -91,7 +95,7 @@ async function migrate(url, withCandidate) {
     // MIGRATION and its prerequisite (20261004100000) are parked (never applied to the hosted database; quarantined in
     // supabase/migrations_historical/). Revival order: the current chain, the prerequisite, then — for the new schema —
     // MIGRATION.
-    const all = [...currentChain(REPO), "20261004100000_reconciliation_server_authority.sql", MIGRATION];
+    const all = [...chainBefore(currentChain(REPO), REVOCATION), "20261004100000_reconciliation_server_authority.sql", MIGRATION];
     const files = all.filter((f) => withCandidate || f !== MIGRATION);
     for (const f of files) {
       let text = migrationSql(REPO, f);

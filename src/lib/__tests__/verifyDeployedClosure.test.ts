@@ -26,8 +26,10 @@ const LAYOUT_FILES = [
   "supabase/functions/_shared/trialBalanceLayout.ts",
   "supabase/functions/_shared/uploadLifecycle.ts",
   "supabase/functions/_shared/uploadPolicy.ts",
+  // SheetJS 0.20.3, vendored and shipped with the function (vendor/sheetjs/PROVENANCE.md).
+  "supabase/functions/_shared/vendor/sheetjs-0.20.3/xlsx.mjs",
 ];
-const tree = (contents: Record<string, Buffer>) => {
+const tree =(contents: Record<string, Buffer>) => {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), "deployed-"));
   for (const [f, b] of Object.entries(contents)) { fs.mkdirSync(path.dirname(path.join(d, f)), { recursive: true }); fs.writeFileSync(path.join(d, f), b); }
   return d;

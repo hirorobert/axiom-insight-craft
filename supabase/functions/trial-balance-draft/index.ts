@@ -17,7 +17,7 @@ import { DRAFT_CAPABILITY, parseDraftRequest, runDraftRequest, type BeginResult 
 
 const BUCKET = "trial-balance-files";
 const json = (status: number, body: unknown) =>
-  new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" } });
+  new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-cache, no-store" } });
 const first = <T>(data: unknown): T | null => ((Array.isArray(data) ? data[0] : data) as T | undefined) ?? null;
 const fail = (error: { code?: string; message?: string } | null) => { if (error) throw Object.assign(new Error(error.message ?? "rpc failed"), { code: error.code }); };
 const hex = (buf: ArrayBuffer) => Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, "0")).join("");

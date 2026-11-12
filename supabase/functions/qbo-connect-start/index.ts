@@ -9,7 +9,7 @@ import { readQboEnv } from "../_shared/qboEnv.ts";
 import { sha256Hex } from "../_shared/qboPullSummary.ts";
 
 const json = (status: number, body: unknown) =>
-  new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" } });
+  new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-cache, no-store" } });
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -46,7 +46,7 @@ Deno.serve(async (req) => {
   }, parsed).catch(() => ({ status: 500 as const, outcome: "state_failed" as const }));
 
   // OPERATIONAL LOG: never the state, the hash or the address.
-  console.log(JSON.stringify({ event: "qbo.connect_start", company_id: parsed.companyId, period_year: parsed.periodYear, environment: parsed.environment, actor, status: result.status, outcome: result.outcome }));
+  console.log(JSON.stringify({ event: "qbo.connect_start", status: result.status, outcome: result.outcome }));
   // Opportunistic cleanup (no scheduler needed): old OAuth states are removed and connections whose refresh token has expired lose their dead token.
   // Best effort and never part of the answer; evidence is never touched.
   try { await service.rpc("qbo_housekeeping"); } catch { /* the next start tries again */ }

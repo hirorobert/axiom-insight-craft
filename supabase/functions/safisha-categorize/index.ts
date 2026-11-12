@@ -25,6 +25,8 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { resolveFirmMemberActor } from "../_shared/actor.ts";
+import { hasWorkspaceCapability } from "../_shared/namedUserAccess.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin":  "*",
@@ -58,6 +60,36 @@ serve(async (req: Request) => {
     if (!reconciliation_id) {
       return new Response(JSON.stringify({ error: "reconciliation_id is required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Authority (20261221100000): clients can no longer write safisha_exceptions / safisha_reconciliations, so the
+    // updates below use the service role — only after the caller can see this reconciliation under its own RLS and is
+    // proven an ACCEPTED, active named member of its company (an invited-but-not-accepted row is refused like an
+    // outsider) holding prepare_close: the check reconciliation_write_wall makes for a caller's own writes and skips
+    // for the service role. Reads stay on the caller's own client.
+    const { data: reconScope } = await supabase
+      .from("safisha_reconciliations")
+      .select("id, tb_upload_id")
+      .eq("id", reconciliation_id)
+      .maybeSingle();
+    if (!reconScope) {
+      return new Response(JSON.stringify({ error: "Reconciliation not found" }), {
+        status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const { data: scopeUpload } = await admin
+      .from("trial_balance_uploads")
+      .select("company_id")
+      .eq("id", reconScope.tb_upload_id)
+      .maybeSingle();
+    const companyId: string = scopeUpload?.company_id ?? "";
+    const actor = await resolveFirmMemberActor(admin, user.id, companyId, corsHeaders);
+    if (actor instanceof Response) return actor;
+    if (!(await hasWorkspaceCapability((fn, args) => admin.rpc(fn, args), companyId, user.id, "prepare_close"))) {
+      return new Response(JSON.stringify({ error: "Forbidden", message: "Reconciliation changes need prepare_close in this workspace" }), {
+        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
@@ -111,13 +143,14 @@ serve(async (req: Request) => {
 
       if (changed) {
         // Only updates description and category — never touches reviewer_action
-        const { error: updErr } = await supabase
+        const { error: updErr } = await admin
           .from("safisha_exceptions")
           .update({
             category:    newCategory,
             description: newDescription,
           })
           .eq("id", exc.id)
+          .eq("reconciliation_id", reconciliation_id)
           .eq("reviewer_action", "pending"); // safety: never touch resolved ones
 
         if (updErr) throw new Error(`Failed to update exception ${exc.id}: ${updErr.message}`);
@@ -134,7 +167,7 @@ serve(async (req: Request) => {
 
     // If escalations bumped some timing → investigate, status stays needs_review
     if (escalated > 0) {
-      await supabase.from("safisha_reconciliations").update({
+      await admin.from("safisha_reconciliations").update({
         status: "needs_review",
       }).eq("id", reconciliation_id);
     }

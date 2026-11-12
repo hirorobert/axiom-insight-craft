@@ -111,7 +111,7 @@ describe("the reviewed release journal", () => {
     // I1-A (20261010100000, layout templates and confirmations) is authored and pending hosted application.
     // I1-A A1/A2 are applied (hosted 0031/0032, identical form).
     // The milestone 20261011100000–20261017100000 is applied as 0033–0039 through its self-checking wrappers. Nothing pending.
-    expect(r.pending).toEqual([]); // Readiness installed as hosted id 102 in its registered identical form.
+    expect(r.pending).toEqual(["20261215100000_api_cache_control_headers.sql", "20261221100000_financial_table_member_write_revocation.sql"]); // intuit-security-r1: authored and registered, not installed. // Readiness installed as hosted id 102 in its registered identical form.
     // before this migration: tb-release-r1 (20261106100000–20261109100000) applied as hosted 59–62: nothing pending
     expect(r.mirrored.find((m) => m.tag === T29)).toEqual({ tag: T29, source: S29, how: "release_verbatim_final_lf_removed" });
     expect(r.mirrored.find((m) => m.tag === T30)).toEqual({ tag: T30, source: S2, how: "release_verbatim_final_lf_removed" });
@@ -382,7 +382,7 @@ describe("S2: both submission forms registered ahead of application; applied as 
     expect([src().length, sha(src())]).toEqual([75683, S2_CANONICAL]);
     expect(src().subarray(-2).toString("hex")).not.toBe("0a0a"); // exactly one trailing LF
     expect(sha(src().subarray(0, src().length - 1))).toBe(S2_SUBMITTED);
-    expect(Object.keys(SUBMISSION_FORMS).sort()).toEqual([S29, S2, I1A_A1, I1A_A2, ...MILESTONE.map((m) => m.name), ...REPORTING.map((m) => m.name), ...READINESS.map((m) => m.name), ...SIGNOFF_POLICY.map((m) => m.name), ...COMMERCIAL.map((m) => m.name), ...PAYMENTS.map((m) => m.name), ...ACCESS.map((m) => m.name), ...TB_RELEASE.map((m) => m.name), ...PRICING_P1.map((m) => m.name), ...FS_CONTROLS.map((m) => m.name), ...CURRENCY_C1.map((m) => m.name), ...TB_WORKFLOW.map((m) => m.name), "20261123100000_fs_server_compilation.sql", "20261124100000_fs_publication_integrity_gate.sql", "20261125100000_fs_final_authority.sql", "20261126100000_fs_document_structure.sql", "20261127100000_fs_track_a_authority_hardening.sql", "20261128100000_companies_framework_change_guard.sql", "20261214100000_qbo_readiness_controls.sql"].sort());
+    expect(Object.keys(SUBMISSION_FORMS).sort()).toEqual([S29, S2, I1A_A1, I1A_A2, ...MILESTONE.map((m) => m.name), ...REPORTING.map((m) => m.name), ...READINESS.map((m) => m.name), ...SIGNOFF_POLICY.map((m) => m.name), ...COMMERCIAL.map((m) => m.name), ...PAYMENTS.map((m) => m.name), ...ACCESS.map((m) => m.name), ...TB_RELEASE.map((m) => m.name), ...PRICING_P1.map((m) => m.name), ...FS_CONTROLS.map((m) => m.name), ...CURRENCY_C1.map((m) => m.name), ...TB_WORKFLOW.map((m) => m.name), "20261123100000_fs_server_compilation.sql", "20261124100000_fs_publication_integrity_gate.sql", "20261125100000_fs_final_authority.sql", "20261126100000_fs_document_structure.sql", "20261127100000_fs_track_a_authority_hardening.sql", "20261128100000_companies_framework_change_guard.sql", "20261214100000_qbo_readiness_controls.sql", "20261215100000_api_cache_control_headers.sql"].sort());
   });
   it("accepts only those two forms", () => {
     const s = src();
@@ -500,7 +500,7 @@ describe("I1-A A1/A2: both submission forms registered ahead of application (not
   it("applied as 0031/0032 in the IDENTICAL form, each through exactly one reviewed release entry; nothing of I1-A pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual([]); // Readiness installed as hosted id 102 in its registered identical form.
+    expect(r.pending).toEqual(["20261215100000_api_cache_control_headers.sql", "20261221100000_financial_table_member_write_revocation.sql"]); // intuit-security-r1: authored and registered, not installed. // Readiness installed as hosted id 102 in its registered identical form.
     // before this migration: tb-release-r1 (20261106100000–20261109100000) applied as hosted 59–62: nothing pending
     expect(r.mirrored.filter((m) => m.source === I1A_A1 || m.source === I1A_A2)).toEqual([
       { tag: "0031_currency_registry_and_reporting_periods", source: I1A_A1, how: "release_verbatim" },
@@ -623,7 +623,7 @@ describe("the milestone's seven migrations: both submission forms registered ahe
   it("applied as 0033–0039 through their registered self-checking wrappers, in order; nothing pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual([]); // Readiness installed as hosted id 102 in its registered identical form.
+    expect(r.pending).toEqual(["20261215100000_api_cache_control_headers.sql", "20261221100000_financial_table_member_write_revocation.sql"]); // intuit-security-r1: authored and registered, not installed. // Readiness installed as hosted id 102 in its registered identical form.
     // before this migration: tb-release-r1 (20261106100000–20261109100000) applied as hosted 59–62: nothing pending
     const tags = ["0033_i1b_w1_two_period_shared_source", "0034_i1b_w2_layout_assist_controls", "0035_i1b_w3_close_review_timeline",
       "0036_i1b_w4_close_review_findings", "0037_i1b_w5_close_review_adjustments", "0038_i1b_w6_fs_reporting_input",
@@ -664,7 +664,7 @@ describe("0070 checkout recovery applied before the pending Trial Balance workfl
     expect(checkReleaseEntry(tag, read(tag), srcBytes)).toEqual({ covers: source, how: "release_verbatim", outOfOrder: true, problems: [] });
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual([]); // Readiness installed as hosted id 102 in its registered identical form.
+    expect(r.pending).toEqual(["20261215100000_api_cache_control_headers.sql", "20261221100000_financial_table_member_write_revocation.sql"]); // intuit-security-r1: authored and registered, not installed. // Readiness installed as hosted id 102 in its registered identical form.
     expect(r.releaseApplied).toContainEqual({ tag, source });
   });
   it("still refuses either skipped TB source without the reviewed out-of-order declaration", () => {
