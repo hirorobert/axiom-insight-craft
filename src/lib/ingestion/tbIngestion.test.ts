@@ -1,7 +1,7 @@
 /**
  * The trial-balance ingestion core (supabase/functions/_shared/tbIngestion.ts + tbSource.ts) — the exact code the
  * process-trial-balance edge function runs on an uploaded file. Representative sanitized files live in __fixtures__;
- * workbooks are built here with the same SheetJS version the edge function uses (0.18.5).
+ * workbooks are built here with the same SheetJS version the edge function uses (0.20.3).
  */
 import fs from "node:fs";
 import path from "node:path";

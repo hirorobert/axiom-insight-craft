@@ -290,7 +290,8 @@ describe("migration directory integrity", () => {
     // 209 -> 210: canonical QBO readiness controls, registered but not installed.
     // 210 -> 211: intuit-security-r1 API Cache-Control pre-request hook, registered but not installed.
     // 211 -> 212: Ready for Reporting pilot (opt-in readiness gate on FINAL), authored and not applied.
-    expect(files.length).toBe(212);
+    // 212 -> 213: 20261221100000 financial table member write revocation (second-pass S2-S01/S2-S03/S2-S04), pending hosted apply.
+    expect(files.length).toBe(213);
   });
 });
 

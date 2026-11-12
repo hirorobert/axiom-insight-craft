@@ -24,6 +24,8 @@ import { serve }       from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { readOptionalTaxAmount } from "../_shared/maonoAnalyticalContract.ts";
 import { requirePaidActionAsCaller } from "../_shared/paidAction.ts";
+import { resolveFirmMemberActor } from "../_shared/actor.ts";
+import { hasWorkspaceCapability } from "../_shared/namedUserAccess.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin":  "*",
@@ -182,6 +184,16 @@ serve(async (req: Request) => {
     // database refuses the same writes (trg_close_insights_wall) whatever the caller.
     const notEntitled = await requirePaidActionAsCaller((fn, args) => supabase.rpc(fn, args), companyId, "CLOSE_INSIGHTS", corsHeaders);
     if (notEntitled) return notEntitled;
+
+    // Clients can no longer write maono_insights (20261221100000): the insight is written below with the service role,
+    // so the caller must first be proven an ACCEPTED, active named member of the run's company (an invited-but-not-
+    // accepted row is refused like an outsider) holding prepare_close. Reads stay on the caller's own client.
+    const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const actor = await resolveFirmMemberActor(admin, user.id, companyId, corsHeaders);
+    if (actor instanceof Response) return actor;
+    if (!(await hasWorkspaceCapability((fn, args) => admin.rpc(fn, args), companyId, user.id, "prepare_close"))) {
+      return json({ error: "Forbidden", message: "Recording a risk insight needs prepare_close in this workspace" }, 403);
+    }
 
     // Load current material variances
     const { data: current } = await supabase
@@ -348,7 +360,7 @@ serve(async (req: Request) => {
 
     const inputSnapshot = { current_analyses: current, tra_check_data: traCheckData };
 
-    const { data: insight, error: insErr } = await supabase
+    const { data: insight, error: insErr } = await admin
       .from("maono_insights")
       .insert({
         run_id,
@@ -396,6 +408,8 @@ serve(async (req: Request) => {
         });
       }
     }
+    // Unchanged by 20261221100000: the chain has never had a client INSERT policy on variance_alerts, so this
+    // caller-client insert is refused and its result ignored, as before. The alert writer is maono_write_alert.
     if (alertInserts.length > 0) {
       await supabase.from("variance_alerts").insert(alertInserts);
     }
