@@ -420,6 +420,9 @@ jobs:
           name: ipsas-auth-evidence-${{ github.sha }}
           path: real-app-evidence/ipsas
           if-no-files-found: ignore
+          # 30 days (GitHub's default is 90): evidence a release record cites must be committed under docs/release or
+          # downloaded within the month; the account's artifact storage quota is otherwise exhausted.
+          retention-days: 30
 
       - name: Real application journey (the production build on loopback in headless Chrome; real Auth, PostgREST, RLS, Storage and Edge Functions; sign-in, first run, non-calendar periods, upload and review, next actions, Close Review, comparatives, adjustments, evidence, sign-off, sealed export, stale result, two-account isolation, 1280 and 375 px)
         if: always()
@@ -474,6 +477,7 @@ jobs:
           name: real-app-evidence
           path: real-app-evidence
           if-no-files-found: ignore
+          retention-days: 30
 
       - name: Stop the local stack
         if: always()
@@ -843,6 +847,7 @@ jobs:
           name: ipsas-journey-evidence
           path: ipsas-journey-evidence
           if-no-files-found: ignore
+          retention-days: 30
 
       - name: Mapping and processing authority proof (S1 — mapping writes and provenance, review combinations, server-owned processing fields, reprocess requests, certification invalidation, on the same throwaway container)
         env:
@@ -1584,6 +1589,7 @@ jobs:
           name: reporting-journey-evidence
           path: reporting-journey-evidence
           if-no-files-found: ignore
+          retention-days: 30
 
       - name: Equipment preparation browser journey (headless Chrome drives the real Schedules page over the loopback bridge as a preparer - the recorded one-class schedule loaded with nothing assumed, two classes rolled forward through cost and accumulated depreciation, a typo left as an exact difference, the depreciation tied to its expense line, only the applicable questions asked, three whole notes recorded with every class and the answers in one transaction and reconciled by the server, a concurrent three-class schedule refused by name with every edit retained and the new class loaded, a viewer refused, 1280 and 375 px)
         env:
@@ -1600,6 +1606,7 @@ jobs:
           name: equipment-journey-evidence
           path: equipment-journey-evidence
           if-no-files-found: ignore
+          retention-days: 30
 
       - name: CFO Close entitlements proof (legacy upgrade, catalogue, paid-action authority, walls, entity capacity, concurrency, on the same throwaway container)
         env:
