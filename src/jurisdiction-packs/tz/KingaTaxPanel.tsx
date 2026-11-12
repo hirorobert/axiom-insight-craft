@@ -5,8 +5,6 @@
 //   → CIT 30% / Minimum Tax 0.5% → Provision vs Computed → Gap
 // ============================================================
 
-import { useWorkspaceCapabilities } from "@/hooks/useWorkspaceCapabilities";
-import { CAPABILITY_LABELS, SIGN_OFF_TIER_CAPABILITY, canExercise } from "@/lib/auth/workspaceCapabilities";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -24,7 +22,7 @@ import { TaxLossPanel } from "./TaxLossPanel";
 import { HesabuAssurancePanel } from "@/components/HesabuAssurancePanel";
 import { useWorkspaceCommercialState } from "@/hooks/useWorkspaceCommercialState";
 import { PaidActionNotice } from "@/components/commercial/PaidActionNotice";
-import { entitlementRefusal, lockedCopy, paidActionState } from "@/lib/commercial/paidActions";
+import { lockedCopy, paidActionState } from "@/lib/commercial/paidActions";
 import { generateTaxComputationPDF } from "./generateTaxComputationPDF";
 import { deliverReportingPack } from "@/lib/commercial/requestReportingPack";
 import { FileDown, ShieldCheck, ShieldX, ShieldAlert } from "lucide-react";
@@ -323,16 +321,10 @@ export function KingaTaxPanel({
   const [error, setError]               = useState<string | null>(null);
   const [stored, setStored]             = useState<StoredComputation | null>(null);
   const [signOff, setSignOff]           = useState<SignOff | null>(null);
-  const [signOffLoading, setSignOffLoading] = useState(false);
-  // Close Certification (a paid capability): the plan check only explains; the database refuses the write regardless.
+  // Close Certification (a paid capability): the plan state only explains why sign-off is unavailable.
   const { state: commercialState, loading: commercialLoading } = useWorkspaceCommercialState(companyId);
   const certificationAction = paidActionState(commercialState, "STATEMENT_CERTIFICATION", commercialLoading);
-  const [certificationRefused, setCertificationRefused] = useState(false);
-  const certificationLocked = certificationRefused || certificationAction.status === "locked";
-  const [signOffNote, setSignOffNote]   = useState("");
-  // What the person may do in this workspace (capabilities, not a job title).
-  const { state: myCapabilities } = useWorkspaceCapabilities(companyId);
-  const [firmMemberId, setFirmMemberId]     = useState<string | null>(null);
+  const certificationLocked = certificationAction.status === "locked";
 
   // HESABU: gate state
   // hesabuGatePassed  — latest validation run has gate_satisfied = true
@@ -409,81 +401,7 @@ export function KingaTaxPanel({
       .select("*")
       .eq("company_id", companyId).eq("period_year", periodYear).maybeSingle()
       .then(({ data }) => { if (data) setSignOff(data as SignOff); });
-
-    // The person's membership id (the sign-off audit trail's actor).
-    supabase
-      .from("firm_members")
-      .select("id")
-      .eq("company_id", companyId).eq("user_id", userId).maybeSingle()
-      .then(({ data }) => {
-        if (data) setFirmMemberId(data.id);
-      });
   }, [companyId, uploadId, periodYear, userId]);
-
-  const handleSign = async (tier: "preparer" | "reviewer" | "approver") => {
-    // Each sign-off tier needs its capability in this workspace (never a job title); the database policies decide.
-    const needed = SIGN_OFF_TIER_CAPABILITY[tier];
-    if (!canExercise(myCapabilities, needed)) {
-      setError(`Signing off as ${tier} needs the "${CAPABILITY_LABELS[needed]}" capability in this workspace and a current plan.`);
-      return;
-    }
-
-    setSignOffLoading(true);
-    const now = new Date().toISOString();
-    const updates: Record<string, string | null> = {
-      [`${tier}_id`]:                  userId,
-      [`${tier}_signed_at`]:           now,
-      [`${tier}_note`]:                signOffNote || null,
-      [`${tier}_firm_member_id`]:      firmMemberId,   // D6: audit trail via firm_members FK
-    };
-
-    const newStatus =
-      tier === "preparer" ? "preparer_signed" :
-      tier === "reviewer" ? "reviewer_signed" : "approved";
-
-    if (tier === "approver") {
-      updates.locked_at           = now;
-      updates.locked_by           = userId;         // legacy: auth.users.id (Phase 1 → 2 transition)
-      updates.locked_by_member_id = firmMemberId;   // v2.3: firm_members.id
-      updates.status              = "locked";
-    } else {
-      updates.status = newStatus;
-    }
-
-    if (!signOff?.id) {
-      // Create the sign-off record first
-      const { data: newSO, error: insertErr } = await supabase
-        .from("statement_sign_offs")
-        .insert({
-          company_id:  companyId,
-          period_year: periodYear,
-          upload_id:   uploadId,
-          status:      "draft",
-          ...updates,
-        })
-        .select("*")
-        .single();
-      if (insertErr) {
-        if (entitlementRefusal(insertErr) === "STATEMENT_CERTIFICATION") setCertificationRefused(true);
-        else setError(insertErr.message);
-      }
-      if (newSO) setSignOff(newSO as SignOff);
-    } else {
-      const { data: updated, error: updateErr } = await supabase
-        .from("statement_sign_offs")
-        .update(updates)
-        .eq("id", signOff.id)
-        .select("*")
-        .single();
-      if (updateErr) {
-        if (entitlementRefusal(updateErr) === "STATEMENT_CERTIFICATION") setCertificationRefused(true);
-        else setError(updateErr.message);
-      }
-      if (updated) setSignOff(updated as SignOff);
-    }
-    setSignOffNote("");
-    setSignOffLoading(false);
-  };
 
   const isLocked = !!signOff?.locked_at;
 
@@ -1251,31 +1169,16 @@ export function KingaTaxPanel({
                           ) : null
                         )}
                       </div>
-                      {enabled && !isLocked && !certificationLocked && (
-                        <Button
-                          size="sm"
-                          variant={tier === "approver" ? "default" : "outline"}
-                          className={`text-xs h-7 gap-1 ${tier === "approver" ? "bg-red-600 hover:bg-red-700" : ""}`}
-                          onClick={() => handleSign(tier)}
-                          disabled={signOffLoading}
-                        >
-                          {tier === "approver" ? <Lock className="w-3 h-3" /> : <PenLine className="w-3 h-3" />}
-                          {tier === "approver" ? "Approve & Lock" : "Sign"}
-                        </Button>
-                      )}
                     </div>
                   ))}
                   {certificationLocked && !isLocked && (
                     <PaidActionNotice copy={lockedCopy("STATEMENT_CERTIFICATION")} testId="close-certification-locked" />
                   )}
                   {!isLocked && !certificationLocked && (
-                    <div className="mt-1">
-                      <input
-                        className="w-full text-xs border border-input rounded px-2 py-1.5"
-                        placeholder="Optional note for this signature…"
-                        value={signOffNote}
-                        onChange={e => setSignOffNote(e.target.value)}
-                      />
+                    // statement_sign_offs is server-written only (20261221100000_financial_table_member_write_revocation.sql):
+                    // this chain shows the recorded signatures and no longer signs, approves or locks from the browser.
+                    <div className="mt-1 text-xs text-muted-foreground" data-testid="kinga-signoff-read-only">
+                      Signatures are recorded by the server-side statements workflow, not from this panel.
                     </div>
                   )}
                   {isLocked && (

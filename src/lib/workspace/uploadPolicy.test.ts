@@ -160,7 +160,14 @@ describe("rows are bounded DURING the parse (sheetRows), not only after it", () 
     readSourceTables(workbook([["Account", "Debit", "Credit"], ["Cash", 1, 0]]), "tb.xlsx", spy);
     readTrialBalanceSource(workbook([["Account", "Debit", "Credit"], ["Cash", 1, 0]]), ctx, spy);
     expect(SHEET_ROWS).toBe(SERVER.maxRows + 1);
-    expect(seen).toEqual([{ type: "array", cellDates: false, sheetRows: SHEET_ROWS }, { type: "array", cellDates: false, sheetRows: SHEET_ROWS }]);
+    // An .xlsx is also read with stubs (tbSource.readWorkbook: the only way SheetJS keeps a formula without a calculated
+    // value, S2-I01); every other format is read with exactly the options it had before.
+    expect(seen).toEqual([{ type: "array", cellDates: false, sheetRows: SHEET_ROWS, sheetStubs: true }, { type: "array", cellDates: false, sheetRows: SHEET_ROWS, sheetStubs: true }]);
+    seen.length = 0;
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Account", "Debit", "Credit"], ["Cash", 1, 0]]), "TB");
+    readTrialBalanceSource(new Uint8Array(XLSX.write(wb, { type: "array", bookType: "biff8" }) as ArrayBuffer), { ...ctx, fileName: "tb.xls" }, spy);
+    expect(seen).toEqual([{ type: "array", cellDates: false, sheetRows: SHEET_ROWS }]);
   });
 });
 
