@@ -189,4 +189,18 @@ describe("buildReviewDecision", () => {
     expect(d.is_payroll_account).toBe(false);
     expect("is_cash_account" in d).toBe(false);
   });
+
+  // ── S2-A05 — the reviewed contra-account designation (20261224100000) ──────
+  it("O. the contra designation is tri-state by omission: absent when not reviewed, true or false only when decided", () => {
+    const acct = { account_code: "1510", account_name: "Accumulated depreciation" };
+    const none = buildReviewDecision(acct, false, "non_current_assets", META, { is_cash_account: false });
+    expect("is_contra_account" in none).toBe(false);
+    const contra = buildReviewDecision(acct, false, "non_current_assets", META, { is_contra_account: true });
+    expect(contra.is_contra_account).toBe(true);
+    expect("is_cash_account" in contra).toBe(false);
+    const notContra = buildReviewDecision(acct, false, "non_current_assets", META, { is_contra_account: false });
+    expect(notContra.is_contra_account).toBe(false);
+    // Excluding the account never carries the designation.
+    expect("is_contra_account" in buildReviewDecision(acct, true, "non_current_assets", META, { is_contra_account: true })).toBe(false);
+  });
 });

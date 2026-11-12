@@ -665,6 +665,11 @@ describe("database inertness — schema and functions", () => {
     added.add("supabase/migrations/20261222100000_fs_cash_transfers_and_post_closing.sql");
     added.add("supabase/migrations/20261222200000_statement_compiler_transfers_post_closing.sql");
     for (const file of ["supabase/functions/_shared/statementCompiler.generated.mjs", "supabase/functions/_shared/statementCompiler.manifest.mjs"]) modified.add(file);
+    // Second-pass S2-A05: one forward-only migration adding the reviewed, nullable account_mappings.is_contra_account (no back-fill;
+    // written only by resolve_account_review_batch) and re-creating that RPC, the S1 mapping-content/provenance helpers and
+    // close_review_refresh_findings with only the A01 expected-side test changed (proof: scripts/db-proof/closeReviewAuthority.mjs,
+    // "Contra designation"). No financial-statements schema, no Edge Function, no composition or presentation change.
+    added.add("supabase/migrations/20261224100000_contra_account_designation.sql");
     expect(unreviewedChanges(changed, { added, modified, removed })).toEqual([]);
   });
 

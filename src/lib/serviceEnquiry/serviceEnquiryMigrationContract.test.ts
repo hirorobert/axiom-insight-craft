@@ -99,6 +99,7 @@ describe("migration hygiene", () => {
       "20261218100000_issued_comparative_schedules.sql", "20261219100000_rfr_prior_pack_basis.sql", "20261220100000_statement_compiler_casting_declaration.sql",
       "20261221100000_financial_table_member_write_revocation.sql",
       "20261222100000_fs_cash_transfers_and_post_closing.sql", "20261222200000_statement_compiler_transfers_post_closing.sql",
+      "20261224100000_contra_account_designation.sql",
     ]);
     expect(RAW.includes("\u0000")).toBe(false);
     expect(RAW).not.toMatch(/^(<{7}|={7}|>{7})/m);

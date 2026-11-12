@@ -295,7 +295,8 @@ describe("migration directory integrity", () => {
     // 213 -> 214: statements issued outside CFOClose become a reviewed, hash-bound source of the comparative, authored and not applied.
     // 215 -> 216: 20261221100000 financial table member write revocation (second-pass S2-S01/S2-S03/S2-S04), pending hosted apply.
     // 216 -> 218: transfers between cash accounts and the post-closing finding (20261222100000) and the compiler identity that carries them (20261222200000), authored and not applied.
-    expect(files.length).toBe(219);
+    // 218 -> 219: 20261224100000 reviewed contra-account designation (S2-A05), authored and not applied.
+    expect(files.length).toBe(220);
   });
 });
 

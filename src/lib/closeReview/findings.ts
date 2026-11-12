@@ -60,7 +60,7 @@ export type FindingsSummary =
       ruleStatus: Record<string, { evaluated: boolean; kind?: RuleKind; status?: RuleStatus; reason?: string }> };
 
 export const RULE_WORDS: Record<string, { title: string; explain: string }> = {
-  A01: { title: "Balance on the unexpected side", explain: "The balance is on the side opposite to its class (an asset or expense in credit, or a liability, equity or income account in debit)." },
+  A01: { title: "Balance on the unexpected side", explain: "The balance is on the side opposite to its class (an asset or expense in credit, or a liability, equity or income account in debit). For an account reviewed as a contra account (one that reduces its class, such as accumulated depreciation) the expected side is the opposite one, so it is raised when it carries its class's normal side." },
   A02: { title: "Suspense or clearing account open", explain: "A suspense, clearing or control account still carries a balance." },
   A03: { title: "Cash account in credit", explain: "An account designated as cash is in credit while presented as an asset — it may need to be shown as an overdraft." },
   A04: { title: "Retained earnings do not roll forward", explain: "Opening retained earnings plus profit less distributions should equal closing retained earnings." },
