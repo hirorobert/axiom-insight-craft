@@ -181,12 +181,12 @@ function FirstPeriodForm({ p, s, client, onDone, onCancel }: { p: P; s: FirstPer
   };
   return (
     <form className="space-y-2 rounded-md border border-border p-3" aria-label="First-period facts" data-testid="fp-first_period-form" onSubmit={(e) => { e.preventDefault(); if (ready && !busy) void submit(); }}>
-      <p className="text-muted-foreground" data-testid="fp-server-dates">Reporting period (from the reviewed trial balance): {period ? `${period.reportingStart} to ${period.reportingEnd}` : "not available - review and certify this period's trial balance first"}. Company in this workspace: {s.entity.legalName ?? "—"}{s.entity.tin ? `, TIN ${s.entity.tin}` : ""}.</p>
+      <p className="text-muted-foreground" data-testid="fp-server-dates">Reporting period (from the reviewed trial balance): {period ? `${period.reportingStart} to ${period.reportingEnd}` : "not available - review and certify this period's trial balance first"}. Company in this workspace: {s.entity.legalName ?? "—"}{s.entity.tin ? `, tax identifier ${s.entity.tin}` : ""}.</p>
       <label htmlFor={`${id}-name`} className="block font-medium">Legal name (as on the certificate)</label>
       <input id={`${id}-name`} className={field} maxLength={200} value={f.legalName} onChange={(e) => set("legalName", e.target.value)} />
       <label htmlFor={`${id}-reg`} className="block font-medium">Registration number</label>
       <input id={`${id}-reg`} className={field} maxLength={60} value={f.registrationNumber} onChange={(e) => set("registrationNumber", e.target.value)} />
-      <label htmlFor={`${id}-tin`} className="block font-medium">Tax identifier (TIN), if the company has one</label>
+      <label htmlFor={`${id}-tin`} className="block font-medium">Tax identifier, if the company has one</label>
       <input id={`${id}-tin`} className={field} inputMode="numeric" maxLength={12} value={f.tin} onChange={(e) => set("tin", e.target.value)} />
       <fieldset className="space-y-1">
         <legend className="font-medium">Why this is the first reporting period</legend>
@@ -295,7 +295,7 @@ function OpeningForm({ p, s, client, onDone, onCancel }: { p: P; s: FirstPeriodS
 }
 
 const FACT_LABELS: Record<string, string> = {
-  legalName: "Legal name stated", registrationNumber: "Registration number", tin: "TIN stated", basis: "Basis", registrationDate: "Registration date", effectiveStart: "Effective start",
+  legalName: "Legal name stated", registrationNumber: "Registration number", tin: "Tax identifier stated", basis: "Basis", registrationDate: "Registration date", effectiveStart: "Effective start",
   reportingStart: "Reporting period start stated", reportingEnd: "Reporting period end stated", priorStatementsPrepared: "Statements prepared for an earlier period",
   dormantFrom: "Dormant from", dormantThrough: "Dormant through", bookkeepingStart: "Bookkeeping start", preSetupNetMinor: "Opening position stated",
 };
@@ -335,7 +335,7 @@ function DecideForm({ p, s, subject, client, onDone, onCancel }: { p: P; s: Firs
       <p className="font-medium">What your decision binds</p>
       <dl className="grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-[14rem_1fr]" data-testid="fp-bound">
         <dt className="text-muted-foreground">Company in this workspace</dt><dd data-testid="bound-entity">{s.entity.legalName ?? "—"}</dd>
-        <dt className="text-muted-foreground">Company TIN</dt><dd data-testid="bound-tin">{s.entity.tin ?? "Not recorded"}</dd>
+        <dt className="text-muted-foreground">Company tax identifier</dt><dd data-testid="bound-tin">{s.entity.tin ?? "Not recorded"}</dd>
         <dt className="text-muted-foreground">Reporting period (from the reviewed trial balance)</dt><dd data-testid="bound-period">{s.period.reportingStart ?? "—"} to {s.period.reportingEnd ?? "—"}</dd>
         <dt className="text-muted-foreground">Rules</dt><dd data-testid="bound-rules">{st.rules}</dd>
         <dt className="text-muted-foreground">Recorded</dt><dd>{st.claim ? `${st.claim.recordedAt.slice(0, 10)} by ${st.claim.recordedByYou ? "you" : "another member"}` : "—"}</dd>
