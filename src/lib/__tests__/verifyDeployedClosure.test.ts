@@ -98,7 +98,7 @@ describe("which compile-financial-report bundle is deployed", () => {
     return [f, f === alter ? Buffer.concat([b, Buffer.from(" ")]) : b];
   })));
   it("registers the approved full closure, distinct from the compiler bundle digest", () => {
-    expect(KNOWN_CLOSURES["compile-financial-report"].required.sha256).toBe("ed84408ecdef0c30a28b97015bdacc7fecce1c5e3eee05c32361728c65f6f8a0");
+    expect(KNOWN_CLOSURES["compile-financial-report"].required.sha256).toBe("8419ff178ea7469ffb8ca373a71e65c1a69ce28f770bbd2ff8ae2704d82bfc9f");
     expect(classify("compile-financial-report", "49fc0852e33ce71604f4c1430916144910a700ab33873a3ef8e8ad85adbf4789").verdict).toBe("UNKNOWN");
   });
   it("a downloaded bundle of exactly the approved files is REQUIRED", () => {

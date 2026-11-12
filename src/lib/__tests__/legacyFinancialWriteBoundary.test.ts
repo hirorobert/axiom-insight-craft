@@ -87,8 +87,8 @@ describe("CF-03 database boundary: 20261212100000 retires every client write pat
   const files = readdirSync(MIGRATIONS).filter((f) => f.endsWith(".sql")).sort();
   const sql = read(join(MIGRATIONS, MIGRATION));
 
-  it("preserves the exact tail: source access, CF-03, QuickBooks storage and readiness, the API cache-header hook, the financial-table revocation, the cash-transfer/post-closing pair and its compiler identity, the first-period governed review, then the contra-account designation", () => {
-    expect(files.slice(-10)).toEqual(["20261211100000_source_access_authority_repairs.sql", MIGRATION, "20261213100000_qbo_connector_storage.sql", "20261214100000_qbo_readiness_controls.sql", "20261215100000_api_cache_control_headers.sql", "20261221100000_financial_table_member_write_revocation.sql", "20261222100000_fs_cash_transfers_and_post_closing.sql", "20261222200000_statement_compiler_transfers_post_closing.sql", "20261223100000_first_period_governed_review_standalone.sql", "20261224100000_contra_account_designation.sql"]);
+  it("preserves the exact tail: source access, CF-03, QuickBooks storage and readiness, the API cache-header hook, the financial-table revocation, the cash-transfer/post-closing pair and its compiler identity, the first-period governed review, then the contra-account designation, then the Ready for Reporting stack (pilot, issued comparatives, prior-pack basis) and its compiler identity", () => {
+    expect(files.slice(-14)).toEqual(["20261211100000_source_access_authority_repairs.sql", MIGRATION, "20261213100000_qbo_connector_storage.sql", "20261214100000_qbo_readiness_controls.sql", "20261215100000_api_cache_control_headers.sql", "20261221100000_financial_table_member_write_revocation.sql", "20261222100000_fs_cash_transfers_and_post_closing.sql", "20261222200000_statement_compiler_transfers_post_closing.sql", "20261223100000_first_period_governed_review_standalone.sql", "20261224100000_contra_account_designation.sql"]);
   });
 
   it("drops exactly the eleven client write policies the chain created (every INSERT/UPDATE/DELETE policy on these tables)", () => {

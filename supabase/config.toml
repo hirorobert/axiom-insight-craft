@@ -30,6 +30,9 @@ project_id = "bvyivmmfjejbmqoydezk"
     verify_jwt = true
   [functions.qbo-disconnect]
     verify_jwt = true
+  # Ready for Reporting: runs the readiness engine for a signed-in member with prepare_close and records the run (service credential).
+  [functions.rfr-check-books]
+    verify_jwt = true
   # Called by the database (pg_cron + pg_net) with a single-use, database-minted ticket; the ticket is the credential.
   [functions.trial-balance-source-sweeper]
     verify_jwt = false

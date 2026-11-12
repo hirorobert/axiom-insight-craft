@@ -293,7 +293,12 @@ describe("migration directory integrity", () => {
     // 212 -> 214: transfers between cash accounts and the post-closing finding (20261222100000) and the compiler identity that carries them (20261222200000), authored and not applied.
     // 214 -> 215: first-period governed review, standalone on main (20261223100000; the exception is a verified decision, not a declaration), authored and not applied.
     // 215 -> 216: 20261224100000 reviewed contra-account designation (second-pass S2-A05), pending hosted apply.
-    expect(files.length).toBe(216);
+    // 216 -> 219: the Ready for Reporting stack renumbered after the merged tail - the pilot (20261225100000, was 20261216100000), issued comparative
+    //   schedules (20261226100000, was 20261218100000) and the prior FINAL pack as opening position (20261227100000, was 20261219100000); #256's
+    //   20261217100000 is NOT in the chain: 20261223100000 (merged) is the first-period governed review. Authored and not applied.
+    // 219 -> 220: 20261228100000 the THIRD compiler identity (restated-comparative and one-period casting declaration, rule pack 2.5.0 = 2.4.0 +
+    //   subtotal-casting 1.1.0), re-authored over the merged 20261222200000; authored and not applied.
+    expect(files.length).toBe(220);
   });
 });
 

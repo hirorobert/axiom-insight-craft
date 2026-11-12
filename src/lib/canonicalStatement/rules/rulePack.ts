@@ -6,7 +6,7 @@ import type { RulePackIdentity } from "../types";
 import type { Clock, RuleContext, RuleDefinition } from "./ruleEngine";
 import { runRulePack } from "./ruleEngine";
 import { financialPositionEquationRule } from "./financialPositionEquation";
-import { subtotalCastingRule } from "./subtotalCasting";
+import { subtotalCastingRule, subtotalCastingRuleV2 } from "./subtotalCasting";
 import { noteToFaceReconciliationRule } from "./noteToFaceReconciliation";
 import { comparativePeriodAlignmentRule } from "./comparativePeriodAlignment";
 import { currencyScaleConsistencyRule } from "./currencyScaleConsistency";
@@ -75,6 +75,26 @@ export const ENGINE_VERSION_V2_4 = "2.4.0";
 
 export function runCanonicalRulePackV2_4(ctx: RuleContext, clock?: Clock) {
   return runRulePack(CANONICAL_RULE_PACK_V2_4, CANONICAL_RULE_PACK_V2_4_RULES, ctx, ENGINE_VERSION_V2_4, clock);
+}
+
+/**
+ * Rule pack 2.5.0 = every 2.4.0 rule, with `subtotal-casting` at 1.1.0 instead of 1.0.0: a composed SUBTOTAL/TOTAL line may declare, per period,
+ * that a casting child with no binding at all for that period contributed nothing (StatementLine.castingNilPeriodIds; a restated comparative,
+ * an account present in one year only). Version 1.0.0 of the rule ignores the declaration, so 2.2.0 and 2.4.0 are unchanged and every recorded
+ * evaluation remains reproducible; a missing fact on a BOUND child is still missing evidence, never zero. The pack in force for new evaluations.
+ * (2.3.0 was authored on a branch as 2.2.0 + this rule change alone; it was never applied or deployed and is not defined here.)
+ */
+export const CANONICAL_RULE_PACK_V2_5: RulePackIdentity = {
+  rulePackId: "canonical-statement-rules",
+  rulePackVersion: "2.5.0",
+};
+
+export const CANONICAL_RULE_PACK_V2_5_RULES: readonly RuleDefinition[] = CANONICAL_RULE_PACK_V2_4_RULES.map((r) => (r === subtotalCastingRule ? subtotalCastingRuleV2 : r));
+
+export const ENGINE_VERSION_V2_5 = "2.5.0";
+
+export function runCanonicalRulePackV2_5(ctx: RuleContext, clock?: Clock) {
+  return runRulePack(CANONICAL_RULE_PACK_V2_5, CANONICAL_RULE_PACK_V2_5_RULES, ctx, ENGINE_VERSION_V2_5, clock);
 }
 
 export function runCanonicalRulePackV1(ctx: RuleContext, clock?: Clock) {

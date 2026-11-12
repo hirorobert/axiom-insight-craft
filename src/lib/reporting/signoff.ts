@@ -49,7 +49,10 @@ export type SavedVersion = z.infer<typeof versionSchema>;
 const readinessSchema = z.object({ ready: z.boolean(), blockers: z.array(z.string()), authority: authoritySchema.optional() }).passthrough();
 export type Readiness = z.infer<typeof readinessSchema>;
 const datesSchema = z.object({ reportingStart: z.string().nullable(), reportingEnd: z.string().nullable() }).passthrough();
-const inputSchema = z.object({ state: z.string(), current: datesSchema.optional(), comparative: datesSchema.nullable().optional() }).passthrough();
+// A missing comparative is `{ state: "missing", periodYear }` (no dates): the first reporting period has none to read, so the
+// comparative's dates are optional here; a present one still carries both.
+const comparativeDatesSchema = z.object({ reportingStart: z.string().nullish(), reportingEnd: z.string().nullish() }).passthrough();
+const inputSchema = z.object({ state: z.string(), current: datesSchema.optional(), comparative: comparativeDatesSchema.nullable().optional() }).passthrough();
 export type ReportingInput = z.infer<typeof inputSchema>;
 
 export function dependenciesRef(d: ReportingDependencies): ReportingDependenciesRef | null {

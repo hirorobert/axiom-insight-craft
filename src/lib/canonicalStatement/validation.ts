@@ -190,7 +190,15 @@ const statementLineSchema = z.object({
   isContra: z.boolean(),
   factBindings: z.array(factBindingSchema),
   castingChildLineIds: z.array(z.string()),
+  castingNilPeriodIds: z.array(z.string()).optional(),
 }).superRefine((line, ctx) => {
+  (line.castingNilPeriodIds ?? []).forEach((periodId, i) => {
+    if (line.role === "DETAIL" || line.castingChildLineIds.length === 0) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "castingNilPeriodIds is only meaningful on a line that declares casting children", path: ["castingNilPeriodIds", i] });
+    } else if (!line.factBindings.some((b) => b.periodId === periodId)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `castingNilPeriodIds names "${periodId}", for which the line has no value of its own`, path: ["castingNilPeriodIds", i] });
+    }
+  });
   const seenPeriods = new Set<string>();
   line.factBindings.forEach((binding, i) => {
     if (seenPeriods.has(binding.periodId)) {

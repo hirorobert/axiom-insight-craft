@@ -85,6 +85,7 @@ const Orders = lazy(() => import("@/pages/billing/Orders"));
 const AssistantTester = lazy(() => import("@/pages/internal/AssistantTester"));
 const CloseFindings = lazy(() => import("@/pages/workspace/CloseFindings"));
 const CloseAdjustments = lazy(() => import("@/pages/workspace/CloseAdjustments"));
+const CloseBooks = lazy(() => import("@/pages/workspace/CloseBooks"));
 const IpsasPreparationPage = lazy(() => import("@/pages/workspace/IpsasPreparationPage"));
 const UploadTrialBalance = lazy(() => import("@/pages/UploadTrialBalance"));
 const AddCompany = lazy(() => import("@/pages/AddCompany"));
@@ -136,6 +137,7 @@ function AppRoutes() {
                   {WORKBENCH_NAVIGATION_ENABLED && <Route path="trial-balance/intake" element={<StageScopeGate stage="prepare"><Suspense fallback={<PagePending />}><TrialBalanceIntake /></Suspense></StageScopeGate>} />}
                   {WORKBENCH_NAVIGATION_ENABLED && <Route path="trial-balance/review" element={<StageScopeGate stage="prepare"><PrepareWorkspace /></StageScopeGate>} />}
                   {/* Close Review › Findings: registered only once the page is released (routes.ts RELEASED_WORKBENCH_PAGES). */}
+                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("close-books") && <Route path="close/books" element={<StageScopeGate stage="prepare"><ReportingAccessGate prepareStage><Suspense fallback={<PagePending />}><CloseBooks /></Suspense></ReportingAccessGate></StageScopeGate>} />}
                   {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("close-findings") && <Route path="close/findings" element={<StageScopeGate stage="prepare"><ReportingAccessGate prepareStage><Suspense fallback={<PagePending />}><CloseFindings /></Suspense></ReportingAccessGate></StageScopeGate>} />}
                   {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("close-adjustments") && <Route path="close/adjustments" element={<StageScopeGate stage="prepare"><ReportingAccessGate prepareStage><Suspense fallback={<PagePending />}><CloseAdjustments /></Suspense></ReportingAccessGate></StageScopeGate>} />}
                   {/* Financial Statements and Sign-off & Exports: each registered only once its page is released (routes.ts

@@ -4377,8 +4377,16 @@ var statementLineSchema = external_exports.object({
   normalBalance: external_exports.enum(["DEBIT_NORMAL", "CREDIT_NORMAL"]),
   isContra: external_exports.boolean(),
   factBindings: external_exports.array(factBindingSchema),
-  castingChildLineIds: external_exports.array(external_exports.string())
+  castingChildLineIds: external_exports.array(external_exports.string()),
+  castingNilPeriodIds: external_exports.array(external_exports.string()).optional()
 }).superRefine((line, ctx) => {
+  (line.castingNilPeriodIds ?? []).forEach((periodId2, i) => {
+    if (line.role === "DETAIL" || line.castingChildLineIds.length === 0) {
+      ctx.addIssue({ code: external_exports.ZodIssueCode.custom, message: "castingNilPeriodIds is only meaningful on a line that declares casting children", path: ["castingNilPeriodIds", i] });
+    } else if (!line.factBindings.some((b) => b.periodId === periodId2)) {
+      ctx.addIssue({ code: external_exports.ZodIssueCode.custom, message: `castingNilPeriodIds names "${periodId2}", for which the line has no value of its own`, path: ["castingNilPeriodIds", i] });
+    }
+  });
   const seenPeriods = /* @__PURE__ */ new Set();
   line.factBindings.forEach((binding, i) => {
     if (seenPeriods.has(binding.periodId)) {
@@ -4945,7 +4953,8 @@ var financialPositionEquationRule = {
 // src/lib/canonicalStatement/rules/subtotalCasting.ts
 var RULE_ID2 = "subtotal-casting";
 var RULE_VERSION2 = "1.0.0";
-function evaluateLineForPeriod(ctx, statement, line, periodId2) {
+var RULE_VERSION_V2 = "1.1.0";
+function evaluateLineForPeriod(honourNilDeclaration, ctx, statement, line, periodId2) {
   if (line.role === "DETAIL") return null;
   const ownFactId = factIdForPeriod(line, periodId2);
   if (!ownFactId) return null;
@@ -4966,11 +4975,13 @@ function evaluateLineForPeriod(ctx, statement, line, periodId2) {
     };
   }
   const own = resolveFact(ctx, ownFactId);
-  const childResolutions = line.castingChildLineIds.map((childId) => {
+  const nilPeriod = honourNilDeclaration && (line.castingNilPeriodIds ?? []).includes(periodId2);
+  const allChildResolutions = line.castingChildLineIds.map((childId) => {
     const childLine = findLineById(ctx.report, childId);
     const childFactId = childLine ? factIdForPeriod(childLine, periodId2) : void 0;
-    return { childId, resolved: resolveFact(ctx, childFactId) };
+    return { childId, resolved: resolveFact(ctx, childFactId), unbound: childLine !== void 0 && childFactId === void 0 };
   });
+  const childResolutions = nilPeriod ? allChildResolutions.filter((r) => !r.unbound) : allChildResolutions;
   const missing = childResolutions.filter((r) => r.resolved.status !== "PRESENT");
   if (own.status !== "PRESENT" || missing.length > 0) {
     return {
@@ -4992,7 +5003,7 @@ function evaluateLineForPeriod(ctx, statement, line, periodId2) {
   const present = childResolutions;
   let sum;
   try {
-    sum = sumMoney(present.map((r) => r.resolved.money));
+    sum = present.length === 0 ? { currency: own.money.currency, scale: own.money.scale, minorUnits: 0n } : sumMoney(present.map((r) => r.resolved.money));
   } catch {
     return {
       outcome: "INSUFFICIENT_EVIDENCE",
@@ -5026,23 +5037,27 @@ function evaluateLineForPeriod(ctx, statement, line, periodId2) {
     periodId: periodId2
   };
 }
-var subtotalCastingRule = {
-  ruleId: RULE_ID2,
-  ruleVersion: RULE_VERSION2,
-  title: "Statement subtotal and total casting",
-  evaluate(ctx) {
-    const results = [];
-    for (const statement of ctx.report.statements) {
-      for (const line of allLines(statement)) {
-        for (const periodId2 of allPeriodIds(ctx.report)) {
-          const result = evaluateLineForPeriod(ctx, statement, line, periodId2);
-          if (result) results.push(result);
+function makeRule(honourNilDeclaration, ruleVersion) {
+  return {
+    ruleId: RULE_ID2,
+    ruleVersion,
+    title: "Statement subtotal and total casting",
+    evaluate(ctx) {
+      const results = [];
+      for (const statement of ctx.report.statements) {
+        for (const line of allLines(statement)) {
+          for (const periodId2 of allPeriodIds(ctx.report)) {
+            const result = evaluateLineForPeriod(honourNilDeclaration, ctx, statement, line, periodId2);
+            if (result) results.push(result);
+          }
         }
       }
+      return results;
     }
-    return results;
-  }
-};
+  };
+}
+var subtotalCastingRule = makeRule(false, RULE_VERSION2);
+var subtotalCastingRuleV2 = makeRule(true, RULE_VERSION_V2);
 
 // src/lib/canonicalStatement/rules/noteToFaceReconciliation.ts
 var RULE_ID3 = "note-to-face-reconciliation";
@@ -6168,14 +6183,15 @@ var CANONICAL_RULE_PACK_V1_RULES = [
   orphanedNoteReferenceDetectionRule
 ];
 var CANONICAL_RULE_PACK_V2_RULES = [...CANONICAL_RULE_PACK_V1_RULES.map((r) => r === cashFlowClosingReconciliationRule ? cashPerimeterReconciliationRule : r), equityClosingTieRule, equityProfitTieRule, scheduleCastingRule, cashLedgerRollforwardRule];
-var CANONICAL_RULE_PACK_V2_4 = {
-  rulePackId: "canonical-statement-rules",
-  rulePackVersion: "2.4.0"
-};
 var CANONICAL_RULE_PACK_V2_4_RULES = [...CANONICAL_RULE_PACK_V2_RULES, comprehensiveIncomeActivityRule];
-var ENGINE_VERSION_V2_4 = "2.4.0";
-function runCanonicalRulePackV2_4(ctx, clock) {
-  return runRulePack(CANONICAL_RULE_PACK_V2_4, CANONICAL_RULE_PACK_V2_4_RULES, ctx, ENGINE_VERSION_V2_4, clock);
+var CANONICAL_RULE_PACK_V2_5 = {
+  rulePackId: "canonical-statement-rules",
+  rulePackVersion: "2.5.0"
+};
+var CANONICAL_RULE_PACK_V2_5_RULES = CANONICAL_RULE_PACK_V2_4_RULES.map((r) => r === subtotalCastingRule ? subtotalCastingRuleV2 : r);
+var ENGINE_VERSION_V2_5 = "2.5.0";
+function runCanonicalRulePackV2_5(ctx, clock) {
+  return runRulePack(CANONICAL_RULE_PACK_V2_5, CANONICAL_RULE_PACK_V2_5_RULES, ctx, ENGINE_VERSION_V2_5, clock);
 }
 
 // src/lib/financialStatementsWorkspace/frameworkProfiles.ts
@@ -6400,7 +6416,11 @@ function composedStatements(c, comparativeDates, totalComprehensiveIncome = null
       normalBalance: normal,
       isContra: false,
       factBindings: bindings((p) => lineFactId(p, l.section, l.lineId)).filter((b) => facts.some((f) => f.factId === b.factId)),
-      castingChildLineIds: detailLines.map((d) => d.lineId)
+      castingChildLineIds: detailLines.map((d) => d.lineId),
+      // The line's figure for a period is the database's exact sum of the rows it presents for that period (an account absent from a
+      // complete certified trial balance has no balance; a restatement restates the comparative only). A child with no row in a
+      // period it has a figure for therefore contributed nothing there: declared nil, no new fact, nothing added up here.
+      ...detailLines.length > 0 ? { castingNilPeriodIds: periods.filter((p) => (p === "current" ? l.current : l.comparative) != null).map(periodId) } : {}
     }];
   };
   const totalsComplete = (p) => c.totals[p]?.state === "complete";
@@ -8182,12 +8202,12 @@ function assembleComposedReport(input) {
 var reportContentHash = (report) => sha256Hex(canonicalStringify(report));
 function evaluateComposedReport(report, clock = () => (/* @__PURE__ */ new Date()).toISOString()) {
   const inputHash = reportContentHash(report);
-  const findings = runCanonicalRulePackV2_4(buildRuleContext(report, ZERO_TOLERANCE), clock);
+  const findings = runCanonicalRulePackV2_5(buildRuleContext(report, ZERO_TOLERANCE), clock);
   return {
-    evaluationRunId: sha256Hex(canonicalStringify({ reportId: report.reportIdentity.reportId, reportVersion: report.reportIdentity.reportVersion, rulePack: CANONICAL_RULE_PACK_V2_4, engineVersion: ENGINE_VERSION_V2_4, inputHash })),
-    rulePackId: CANONICAL_RULE_PACK_V2_4.rulePackId,
-    rulePackVersion: CANONICAL_RULE_PACK_V2_4.rulePackVersion,
-    engineVersion: ENGINE_VERSION_V2_4,
+    evaluationRunId: sha256Hex(canonicalStringify({ reportId: report.reportIdentity.reportId, reportVersion: report.reportIdentity.reportVersion, rulePack: CANONICAL_RULE_PACK_V2_5, engineVersion: ENGINE_VERSION_V2_5, inputHash })),
+    rulePackId: CANONICAL_RULE_PACK_V2_5.rulePackId,
+    rulePackVersion: CANONICAL_RULE_PACK_V2_5.rulePackVersion,
+    engineVersion: ENGINE_VERSION_V2_5,
     inputHash,
     findings
   };
@@ -8396,7 +8416,8 @@ var versionSchema = external_exports.object({
 });
 var readinessSchema = external_exports.object({ ready: external_exports.boolean(), blockers: external_exports.array(external_exports.string()), authority: authoritySchema.optional() }).passthrough();
 var datesSchema = external_exports.object({ reportingStart: external_exports.string().nullable(), reportingEnd: external_exports.string().nullable() }).passthrough();
-var inputSchema = external_exports.object({ state: external_exports.string(), current: datesSchema.optional(), comparative: datesSchema.nullable().optional() }).passthrough();
+var comparativeDatesSchema = external_exports.object({ reportingStart: external_exports.string().nullish(), reportingEnd: external_exports.string().nullish() }).passthrough();
+var inputSchema = external_exports.object({ state: external_exports.string(), current: datesSchema.optional(), comparative: comparativeDatesSchema.nullable().optional() }).passthrough();
 function dependenciesRef(d) {
   if (d.state !== "current" || !d.dependenciesSha256 || !d.compositionSha256) return null;
   return { dependenciesSha256: d.dependenciesSha256, compositionSha256: d.compositionSha256, notesStatusSha256: d.notesStatusSha256 ?? null, comparativeStatusSha256: d.comparativeStatusSha256 ?? null };

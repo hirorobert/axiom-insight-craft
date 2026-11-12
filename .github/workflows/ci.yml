@@ -201,6 +201,9 @@ jobs:
       - name: Type-check the independent statement compiler against the real Supabase client types
         run: deno check supabase/functions/compile-financial-report/index.ts
 
+      - name: Type-check the Ready for Reporting function against the real Supabase client types
+        run: deno check supabase/functions/rfr-check-books/index.ts
+
       - name: Type-check the QuickBooks connector functions including authorized disconnect against the real Supabase client types
         run: deno check supabase/functions/qbo-connect-start/index.ts supabase/functions/qbo-oauth-callback/index.ts supabase/functions/qbo-finish-connection/index.ts supabase/functions/qbo-pull-trial-balance/index.ts supabase/functions/qbo-disconnect/index.ts
 
@@ -1485,6 +1488,56 @@ jobs:
           grep -v '^\[PTB' proof-results/publicationAuthority.present.log || true
           node scripts/ci/validateProofResult.mjs proof-results/publicationAuthority.present.json --manifest scripts/db-proof/publicationAuthority.manifest.mjs --mode present --exit-code "$code"
 
+      - name: Ready for Reporting proof (20261225100000 - opt-in readiness gate at FINAL, both orderings of a concurrent change, QuickBooks freshness as a separate attestation, exact balances through the real adjustment functions)
+        if: ${{ !cancelled() }}
+        shell: bash
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/readiness_proof
+          PROOF_RESULT_FILE: proof-results/readinessFinalization.present.json
+        run: |
+          createdb readiness_proof
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/readinessFinalization.mjs > proof-results/readinessFinalization.present.log 2>&1
+          code=$?
+          set -e
+          echo "$code" > proof-results/readinessFinalization.present.exit
+          grep -v '^\[PTB' proof-results/readinessFinalization.present.log || true
+          node scripts/ci/validateProofResult.mjs proof-results/readinessFinalization.present.json --manifest scripts/db-proof/readinessFinalization.manifest.mjs --mode present --exit-code "$code"
+
+      - name: First-period governed review proof on the PRODUCT client alone (no harness wrapper - the compiler follow-up lets the browser client read a first period's missing comparative itself)
+        if: ${{ !cancelled() }}
+        shell: bash
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/first_period_product_proof
+          FIRST_PERIOD_PRODUCT_CLIENT: "1"
+        run: |
+          createdb first_period_product_proof
+          bun scripts/db-proof/firstPeriodGovernedReview.mjs 2>&1 | grep -v '^\[PTB'
+          test ${PIPESTATUS[0]} -eq 0
+
+      - name: Returning-client journey proof (20261226100000 and the readiness engine - the prior pack finalised in CFOClose with an approved accrual of 100.00, the supported opening correction held until applied, exact preview and FINAL figures, the same journal later booked in QuickBooks as current-year expense linked or unlinked, a ledger edit that changes no total, retries; statements issued outside CFOClose as a hash-bound comparative source stopped only at the registered restated-comparative casting gap)
+        if: ${{ !cancelled() }}
+        shell: bash
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/returning_client_proof
+        run: |
+          createdb returning_client_proof
+          bun scripts/db-proof/returningClientJourney.mjs 2>&1 | grep -v '^\[PTB'
+          test ${PIPESTATUS[0]} -eq 0
+
+      - name: Ready for Reporting acceptance - runner self-check, audit regressions on the model and the engine, and the engine through the acceptance adapter
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          node scripts/acceptance/rfr-v3/run.mjs --self-check
+          node scripts/acceptance/rfr-v3/auditRegression.mjs
+          bun scripts/acceptance/rfr-v3/auditRegression.mjs --adapter scripts/acceptance/rfr-v3/adapters/implementation.mjs
+          bun scripts/acceptance/rfr-v3/run.mjs --implementation scripts/acceptance/rfr-v3/adapters/implementation.mjs
+
       - name: Track A hardening proof (release batch track-a-r1 installed on a database that already holds a FINAL, a sign-off and a sealed pack - order guard, interrupted installation rolled back, retry, repeated application refused, fixtures byte-identical; no API role writes the FINAL authority or its history and the table owner cannot move it without a matching event; the former replacement setting is ignored and the intent cannot be forged; TRUNCATE refused for every role; the framework changes only through the audited owner-only function, which invalidates the certification it affects and refuses stale, locked, processing, unauthorised and cross-tenant attempts; FINAL and framework change serialise in both orders)
         shell: bash
         env:
@@ -1622,9 +1675,9 @@ jobs:
       - name: Readiness read-only proof (DEFECT D-2; the client transport as PostgREST runs it, STABLE functions in a READ ONLY transaction; 25006 reproduced on two existing drafts before 20261023100000; after it and a schema reload readiness reads, both drafts survive byte for byte, the Close Review gate and REVIEWED and FINAL by role hold, stale versions are refused, a readiness read writes nothing; no other STABLE function writes; on the same throwaway container)
         env:
           DB_PROOF_MODE: external
-          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/readiness_proof
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/readiness_read_only_proof
         run: |
-          createdb readiness_proof
+          createdb readiness_read_only_proof
           bun scripts/db-proof/readinessReadOnly.mjs
 
       - name: Cash perimeter scope proof (DEFECT D-3; each period's cash accounts from its own reporting input, never company-wide; the hosted state rebuilt from the acceptance fixture files plus earlier cash accounts of another year; reproduced with the company-wide flags; the next version stores and binds the cash account map, the perimeter and roll-forward pass, every expected total matches; drafts, certifications and the earlier accounts unchanged; REVIEWED, FINAL and export; a later mapping change makes the result stale; on the same throwaway container)
@@ -1651,6 +1704,40 @@ jobs:
           path: reporting-journey-evidence
           if-no-files-found: ignore
           retention-days: 30
+
+      - name: Returning-client browser journey (headless Chrome drives the real Check my books, Close Review adjustments and reporting views over a loopback bridge to a throwaway database as preparer, partner and owner - one engagement, one trial balance upload per year, the prior pack FINAL in CFOClose with an approved accrual of 100.00, the one finding and its correction approved by a second person, every check ready, the comparative approved, the report saved, REVIEWED and FINAL with the exact figures; loopback only)
+        if: ${{ !cancelled() }}
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/returning_harness
+        run: |
+          createdb returning_harness
+          node scripts/browser-acceptance/returningClientJourney.mjs returning-journey-evidence
+
+      - name: Upload the returning-client journey evidence (screenshots, results)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: returning-journey-evidence
+          path: returning-journey-evidence
+          if-no-files-found: ignore
+
+      - name: Returning-client browser journey from the REAL Trial Balance Review page (the owner uploads the new year's trial balance there - reserve, signed URL, storage, register and the real process-trial-balance handler over a loopback bridge to a throwaway database - then ONE Check my books, the opening position READ FROM THE PRIOR FINAL PACK with no exported figure, one finding, one correction approved by a second person, the comparative, preview, REVIEWED and FINAL with the same exact figures; loopback only, identity simulated)
+        if: ${{ !cancelled() }}
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/returning_start_harness
+        run: |
+          createdb returning_start_harness
+          node scripts/browser-acceptance/returningClientJourney.mjs returning-start-evidence --start
+
+      - name: Upload the returning-client start journey evidence (screenshots, results)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: returning-start-evidence
+          path: returning-start-evidence
+          if-no-files-found: ignore
 
       - name: Equipment preparation browser journey (headless Chrome drives the real Schedules page over the loopback bridge as a preparer - the recorded one-class schedule loaded with nothing assumed, two classes rolled forward through cost and accumulated depreciation, a typo left as an exact difference, the depreciation tied to its expense line, only the applicable questions asked, three whole notes recorded with every class and the answers in one transaction and reconciled by the server, a concurrent three-class schedule refused by name with every edit retained and the new class loaded, a viewer refused, 1280 and 375 px)
         env:

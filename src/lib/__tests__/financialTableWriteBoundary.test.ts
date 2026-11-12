@@ -60,7 +60,7 @@ describe("database: 20261221100000 retires every client write path on the eighte
   it("follows the API cache-header hook directly; only the reviewed later pending migrations sort after it", () => {
     expect(files.slice(files.indexOf(MIGRATION) - 1)).toEqual(["20261215100000_api_cache_control_headers.sql", MIGRATION,
       "20261222100000_fs_cash_transfers_and_post_closing.sql", "20261222200000_statement_compiler_transfers_post_closing.sql",
-      "20261223100000_first_period_governed_review_standalone.sql", "20261224100000_contra_account_designation.sql"]);
+      "20261223100000_first_period_governed_review_standalone.sql", "20261224100000_contra_account_designation.sql", "20261225100000_ready_for_reporting_pilot.sql", "20261226100000_issued_comparative_schedules.sql", "20261227100000_rfr_prior_pack_basis.sql", "20261228100000_statement_compiler_casting_declaration.sql"]);
   });
 
   it("names exactly the eighteen server-written tables and the three professional-input tables", () => {

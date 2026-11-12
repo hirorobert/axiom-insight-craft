@@ -13,6 +13,7 @@ export const sha = (s) => crypto.createHash("sha256").update(String(s)).digest("
  * comparative, in the HARNESS only, so the unchanged client can prepare that version. It adds nothing else and never touches a present comparative.
  */
 export function withMissingComparativeDates(d) {
+  if (process.env.FIRST_PERIOD_PRODUCT_CLIENT === "1") return d; // the compiler follow-up (20261228100000) proves the PRODUCT client reads a missing comparative itself
   return { ...d, rpc: async (fn, args) => {
     const r = await d.rpc(fn, args);
     if (fn === "fs_reporting_input" && r.data && r.data.comparative && r.data.comparative.state === "missing") {

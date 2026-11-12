@@ -33,3 +33,9 @@ __pycache__/
 # Browser acceptance screenshots and results (CI artifacts, never committed)
 artifacts/
 scripts/assistant-eval/results/
+
+# Ready for Reporting acceptance runner reports (generated)
+scripts/acceptance/rfr-v3/report.*.json
+
+# Local PostgreSQL proof results (CI writes them to the same place)
+proof-results/

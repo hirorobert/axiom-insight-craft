@@ -121,13 +121,16 @@ export async function applyChainBefore(db, file) {
   // COMPILER_IDENTITY_FILE (idempotent). A proof that stops the chain before it, but after the receipt table (20261123100000),
   // would otherwise have every report compilation refused; so that file alone is applied too (it changes nothing else).
   const receipts = chain.indexOf("20261123100000_fs_server_compilation.sql");
-  if (chain.indexOf(COMPILER_IDENTITY_FILE) > stop && receipts >= 0 && receipts < stop) {
+  if (chain.indexOf(COMPILER_IDENTITY_FILE) >= stop && receipts >= 0 && receipts < stop) {
+    for (const pred of COMPILER_IDENTITY_PREDECESSORS) if (chain.indexOf(pred) >= stop) { try { await db.admin.query(migrationSql(REPO, pred)); } catch (e) { return `${pred}: ${String(e.message).split("\n")[0]}`; } }
     try { await db.admin.query(migrationSql(REPO, COMPILER_IDENTITY_FILE)); } catch (e) { return `${COMPILER_IDENTITY_FILE}: ${String(e.message).split("\n")[0]}`; }
   }
   return null;
 }
 /** The migration that makes the database accept the current compiler bundle's identity (see applyChainBefore). */
-export const COMPILER_IDENTITY_FILE = "20261222200000_statement_compiler_transfers_post_closing.sql";
+export const COMPILER_IDENTITY_FILE = "20261228100000_statement_compiler_casting_declaration.sql";
+// The identities the database must already accept before COMPILER_IDENTITY_FILE applies (its PREFLIGHT requires the two-digest state).
+export const COMPILER_IDENTITY_PREDECESSORS = ["20261222200000_statement_compiler_transfers_post_closing.sql"];
 export const migrationText = (f) => migrationSql(REPO, f);
 
 // ── Synthetic world ──────────────────────────────────────────────────────────────────────────────────────────────────
@@ -204,8 +207,8 @@ export async function certifier(db, U) {
     shim.storage.set(`trial-balance-files/${filePath}`, new TextEncoder().encode(text));
     return { id, year: y };
   };
-  const decisions = (rows = TB) => rows.map(([code, name, cls, st, nb]) => ({ account_code: code, account_name: name, proposal_type: "NONE",
-    decision_action: "USER_MANUAL_CLASSIFICATION", statement: st, classification: cls, normal_balance: nb, is_cash_account: CASH_CODES.has(code) }));
+  const decisions = (rows = TB) => rows.map(([code, name, cls, st, nb, flagRe]) => ({ account_code: code, account_name: name, proposal_type: "NONE",
+    decision_action: "USER_MANUAL_CLASSIFICATION", statement: st, classification: cls, normal_balance: nb, is_cash_account: CASH_CODES.has(code), ...(flagRe === true ? { is_retained_earnings: true } : {}) }));
   const review = (company, u, rows = TB) => db.asUser(U.owner, "SELECT public.resolve_account_review_batch($1,$2,$3,$4::jsonb)", [company, u.id, uuid(), JSON.stringify(decisions(rows))]);
   const certify = async (company, u) => {
     const r = await call(ptb, db.pool, mintTestJwt(U.owner), { uploadId: u.id, clientRequestId: uuid() });
