@@ -49,3 +49,23 @@ test name and two applied migrations also named the client, and some quoted its 
 5. **History:** decide whether to rewrite history (for example `git filter-repo` across every branch, then a force push, then a GitHub Support request to purge cached views and pull-request refs). Doing so invalidates every open branch and must be coordinated with Lovable's sync. The two applied migrations need a separate decision because the hosted journal pins their exact bytes.
 6. **Third parties:** ask Lovable and the AI vendors used on the repository about retention or deletion of synced copies.
 7. **Redeploy** the two engine functions so the deployed comments are replaced (both are withheld from customers).
+
+## 6. Verification: real record or development fixture (2026-11-12)
+
+Question: is the removed file a confidential third-party record, or a synthetic, anonymised or authorised fixture? One
+focused check, reading the historical blob locally and printing only statistics (no name, no figure).
+
+| Test | Finding |
+|---|---|
+| Stated provenance | The repository's own historical prompt says the file was extracted from the client's audited accounts; the commit that added it built an "audited accounts" adapter around it |
+| Anonymisation | None: the client's name is in the file name and in two applied migrations, beside an internal company UUID and user UUID |
+| Shape of the amounts | 39 of 46 non-zero amounts are not whole thousands. The repository's invented fixture (`scripts/fixtures/synthetic-sme-tb-2025.csv`) is 32 of 32 whole thousands. The leading-digit distribution of the file is close to that of natural accounting data |
+| Counterparties | Account names name real lending institutions |
+| Intended use | A historical roadmap instructs uploading the file to the named company in the dashboard |
+| Authorisation | No record in the repository of the client's consent to use or publish its figures |
+
+**Conclusion: the file is a confidential third-party financial record derived from a real company's audited accounts,
+not a synthetic or anonymised fixture.** That the product is still in development does not change this. It could be an
+authorised use only if the owner holds the client's written consent; none is recorded here. Since 2026-11-11 the
+repository is public by the owner's decision, so the file remains readable in git history (current tree: removed by this
+change). The decisions in §5 stay open with the owner and counsel.
