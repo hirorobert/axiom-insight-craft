@@ -4,7 +4,7 @@
 import { assembleComposedReport, evaluateComposedReport, reportContentHash } from "@/lib/financialGeneration/composedReport";
 import { canonicalStringify, sha256Hex } from "@/lib/canonicalStatement/serialization";
 import { ingestRecords } from "@/lib/financialEvidence/intake";
-import { EVIDENCE_TYPES, EVIDENCE_SCHEMA_VERSION, type EvidenceBatch } from "@/lib/financialEvidence/types";
+import { EVIDENCE_TYPES, EVIDENCE_SCHEMA_VERSION, LEDGER_TRANSFER_SCHEMA_VERSION, type EvidenceBatch } from "@/lib/financialEvidence/types";
 import { parseComposition, type Composition } from "@/lib/statements/composition";
 import { parseNotesStatus, type NotesStatus } from "@/lib/notes/notesStatus";
 import { dependenciesRef, toStoredEvidence, type ReportingDb } from "./signoff";
@@ -19,7 +19,7 @@ function refuse(message: string): never { throw new CompilationRefusal(message);
 export function validateStoredEvidence(batch: EvidenceBatch, dates: { start: string; end: string }): EvidenceBatch {
   const d = batch.document;
   if (!EVIDENCE_TYPES.includes(batch.evidenceType) || batch.evidenceType === "TRIAL_BALANCE" || batch.evidenceType === "EXTRACTED_CANDIDATES"
-      || batch.schemaVersion !== EVIDENCE_SCHEMA_VERSION || d?.schemaVersion !== EVIDENCE_SCHEMA_VERSION
+      || ![EVIDENCE_SCHEMA_VERSION, LEDGER_TRANSFER_SCHEMA_VERSION].includes(batch.schemaVersion) || d?.schemaVersion !== batch.schemaVersion
       || d.evidenceType !== batch.evidenceType || d.periodRole !== batch.periodRole || d.reportingPeriodId !== batch.reportingPeriodId
       || d.seriesKey !== batch.seriesKey || d.currency !== batch.currency || d.scale !== (batch.scale === null ? null : String(batch.scale))
       || !Array.isArray(d.columns) || !d.columns.every(c => typeof c === "string") || !Array.isArray(d.rows)
@@ -29,6 +29,8 @@ export function validateStoredEvidence(batch: EvidenceBatch, dates: { start: str
     scale: batch.scale ?? undefined, periodStart: dates.start, periodEnd: dates.end }, [d.columns, ...d.rows],
     { contentHash: batch.contentHash, format: d.sourceFormat ?? "CSV" });
   if (parsed.outcome !== "PARSED" || !["VALID", "VALID_WITH_WARNINGS"].includes(parsed.batch.validationStatus)) refuse("SERVER_EVIDENCE_INVALID:" + batch.evidenceBatchId);
+  // The schema version is the one the stored columns are read under (1.1.0 only for a ledger with the counter-account column).
+  if (parsed.batch.schemaVersion !== batch.schemaVersion) refuse("SERVER_EVIDENCE_SCHEMA_INVALID");
   // Reading a source is not rewriting it. Its original row locators, file identity and parse provenance stay immutable.
   return { ...batch, validationStatus: parsed.batch.validationStatus, diagnostics: parsed.batch.diagnostics };
 }

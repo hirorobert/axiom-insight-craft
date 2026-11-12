@@ -117,8 +117,17 @@ export async function applyChainBefore(db, file) {
     if (f === PG_CRON_FILE) t = t.split("\n").slice(0, t.split("\n").findIndex((l) => l.includes("CREATE EXTENSION IF NOT EXISTS pg_cron"))).join("\n");
     try { await db.admin.query(t); } catch (e) { return `${f}: ${String(e.message).split("\n")[0]}`; }
   }
+  // The deployable compiler bundle is the CURRENT checkout's, and the database accepts its identity only through
+  // COMPILER_IDENTITY_FILE (idempotent). A proof that stops the chain before it, but after the receipt table (20261123100000),
+  // would otherwise have every report compilation refused; so that file alone is applied too (it changes nothing else).
+  const receipts = chain.indexOf("20261123100000_fs_server_compilation.sql");
+  if (chain.indexOf(COMPILER_IDENTITY_FILE) > stop && receipts >= 0 && receipts < stop) {
+    try { await db.admin.query(migrationSql(REPO, COMPILER_IDENTITY_FILE)); } catch (e) { return `${COMPILER_IDENTITY_FILE}: ${String(e.message).split("\n")[0]}`; }
+  }
   return null;
 }
+/** The migration that makes the database accept the current compiler bundle's identity (see applyChainBefore). */
+export const COMPILER_IDENTITY_FILE = "20261222200000_statement_compiler_transfers_post_closing.sql";
 export const migrationText = (f) => migrationSql(REPO, f);
 
 // ── Synthetic world ──────────────────────────────────────────────────────────────────────────────────────────────────
@@ -160,6 +169,8 @@ export const TB = [
   ["6300", "Interest expense", "operating_expenses", "income_statement", "debit", "600.00", "", "700.00", ""],
   ["7000", "Income tax expense", "taxes", "income_statement", "debit", "900.00", "", "700.00", ""],
 ];
+/** Accounts the review establishes as cash: the bank, and the petty cash of a two-cash-account variant of TB (not in TB). */
+const CASH_CODES = new Set(["1000", "1001"]);
 export const csv = (yearCol, rows = TB) => "Account code,Account name,Debit,Credit\n" + rows.map((r) => `${r[0]},${r[1]},${r[yearCol]},${r[yearCol + 1]}`).join("\n") + "\n";
 export const FY2026 = 5, FY2025 = 7;
 export const ASSIGN = {
@@ -194,7 +205,7 @@ export async function certifier(db, U) {
     return { id, year: y, periodId: pid };
   };
   const decisions = (rows = TB) => rows.map(([code, name, cls, st, nb]) => ({ account_code: code, account_name: name, proposal_type: "NONE",
-    decision_action: "USER_MANUAL_CLASSIFICATION", statement: st, classification: cls, normal_balance: nb, is_cash_account: code === "1000" }));
+    decision_action: "USER_MANUAL_CLASSIFICATION", statement: st, classification: cls, normal_balance: nb, is_cash_account: CASH_CODES.has(code) }));
   const review = (company, u, rows = TB) => db.asUser(U.owner, "SELECT public.resolve_account_review_batch($1,$2,$3,$4::jsonb)", [company, u.id, uuid(), JSON.stringify(decisions(rows))]);
   const certify = async (company, u) => {
     const r = await call(ptb, db.pool, mintTestJwt(U.owner), { uploadId: u.id, clientRequestId: uuid() });
@@ -326,14 +337,14 @@ export const WORDS_1_2_0 = Object.freeze({
 export const DECISIONS_1_2_0 = Object.freeze(["smes.note.events_after", "smes.note.related_party_control", "smes.note.related_party_transactions"]);
 
 /** Everything up to (not including) evidence and a report: certified years, presentation, Close Review, notes, comparatives. */
-export async function prepareReporting(db, W, k, { year = 2026, comparativesApproved = true, pack120 = true, uploads = true, equipmentSchedule = true } = {}) {
+export async function prepareReporting(db, W, k, { year = 2026, comparativesApproved = true, pack120 = true, uploads = true, equipmentSchedule = true, rows = TB, assign = ASSIGN } = {}) {
   const { U, A } = W;
   const asU = (uid, sql, p) => db.asUser(uid, sql, p);
   if (uploads) {
-    const p = await k.upload(A, year - 1, csv(FY2025)); await k.review(A, p); await k.certify(A, p);
-    const c = await k.upload(A, year, csv(FY2026)); await k.certify(A, c);
+    const p = await k.upload(A, year - 1, csv(FY2025, rows)); await k.review(A, p, rows); await k.certify(A, p);
+    const c = await k.upload(A, year, csv(FY2026, rows)); await k.certify(A, c);
   }
-  await asU(U.preparer, "SELECT public.fs_assign_presentation($1,$2::jsonb,'Presentation per the chart of accounts',$3)", [A, JSON.stringify(assignmentPairs(ASSIGN)), uuid()]);
+  await asU(U.preparer, "SELECT public.fs_assign_presentation($1,$2::jsonb,'Presentation per the chart of accounts',$3)", [A, JSON.stringify(assignmentPairs(assign)), uuid()]);
   const run = (await asU(U.preparer, "SELECT public.close_review_refresh_findings($1,$2) r", [A, year])).r;
   const open = (await db.admin.query("SELECT f.id FROM public.close_review_findings f WHERE f.run_id=$1", [run.runId])).rows;
   for (const f of open) await asU(U.preparer, "SELECT public.close_review_finding_action($1,'explain','Accumulated depreciation is a contra-asset by design','Fixed asset register 2026',$2) r", [f.id, uuid()]);
