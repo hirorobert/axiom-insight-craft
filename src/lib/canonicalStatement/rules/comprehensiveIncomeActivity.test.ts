@@ -49,9 +49,9 @@ const findingsOf = (report: CanonicalFinancialStatementReport) => evaluateCompos
 const ofRule = (e: ReturnType<typeof findingsOf>) => e.findings.filter((f) => f.ruleId === "comprehensive-income-activity");
 
 describe("comprehensive-income-activity (S2-A02): a post-closing trial balance is detected", () => {
-  it("post-closing: the composed SCI carries no non-zero figure while the SFP does → FAIL, HIGH, actionable, in the pack in force (2.4.0)", () => {
+  it("post-closing: the composed SCI carries no non-zero figure while the SFP does → FAIL, HIGH, actionable, in the pack in force (2.5.0 = 2.4.0 with subtotal-casting 1.1.0)", () => {
     const e = findingsOf(compose(postClosing(false)));
-    expect(e.rulePackVersion).toBe("2.4.0");
+    expect(e.rulePackVersion).toBe("2.5.0");
     const f = ofRule(e);
     expect(f.map((x) => [x.outcome, x.failureSeverity, x.actionable])).toEqual([["FAIL", "HIGH", true]]);
     expect(f[0].deterministicCalculation).toContain("no line of the statement of comprehensive income carries a non-zero amount for CURRENT");

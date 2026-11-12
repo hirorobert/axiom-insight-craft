@@ -1,0 +1,41 @@
+{
+  "_comment": "PREPARED, NOT APPLIED. Repository ruleset for refs/heads/main of hirorobert/axiom-insight-craft (public repository, owner type User, caller has admin). Apply only with explicit owner approval: gh api -X POST repos/hirorobert/axiom-insight-craft/rulesets --input docs/release/consolidated-20261112/BRANCH_PROTECTION_RULESET.json (strip this _comment first). The nine contexts are the exact `name:` values of the jobs in .github/workflows/ci.yml that run on pull_request; 'Staging RLS Regression (manual, write-capable)' is workflow_dispatch-only and is deliberately NOT required. required_approving_review_count is 0 because the repository has a single human maintainer who cannot approve their own pull request; raise it to 1 once a second reviewer account exists.",
+  "name": "main: single-writer integration (pull request + green CI on the exact merge candidate)",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": { "ref_name": { "include": ["refs/heads/main"], "exclude": [] } },
+  "bypass_actors": [],
+  "rules": [
+    { "type": "deletion" },
+    { "type": "non_fast_forward" },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 0,
+        "dismiss_stale_reviews_on_push": true,
+        "require_code_owner_review": false,
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": true,
+        "allowed_merge_methods": ["merge"]
+      }
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "do_not_enforce_on_create": false,
+        "required_status_checks": [
+          { "context": "Supabase Migration Audit" },
+          { "context": "Merge Conflict Marker Check" },
+          { "context": "Lint, Build and Type Check" },
+          { "context": "Release Gate (clean Linux, frozen lockfile, full suite)" },
+          { "context": "Edge function checks (Deno, process-trial-balance)" },
+          { "context": "Golden Fixture Tests (vitest)" },
+          { "context": "Edge function checks (Deno, reconciliation result and resolution)" },
+          { "context": "Real application end to end (local Supabase stack)" },
+          { "context": "Disposable-DB Contract Tests (Ω∞ A+ closure)" }
+        ]
+      }
+    }
+  ]
+}
