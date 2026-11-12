@@ -27,7 +27,12 @@
 // Synthetic users only. It reads no Supabase credential, refuses every non-loopback host and the production project
 // reference, and works in a uniquely named database it creates and drops itself.
 import fs from "node:fs";
-import { currentChain, migrationSql } from "./lib/parkedMigrations.mjs";
+import { chainBefore, currentChain, migrationSql } from "./lib/parkedMigrations.mjs";
+// 20261221100000 removes every client write to the SAFISHA tables that this parked candidate's "Preserved" cases replay
+// (a browser creating, re-scoring or re-statusing a reconciliation, inserting evidence rows). This proof shows what the
+// candidate does on the chain it was reviewed against, so it stops just before that revocation; a revival must be
+// re-proven on top of it, where those client writes are refused before the candidate is applied.
+const REVOCATION = "20261221100000_financial_table_member_write_revocation.sql";
 import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -128,7 +133,7 @@ async function main() {
   // MIGRATION is parked (never applied to the hosted database; quarantined in supabase/migrations_historical/). It is
   // proven as a revival candidate: the WHOLE current chain first, then MIGRATION on top — the only order a revival
   // could take. (20261005100000, evidence ingestion, is proven by its own proof.)
-  const files = currentChain(REPO);
+  const files = chainBefore(currentChain(REPO), REVOCATION);
   const cut = files.length;
   console.log(`\n== Setup (synthetic users, disposable database ${PROOF_DB})`);
   await admin.query(fs.readFileSync(path.join(REPO, "scripts/db-contract-tests/00_bootstrap_roles_and_shims.sql"), "utf8"));

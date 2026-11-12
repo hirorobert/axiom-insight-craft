@@ -636,6 +636,13 @@ describe("database inertness — schema and functions", () => {
     // Cache-Control: no-cache, no-store; no RLS, policy or table change), the Cache-Control value of eight functions, and proxied delivery of the
     // original file after the unchanged issuance decision. No financial write, authority or schema change of an existing object.
     added.add("supabase/migrations/20261215100000_api_cache_control_headers.sql");
+    // Second-pass S2-S01/S2-S03/S2-S04: one forward-only migration that REMOVES client write policies and write-class privileges on
+    // eighteen financial/evidence tables and tightens three professional-input tables (no row changed, SELECT and service_role kept;
+    // proof: scripts/db-proof/financialWriteBoundary.mjs), and the five functions that wrote those tables with the caller's token now
+    // verify an accepted member holding prepare_close and write with the service role. No financial-statements schema.
+    added.add("supabase/migrations/20261221100000_financial_table_member_write_revocation.sql");
+    for (const file of ["supabase/functions/safisha-efdms-ingest/index.ts", "supabase/functions/safisha-categorize/index.ts", "supabase/functions/safisha-score/index.ts",
+      "supabase/functions/maono-cashflow/index.ts", "supabase/functions/maono-risk/index.ts"]) modified.add(file);
     for (const file of ["supabase/functions/qbo-oauth-callback/index.ts", "supabase/functions/trial-balance-draft/index.ts", "supabase/functions/trial-balance-source-download/index.ts",
       "supabase/functions/trial-balance-source-signer/index.ts", "supabase/functions/_shared/sourceDownload.ts"]) modified.add(file);
     expect(unreviewedChanges(changed, { added, modified, removed })).toEqual([]);
@@ -952,6 +959,13 @@ describe("database inertness — schema and functions", () => {
     // externally hosted spreadsheet code (reads files only), and the manual re-verification script (never run by CI; downloads
     // the publisher's tarball and tagged files into memory and compares hashes). Neither deploys, applies or touches a database.
     for (const file of ["scripts/ci/assertVendoredDependencies.mjs", "scripts/vendor/reverifySheetjs.mjs"]) allowed.add(file);
+    // Financial table write boundary (20261221100000): a loopback-only disposable-database proof and its manifest, and the two
+    // migration-tail lists that pin the newest migration. No hosted access, no deploy capability.
+    // The two parked-candidate proofs (20261004100000 / 20261005100000) replay client SAFISHA writes the revocation removes,
+    // so they now stop the chain just before it (loopback only, no deploy behaviour).
+    for (const file of ["scripts/db-proof/financialWriteBoundary.mjs", "scripts/db-proof/financialWriteBoundary.manifest.mjs",
+      "scripts/db-proof/serviceWithholding.mjs", "scripts/db-proof/trackAHardening.mjs",
+      "scripts/db-proof/reconciliationAuthority.mjs", "scripts/db-proof/safishaIngestion.mjs"]) allowed.add(file);
     // Lovable's own markdown planning notes (.lovable/plan.md, .lovable/plan/*.md, .lovable/north-star/*.md) deploy nothing
     // (scripts/ci/inertBase.mjs isLovablePlanningNote). Every other .lovable path is still reviewed by exact file.
     expect(unreviewedPaths(changed, allowed).filter((p) => !isLovablePlanningNote(p))).toEqual([]);
