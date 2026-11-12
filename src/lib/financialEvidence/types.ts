@@ -9,6 +9,13 @@
 // document that tries.
 
 export const EVIDENCE_SCHEMA_VERSION = "1.0.0";
+/**
+ * Schema 1.1.0 exists for TRANSACTION_LEDGER only: it adds the column counter_cash_account_code and the activity
+ * TRANSFER_BETWEEN_CASH_ACCOUNTS (a movement between two cash accounts of the perimeter, which is not a cash flow). A ledger is
+ * read under 1.1.0 exactly when its header names that column; every other file, and every batch already stored, is 1.0.0 and
+ * is parsed, stored and replayed exactly as before (no existing row changes meaning).
+ */
+export const LEDGER_TRANSFER_SCHEMA_VERSION = "1.1.0";
 
 export const EVIDENCE_TYPES = [
   "TRIAL_BALANCE", // A — referenced, never re-parsed here

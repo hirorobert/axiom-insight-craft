@@ -294,7 +294,8 @@ describe("migration directory integrity", () => {
     // 214 -> 215: the prior FINAL pack becomes the readiness opening position (rfr_import_prior_pack), authored and not applied.
     // 213 -> 214: statements issued outside CFOClose become a reviewed, hash-bound source of the comparative, authored and not applied.
     // 215 -> 216: 20261221100000 financial table member write revocation (second-pass S2-S01/S2-S03/S2-S04), pending hosted apply.
-    expect(files.length).toBe(216);
+    // 216 -> 218: transfers between cash accounts and the post-closing finding (20261222100000) and the compiler identity that carries them (20261222200000), authored and not applied.
+    expect(files.length).toBe(218);
   });
 });
 
