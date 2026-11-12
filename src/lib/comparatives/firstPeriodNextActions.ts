@@ -1,5 +1,5 @@
-// financialStatementsWorkspace/firstPeriodNextActions.ts - the ONE next action for each unresolved first-period or opening-balance item.
-// These sentences are the server's own (public._fs_fp_next_action, 20261217100000); firstPeriodNextActions.test.ts fails if the two differ,
+// comparatives/firstPeriodNextActions.ts - the ONE next action for each unresolved first-period or opening-balance item.
+// These sentences are the server's own (public._fs_fp_next_action, 20261223100000); firstPeriodNextActions.test.ts fails if the two differ,
 // so a reason never reaches the page without its action. A code without words is shown as is, never hidden (serverBlockers.ts).
 
 export const FIRST_PERIOD_NEXT_ACTIONS: Readonly<Record<string, string>> = Object.freeze({

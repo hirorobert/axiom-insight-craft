@@ -682,6 +682,9 @@ describe("database inertness — schema and functions", () => {
     // close_review_refresh_findings with only the A01 expected-side test changed (proof: scripts/db-proof/closeReviewAuthority.mjs,
     // "Contra designation"). No financial-statements schema, no Edge Function, no composition or presentation change.
     added.add("supabase/migrations/20261224100000_contra_account_designation.sql");
+    // First-period review page (S2-A03; PR #269 beyond 20261217100000): ONE forward-only migration (the read model of the page and the approver's binding guard; three function
+    // definitions copied from #269, no table or column). AUTHORED, NOT APPLIED. The standalone port 20261223100000_first_period_governed_review_standalone.sql is NOT in this chain.
+    added.add("supabase/migrations/20261223100000_first_period_review_page_read_model.sql");
     expect(unreviewedChanges(changed, { added, modified, removed })).toEqual([]);
   });
 
@@ -1011,6 +1014,8 @@ describe("database inertness — schema and functions", () => {
     // externally hosted spreadsheet code (reads files only), and the manual re-verification script (never run by CI; downloads
     // the publisher's tarball and tagged files into memory and compares hashes). Neither deploys, applies or touches a database.
     for (const file of ["scripts/ci/assertVendoredDependencies.mjs", "scripts/vendor/reverifySheetjs.mjs"]) allowed.add(file);
+    // First-period review page: its loopback-only real-PostgreSQL proof (the page's calls through its own client over the real client transport).
+    allowed.add("scripts/db-proof/firstPeriodReviewPage.mjs");
     // Lovable's own markdown planning notes (.lovable/plan.md, .lovable/plan/*.md, .lovable/north-star/*.md) deploy nothing
     // (scripts/ci/inertBase.mjs isLovablePlanningNote). Every other .lovable path is still reviewed by exact file.
     expect(unreviewedPaths(changed, allowed).filter((p) => !isLovablePlanningNote(p))).toEqual([]);

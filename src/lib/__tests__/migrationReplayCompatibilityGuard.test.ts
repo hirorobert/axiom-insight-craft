@@ -296,7 +296,8 @@ describe("migration directory integrity", () => {
     // 215 -> 216: 20261221100000 financial table member write revocation (second-pass S2-S01/S2-S03/S2-S04), pending hosted apply.
     // 216 -> 218: transfers between cash accounts and the post-closing finding (20261222100000) and the compiler identity that carries them (20261222200000), authored and not applied.
     // 218 -> 219: 20261224100000 reviewed contra-account designation (S2-A05), authored and not applied.
-    expect(files.length).toBe(220);
+    // 219 -> 220: 20261223100000 the first-period review page's read model and the approver's binding guard (the part of PR #269 beyond 20261217100000), authored and not applied.
+    expect(files.length).toBe(221);
   });
 });
 
