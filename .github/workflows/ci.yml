@@ -129,6 +129,9 @@ jobs:
           node scripts/ci/assertSingleLockfile.mjs
           node scripts/buildStatementCompiler.mjs --check
 
+      - name: Vendored dependencies (SheetJS tarball and Deno build pinned and identical, no externally hosted spreadsheet code)
+        run: node scripts/ci/assertVendoredDependencies.mjs
+
       - name: Migration authority (the hosted Drizzle apply journal mirrors the authored supabase/migrations exactly)
         run: node scripts/ci/assertMigrationAuthority.mjs
 
@@ -201,8 +204,11 @@ jobs:
       - name: Type-check the QuickBooks connector functions including authorized disconnect against the real Supabase client types
         run: deno check supabase/functions/qbo-connect-start/index.ts supabase/functions/qbo-oauth-callback/index.ts supabase/functions/qbo-finish-connection/index.ts supabase/functions/qbo-pull-trial-balance/index.ts supabase/functions/qbo-disconnect/index.ts
 
+      - name: Type-check the functions that now write financial evidence with the service role after verifying the caller (20261221100000)
+        run: deno check supabase/functions/safisha-efdms-ingest/index.ts supabase/functions/maono-cashflow/index.ts supabase/functions/maono-risk/index.ts supabase/functions/safisha-categorize/index.ts supabase/functions/safisha-score/index.ts
+
       - name: Upload policy probe in Deno under a 150 MB V8 heap cap (invented files; the real gate and reader; each case in its own process, fits or terminated, measured)
-        run: deno run --allow-read --allow-write --allow-run --allow-env --allow-net=esm.sh scripts/bench/tbUploadPolicyDenoProbe.ts 150
+        run: deno run --allow-read --allow-write --allow-run --allow-env scripts/bench/tbUploadPolicyDenoProbe.ts 150
 
       - name: Type-check the online payment functions (checkout, recovery, provider diagnostics and the Polar and Snippe webhooks) against the real Supabase client types
         run: deno check supabase/functions/commercial-create-checkout/index.ts supabase/functions/commercial-payment-status/index.ts supabase/functions/commercial-provider-diagnostics/index.ts supabase/functions/commercial-webhook-polar/index.ts supabase/functions/commercial-webhook-snippe/index.ts supabase/functions/commercial-payment-webhook/index.ts
@@ -420,8 +426,11 @@ jobs:
           name: ipsas-auth-evidence-${{ github.sha }}
           path: real-app-evidence/ipsas
           if-no-files-found: ignore
+          # 30 days (GitHub's default is 90): evidence a release record cites must be committed under docs/release or
+          # downloaded within the month; the account's artifact storage quota is otherwise exhausted.
+          retention-days: 30
 
-      - name: Real application journey (the production build on loopback in headless Chrome; real Auth, PostgREST, RLS, Storage and Edge Functions; sign-in, first run, non-calendar periods, upload and review, next actions, Close Review, comparatives, adjustments, evidence, sign-off, sealed export, stale result, two-account isolation, 1280 and 375 px)
+      - name: Real application journey (the production build on loopback in headless Chrome; real Auth, PostgREST, RLS, Storage and Edge Functions; sign-in, first run, non-calendar periods, upload and review, next actions, Close Review, comparatives (and the governed first-period review - prepare, approval by a second person, stale, re-review), adjustments, evidence, sign-off, sealed export, stale result, two-account isolation, 1280 and 375 px)
         if: always()
         run: node scripts/e2e/localStackJourney.mjs real-app-evidence
 
@@ -474,6 +483,7 @@ jobs:
           name: real-app-evidence
           path: real-app-evidence
           if-no-files-found: ignore
+          retention-days: 30
 
       - name: Stop the local stack
         if: always()
@@ -706,6 +716,26 @@ jobs:
           cat proof-results/qboConnectorStorage.present.log
           node scripts/ci/validateProofResult.mjs proof-results/qboConnectorStorage.present.json --manifest scripts/db-proof/qboConnectorStorage.manifest.mjs --mode present --exit-code "$code"
 
+      - name: Financial table write boundary proof (20261221100000 - absent then present; members cannot write the eighteen server-written tables, input tables capability-bound, rows byte-identical, lock-timeout and wait under contention, service role still writes)
+        env:
+          DB_PROOF_MODE: external
+        run: |
+          mkdir -p proof-results
+          createdb financial_write_boundary_absent
+          set +e
+          DB_PROOF_CONN=postgres://postgres:postgres@127.0.0.1:5432/financial_write_boundary_absent PROOF_MODE=absent PROOF_RESULT_FILE=proof-results/financialWriteBoundary.absent.json bun scripts/db-proof/financialWriteBoundary.mjs > proof-results/financialWriteBoundary.absent.log 2>&1
+          code=$?
+          set -e
+          cat proof-results/financialWriteBoundary.absent.log
+          node scripts/ci/validateProofResult.mjs proof-results/financialWriteBoundary.absent.json --manifest scripts/db-proof/financialWriteBoundary.manifest.mjs --mode absent --exit-code "$code"
+          createdb financial_write_boundary
+          set +e
+          DB_PROOF_CONN=postgres://postgres:postgres@127.0.0.1:5432/financial_write_boundary PROOF_MODE=present PROOF_RESULT_FILE=proof-results/financialWriteBoundary.present.json bun scripts/db-proof/financialWriteBoundary.mjs > proof-results/financialWriteBoundary.present.log 2>&1
+          code=$?
+          set -e
+          cat proof-results/financialWriteBoundary.present.log
+          node scripts/ci/validateProofResult.mjs proof-results/financialWriteBoundary.present.json --manifest scripts/db-proof/financialWriteBoundary.manifest.mjs --mode present --exit-code "$code"
+
       - name: QuickBooks readiness candidate proof (local-only fiscal provenance and both disconnect/import lock orders)
         env:
           DB_PROOF_MODE: external
@@ -843,6 +873,7 @@ jobs:
           name: ipsas-journey-evidence
           path: ipsas-journey-evidence
           if-no-files-found: ignore
+          retention-days: 30
 
       - name: Mapping and processing authority proof (S1 — mapping writes and provenance, review combinations, server-owned processing fields, reprocess requests, certification invalidation, on the same throwaway container)
         env:
@@ -1402,6 +1433,41 @@ jobs:
           grep -v '^\[PTB' proof-results/publicationIntegrityGate.absent.log || true
           node scripts/ci/validateProofResult.mjs proof-results/publicationIntegrityGate.absent.json --manifest scripts/db-proof/publicationIntegrityGate.manifest.mjs --mode absent --exit-code "$code"
 
+      - name: First-period governed review proof (20261223100000, S2-A03 - the exception is a verified decision by a different approver bound to the entity, the server's period dates, immutable evidence revisions and the rule version, not a declaration; the old-certificate bypass refused; a genuine first period, activity before bookkeeping, dormancy and opening support; later evidence, facts, period or identity make it stale; the comparative path and the server-compilation splice unchanged; the rollout preflight read-only; evidence and decision changes racing with sign-off in both orderings; the Comparatives page calls in its order through its own client - prepare, the same person refused, a second person approves, new evidence stales it, a decision on the binding shown before refused, a re-review)
+        shell: bash
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/first_period_proof
+          PROOF_RESULT_FILE: proof-results/firstPeriodGovernedReview.present.json
+        run: |
+          createdb first_period_proof
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/firstPeriodGovernedReview.mjs > proof-results/firstPeriodGovernedReview.present.log 2>&1
+          code=$?
+          set -e
+          echo "$code" > proof-results/firstPeriodGovernedReview.present.exit
+          grep -v '^\[PTB' proof-results/firstPeriodGovernedReview.present.log || true
+          node scripts/ci/validateProofResult.mjs proof-results/firstPeriodGovernedReview.present.json --manifest scripts/db-proof/firstPeriodGovernedReview.manifest.mjs --mode present --exit-code "$code"
+
+      - name: First-period regression run without 20261223100000 (main's chain - exactly the weakness cases must fail, and their failure is the old-certificate bypass; every setup case, including the bypass reproduction on the old rule, must pass)
+        shell: bash
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/first_period_absent
+          FIRST_PERIOD_GATE_ABSENT: "1"
+          PROOF_RESULT_FILE: proof-results/firstPeriodGovernedReview.absent.json
+        run: |
+          createdb first_period_absent
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/firstPeriodGovernedReview.mjs > proof-results/firstPeriodGovernedReview.absent.log 2>&1
+          code=$?
+          set -e
+          echo "$code" > proof-results/firstPeriodGovernedReview.absent.exit
+          grep -v '^\[PTB' proof-results/firstPeriodGovernedReview.absent.log || true
+          node scripts/ci/validateProofResult.mjs proof-results/firstPeriodGovernedReview.absent.json --manifest scripts/db-proof/firstPeriodGovernedReview.manifest.mjs --mode absent --exit-code "$code"
+
       - name: Publication FINAL authority proof (20261125100000 - one current FINAL per company and period across draft lineages, decided under one scope lock - two concurrent first FINALs of different lineages yield one authority and one named refusal; a plain FINAL of a competing lineage is refused; a replacement needs approve_certification, a different approver and the exact current authority; the explicit replacement moves the authority, records a REPLACED event and leaves the replaced lineage's FINAL, bindings and sealed pack untouched; a retry is a replay; the replaced lineage gets no new issuance or seal and its pack is disclosed superseded; sealing and replacement wait for each other in both orders with real transaction barriers; expiry and capability revocation at seal; the comparative selection names the explicit authority; tenant and scope isolation; the append-only history)
         shell: bash
         env:
@@ -1584,6 +1650,7 @@ jobs:
           name: reporting-journey-evidence
           path: reporting-journey-evidence
           if-no-files-found: ignore
+          retention-days: 30
 
       - name: Equipment preparation browser journey (headless Chrome drives the real Schedules page over the loopback bridge as a preparer - the recorded one-class schedule loaded with nothing assumed, two classes rolled forward through cost and accumulated depreciation, a typo left as an exact difference, the depreciation tied to its expense line, only the applicable questions asked, three whole notes recorded with every class and the answers in one transaction and reconciled by the server, a concurrent three-class schedule refused by name with every edit retained and the new class loaded, a viewer refused, 1280 and 375 px)
         env:
@@ -1600,6 +1667,7 @@ jobs:
           name: equipment-journey-evidence
           path: equipment-journey-evidence
           if-no-files-found: ignore
+          retention-days: 30
 
       - name: CFO Close entitlements proof (legacy upgrade, catalogue, paid-action authority, walls, entity capacity, concurrency, on the same throwaway container)
         env:
