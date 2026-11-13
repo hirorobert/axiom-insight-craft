@@ -104,6 +104,14 @@ const addMonths = (d, n) => { const x = new Date(d); x.setUTCMonth(x.getUTCMonth
 
 const MIGRATION = "20261102100000_verified_charge_outcomes.sql";
 
+/** 20261229100000 (PR #266): once the chain has it, acquire_checkout_attempt requires the acknowledgement (and the 14-argument form is
+ *  gone); before it, only the 14-argument form exists. Decided against the live catalogue each time, so a proof that tests "before" and
+ *  then applies the rest of the chain acquires correctly in both phases. */
+async function ackArgs(c) {
+  const r = await c.query("SELECT to_regprocedure('public.acquire_checkout_attempt(uuid,uuid,uuid,uuid,text,text,smallint,bigint,text,smallint,text,text,uuid,text,text,boolean)') IS NOT NULL AS ok");
+  return r.rows[0].ok ? ",'proof-terms-version',true" : "";
+}
+
 async function main() {
   const url = await startDatabase();
   admin = new Client({ connectionString: url });
@@ -134,7 +142,7 @@ async function main() {
     await setState(env === "sandbox" ? "SANDBOX_ONLY" : "CUSTOMER_PAYMENTS_ENABLED");
     try {
       const o = await offer(plan);
-      return (await one(SERVICE, `SELECT public.acquire_checkout_attempt($1,$2,$3,$4,$5,$6,$7::smallint,$8,$9,$10::smallint,'POLAR',$11,$12,$13,'proof-terms-version',true) r`,
+      return (await one(SERVICE, `SELECT public.acquire_checkout_attempt($1,$2,$3,$4,$5,$6,$7::smallint,$8,$9,$10::smallint,'POLAR',$11,$12,$13${await ackArgs(admin)}) r`,
         [acct.bc, product, o.plan_id, o.id, o.market_code, o.currency_code, o.currency_exponent, o.amount_minor, o.billing_interval, o.billing_interval_count, env, acct.uid, `SAFF-${uuid().slice(0, 12)}`])).r;
     } finally { await setState("PAYMENTS_DISABLED"); }
   };
@@ -323,7 +331,7 @@ async function main() {
       await setState("CUSTOMER_PAYMENTS_ENABLED");
       const o = await offer("SOLO");
       const [acq, com] = await Promise.allSettled([
-        one(SERVICE, `SELECT public.acquire_checkout_attempt($1,$2,$3,$4,$5,$6,$7::smallint,$8,$9,$10::smallint,'POLAR','production',$11,$12,'proof-terms-version',true) r`,
+        one(SERVICE, `SELECT public.acquire_checkout_attempt($1,$2,$3,$4,$5,$6,$7::smallint,$8,$9,$10::smallint,'POLAR','production',$11,$12${await ackArgs(admin)}) r`,
           [a.bc, product, o.plan_id, o.id, o.market_code, o.currency_code, o.currency_exponent, o.amount_minor, o.billing_interval, o.billing_interval_count, a.uid, `SAFF-${uuid().slice(0, 12)}`]),
         commit(old)]);
       await setState("PAYMENTS_DISABLED");
