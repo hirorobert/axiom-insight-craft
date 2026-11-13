@@ -213,8 +213,10 @@ const setByLabel = (label, value) => page.evaluate((lab, val) => {
 }, label, value);
 /** PR #266: the Terms acceptance control gates "Continue to payment"; tick it (once) as the customer would. */
 const acceptTerms = async () => {
-  const state = await page.evaluate(() => { const b = document.querySelector('[data-testid="checkout-accept-terms"]'); return b ? { present: true, checked: b.checked } : { present: false }; });
-  if (state.present && !state.checked) await page.click('[data-testid="checkout-accept-terms"]');
+  for (const id of ["checkout-accept-terms", "checkout-accept-service-consent"]) {
+    const state = await page.evaluate((sel) => { const b = document.querySelector(sel); return b ? { present: true, checked: b.checked } : { present: false }; }, `[data-testid="${id}"]`);
+    if (state.present && !state.checked) await page.click(`[data-testid="${id}"]`);
+  }
 };
 const setInput = (selector, value) => page.evaluate((sel, val) => {
   const el = document.querySelector(sel);

@@ -111,8 +111,8 @@ describe("which compile-financial-report bundle is deployed", () => {
 
 describe("the two commercial functions that carry the Terms version (PR #266)", () => {
   it("are pinned to the current tree's closures, with main 9a919c0 as the known predecessor", () => {
-    expect(KNOWN_CLOSURES["commercial-create-checkout"].required.sha256).toBe("e8c715020045b87950a5b61cdf970803e2e4a4aabc9e15170299fc54f8af6b14");
-    expect(KNOWN_CLOSURES["commercial-payment-status"].required.sha256).toBe("89f1dda228d869fa7301e2e3ddaf2a8b615bcea9245226778f453954ba3d65de");
+    expect(KNOWN_CLOSURES["commercial-create-checkout"].required.sha256).toBe("22a26cf189463a6bc0ffdf3e0b568a8c47f96111be8e623dfb7ce9d66fe008d1");
+    expect(KNOWN_CLOSURES["commercial-payment-status"].required.sha256).toBe("9f9c8cf770739cd8d485f474394cae149bbf5bc15e8bbfa1eea150091c3614ce");
     expect(classify("commercial-create-checkout", "961818245916e93cbe7810ecbd4acc58eceb0f91ec96d8890c051ac5fbdbec42").verdict).toBe("KNOWN_OLDER");
     expect(classify("commercial-create-checkout", deployedClosure("commercial-create-checkout", ROOT)).verdict).toBe("REQUIRED");
     expect(classify("commercial-payment-status", deployedClosure("commercial-payment-status", ROOT)).verdict).toBe("REQUIRED");

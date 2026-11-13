@@ -3,14 +3,25 @@ import { channel, mailtoHref } from "@/lib/contact/contactChannels";
 import { REFUNDS_AND_CANCELLATION } from "@/lib/commercial/purchaseTerms";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
+import { ArchivedPolicy, PolicyVersionLine, usePolicyVersion } from "@/components/legal/PolicyVersion";
 
 export default function Terms() {
+  const version = usePolicyVersion();
+  if (version.requested && (version.archived || version.unknown)) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <ArchivedPolicy page="terms" requested={version.requested} text={version.archived?.terms ?? null} unknown={version.unknown} />
+        <Footer />
+      </div>
+    );
+  }
   return (
     <div className="min-h-screen bg-background">
       <Header />
       <main className="max-w-3xl mx-auto px-6 pt-32 pb-20">
         <h1 className="text-3xl font-bold text-foreground mb-2">Terms of Service</h1>
-        <p className="text-sm text-muted-foreground mb-10">Last updated: 11 November 2026</p>
+        <PolicyVersionLine page="terms" />
 
         <section className="space-y-8 text-sm leading-relaxed text-muted-foreground">
           <div>

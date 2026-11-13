@@ -78,14 +78,14 @@ BEGIN
   IF (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname = 'acquire_checkout_attempt') <> 1 THEN
     RAISE EXCEPTION 'FAIL: expected exactly one acquire_checkout_attempt overload live';
   END IF;
-  RAISE NOTICE 'PASS: 14-arg acquire_checkout_attempt overload retired; exactly one (15-arg, p_terms_version DEFAULT NULL) live';
-  IF NOT has_function_privilege('service_role', 'public.acquire_checkout_attempt(uuid,uuid,uuid,uuid,text,text,smallint,bigint,text,smallint,text,text,uuid,text,text)', 'EXECUTE') THEN
+  RAISE NOTICE 'PASS: 14-arg acquire_checkout_attempt overload retired; exactly one (16-arg: p_terms_version, p_immediate_service_consent) live';
+  IF NOT has_function_privilege('service_role', 'public.acquire_checkout_attempt(uuid,uuid,uuid,uuid,text,text,smallint,bigint,text,smallint,text,text,uuid,text,text,boolean)', 'EXECUTE') THEN
     RAISE EXCEPTION 'FAIL: service_role missing EXECUTE on acquire_checkout_attempt';
   END IF;
-  IF has_function_privilege('authenticated', 'public.acquire_checkout_attempt(uuid,uuid,uuid,uuid,text,text,smallint,bigint,text,smallint,text,text,uuid,text,text)', 'EXECUTE') THEN
+  IF has_function_privilege('authenticated', 'public.acquire_checkout_attempt(uuid,uuid,uuid,uuid,text,text,smallint,bigint,text,smallint,text,text,uuid,text,text,boolean)', 'EXECUTE') THEN
     RAISE EXCEPTION 'FAIL: authenticated must NOT have EXECUTE on acquire_checkout_attempt';
   END IF;
-  IF has_function_privilege('anon', 'public.acquire_checkout_attempt(uuid,uuid,uuid,uuid,text,text,smallint,bigint,text,smallint,text,text,uuid,text,text)', 'EXECUTE') THEN
+  IF has_function_privilege('anon', 'public.acquire_checkout_attempt(uuid,uuid,uuid,uuid,text,text,smallint,bigint,text,smallint,text,text,uuid,text,text,boolean)', 'EXECUTE') THEN
     RAISE EXCEPTION 'FAIL: anon must NOT have EXECUTE on acquire_checkout_attempt';
   END IF;
   RAISE NOTICE 'PASS: acquire_checkout_attempt EXECUTE grants are service_role-only';

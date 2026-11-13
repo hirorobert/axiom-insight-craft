@@ -45,7 +45,7 @@ const at = (path: string, el: ReturnType<typeof h>) => h(MemoryRouter, { initial
 const textOf = (m: Mounted) => m.container.textContent ?? "";
 const byTestId = (m: Mounted, id: string) => m.container.querySelector(`[data-testid="${id}"]`) as HTMLElement | null;
 /** PR #266: the Terms acceptance control gates Continue; the pre-existing flows tick it (once) before pressing. */
-const acceptTerms = (m: Mounted) => { const b = byTestId(m, "checkout-accept-terms") as HTMLInputElement | null; if (b && !b.checked) click(b); };
+const acceptTerms = (m: Mounted) => { for (const id of ["checkout-accept-terms", "checkout-accept-service-consent"]) { const b = byTestId(m, id) as HTMLInputElement | null; if (b && !b.checked) click(b); } };
 
 let m: Mounted | null = null;
 beforeEach(() => { auth.user = { id: "u1", email: "owner@example.test" }; vi.clearAllMocks(); });
@@ -60,27 +60,31 @@ const BOTH = {
 };
 
 describe("checkout", () => {
-  it("Terms acceptance (PR #266): Continue stays disabled until the box is ticked; the box names the version; ticking enables; the request carries exactly TERMS_VERSION", async () => {
+  it("Acknowledgement (PR #266, package 12.7): Continue stays disabled until BOTH boxes are ticked; box 1 names the version, box 2 is the immediate-start consent; the request carries exactly TERMS_VERSION and the consent flag", async () => {
     client.getCheckoutOptions.mockResolvedValue({ data: BOTH, error: null });
     client.startCheckout.mockResolvedValue({ ok: false, error: "NETWORK", saffReference: null });
     m = mount(at("/billing/checkout?plan=SOLO", h(Checkout)));
     await flush();
     click(byTestId(m, "route-CARD")!.querySelector("input")!);
     const box = byTestId(m, "checkout-accept-terms") as HTMLInputElement;
+    const consent = byTestId(m, "checkout-accept-service-consent") as HTMLInputElement;
     expect(box.checked).toBe(false);
+    expect(consent.checked).toBe(false);
     expect(byTestId(m, "checkout-accept-terms-label")!.textContent).toContain(TERMS_VERSION);
     expect(byTestId(m, "checkout-accept-terms-label")!.textContent).toBe(TERMS_ACCEPTANCE.label);
+    expect(byTestId(m, "checkout-accept-service-consent-label")!.textContent).toBe(TERMS_ACCEPTANCE.consentLabel);
     expect((byTestId(m, "checkout-continue") as HTMLButtonElement).disabled).toBe(true);
     click(byTestId(m, "checkout-continue")!);
     await flush();
     expect(client.startCheckout).not.toHaveBeenCalled();
     click(box);
-    expect(box.checked).toBe(true);
+    expect((byTestId(m, "checkout-continue") as HTMLButtonElement).disabled).toBe(true); // one box is not enough
+    click(consent);
     expect((byTestId(m, "checkout-continue") as HTMLButtonElement).disabled).toBe(false);
     click(byTestId(m, "checkout-continue")!);
     await flush();
     expect(client.startCheckout).toHaveBeenCalledTimes(1);
-    expect(client.startCheckout).toHaveBeenCalledWith("SOLO", "CARD", null, TERMS_VERSION);
+    expect(client.startCheckout).toHaveBeenCalledWith("SOLO", "CARD", null, TERMS_VERSION, true);
     expect(await axeViolations(m.container)).toEqual([]);
   });
 
@@ -90,11 +94,12 @@ describe("checkout", () => {
     m = mount(at("/billing/checkout?plan=SOLO", h(Checkout)));
     await flush();
     click(byTestId(m, "route-CARD")!.querySelector("input")!);
-    click(byTestId(m, "checkout-accept-terms")!);
+    acceptTerms(m);
     click(byTestId(m, "checkout-continue")!);
     await flush();
     expect(byTestId(m, "checkout-error")!.textContent).toContain(TERMS_ACCEPTANCE.outdated);
     expect((byTestId(m, "checkout-accept-terms") as HTMLInputElement).checked).toBe(false);
+    expect((byTestId(m, "checkout-accept-service-consent") as HTMLInputElement).checked).toBe(false);
     expect((byTestId(m, "checkout-continue") as HTMLButtonElement).disabled).toBe(true);
     expect(where).toBe("/billing/checkout?plan=SOLO");
   });
@@ -303,7 +308,7 @@ describe("checkout", () => {
     acceptTerms(m); click(byTestId(m, "checkout-continue")!);
     await flush();
     expect(client.startCheckout).toHaveBeenCalledTimes(1);
-    expect(client.startCheckout).toHaveBeenCalledWith("SOLO", "MOBILE_MONEY", "0712 345 678", TERMS_VERSION);
+    expect(client.startCheckout).toHaveBeenCalledWith("SOLO", "MOBILE_MONEY", "0712 345 678", TERMS_VERSION, true);
     expect(where).toBe("/billing/payment/return?ref=SAFF-1-ABC");
   });
 
@@ -317,7 +322,7 @@ describe("checkout", () => {
     click(byTestId(m, "route-CARD")!.querySelector("input")!);
     acceptTerms(m); click(byTestId(m, "checkout-continue")!);
     await flush();
-    expect(client.startCheckout).toHaveBeenCalledWith("SOLO", "CARD", null, TERMS_VERSION);
+    expect(client.startCheckout).toHaveBeenCalledWith("SOLO", "CARD", null, TERMS_VERSION, true);
     expect(assign).toHaveBeenCalledWith("https://sandbox.polar.sh/checkout/x");
   });
 
@@ -686,7 +691,7 @@ describe("S2-C02 · a first purchase from /plans shows the purchase terms before
     expect(byTestId(m, "checkout-terms-link")!.getAttribute("href")).toBe("/terms#refunds");
     acceptTerms(m); click(byTestId(m, "checkout-continue")!);
     await flush();
-    expect(client.startCheckout).toHaveBeenCalledWith("SOLO", "CARD", null, TERMS_VERSION);
+    expect(client.startCheckout).toHaveBeenCalledWith("SOLO", "CARD", null, TERMS_VERSION, true);
     expect(assign).toHaveBeenCalledWith("https://polar.sh/checkout/x");
     expect(onScreenWhenLeaving).toContain("no automatic renewal");
     expect(onScreenWhenLeaving).toContain("merchant of record");

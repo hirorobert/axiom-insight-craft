@@ -57,11 +57,11 @@ export const KNOWN_CLOSURES = Object.freeze({
   // checkout metadata (providers/polar.ts, shared by both functions). Neither function was pinned before; main 9a919c0's closures
   // are recorded as the known predecessors (whether they are what production runs is NOT verified from this repository).
   "commercial-create-checkout": Object.freeze({
-    required: { sha256: "e8c715020045b87950a5b61cdf970803e2e4a4aabc9e15170299fc54f8af6b14", source: "PR #266: refuses a checkout without the current Terms version before any write; records the server's version on the intent and in Polar metadata; needs 20261229100000 applied first" },
+    required: { sha256: "22a26cf189463a6bc0ffdf3e0b568a8c47f96111be8e623dfb7ce9d66fe008d1", source: "PR #266: refuses a checkout without the current Terms version before any write; records the server's version on the intent and in Polar metadata; needs 20261229100000 applied first" },
     known: [{ sha256: "961818245916e93cbe7810ecbd4acc58eceb0f91ec96d8890c051ac5fbdbec42", source: "main 9a919c0 (consolidated release): no Terms version; 14-argument acquire_checkout_attempt call (still valid after 20261229100000)" }],
   }),
   "commercial-payment-status": Object.freeze({
-    required: { sha256: "89f1dda228d869fa7301e2e3ddaf2a8b615bcea9245226778f453954ba3d65de", source: "PR #266: shares providers/polar.ts (terms_version metadata); no behavioural change of its own" },
+    required: { sha256: "9f9c8cf770739cd8d485f474394cae149bbf5bc15e8bbfa1eea150091c3614ce", source: "PR #266: shares providers/polar.ts (terms_version metadata); no behavioural change of its own" },
     known: [{ sha256: "0cb83e259c7516c02f5ca86abb2f7f033a66dde73f24d93485e59d27fdea3941", source: "main 9a919c0 (consolidated release)" }],
   }),
   "trial-balance-storage-cleanup": Object.freeze({

@@ -5,11 +5,11 @@
 // "after" cases must fail (their failure is the defect: no acceptance can be recorded and nothing protects one).
 //
 //   Chain        every migration before the file applies; the file applies once; a replay is a no-op (idempotent)
-//   One function exactly one acquire_checkout_attempt exists afterwards, with 15 arguments and one default (no overload: a
-//                14-argument call resolves to it — the deployed older Edge Function keeps working)
-//   Old callers  the 14-argument call (what production code sends today) still acquires; the intent records NO acceptance keys
-//   Recorded     the 15-argument call records terms_version, terms_accepted_at (server clock) and terms_accepted_by_user_id (the
-//                authenticated purchaser), and nothing else changes on the row
+//   One function exactly one acquire_checkout_attempt exists afterwards, with 16 arguments and two defaults (no overload: a
+//                14-argument call resolves to it and is REFUSED - after this migration no intent exists without the acknowledgement)
+//   No bypass    the 14-argument call (what the pre-release function sends), a missing consent or a NULL version: refused, nothing written
+//   Recorded     the 16-argument call records terms_version, terms_accepted, terms_accepted_at (server clock), terms_accepted_by_user_id
+//                (the authenticated purchaser) and immediate_service_consent, and nothing else changes on the row
 //   Retry        a second acquisition for the same customer and plan returns the existing intent (REUSE/ALREADY/OPEN) and leaves
 //                its acceptance exactly as recorded — even when the retry names a different version
 //   Immutable    changing, removing or ADDING any acceptance key by UPDATE is refused (TERMS_ACCEPTANCE_IMMUTABLE), for
@@ -132,8 +132,8 @@ async function main() {
 
   const nArgs = async () => (await admin.query("SELECT p.pronargs, p.pronargdefaults FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='acquire_checkout_attempt' ORDER BY 1")).rows;
   group("One function, no overload");
-  await check("exactly one acquire_checkout_attempt exists, with 15 arguments and one default", async () => {
-    const r = await nArgs(); return r.length === 1 && Number(r[0].pronargs) === 15 && Number(r[0].pronargdefaults) === 1 ? true : r;
+  await check("exactly one acquire_checkout_attempt exists, with 16 arguments and two defaults (the old signature is absent)", async () => {
+    const r = await nArgs(); return r.length === 1 && Number(r[0].pronargs) === 16 && Number(r[0].pronargdefaults) === 2 ? true : r;
   });
 
   const mkUser = async (label) => { const id = uuid(); await admin.query("INSERT INTO auth.users (id,email) VALUES ($1,$2)", [id, `${label}-${id.slice(0, 8)}@example.test`]); return id; };
@@ -143,36 +143,53 @@ async function main() {
   const setState = (s) => admin.query("UPDATE public.commercial_platform_state SET state=$1 WHERE id = true", [s]);
   const offer = async (plan) => (await admin.query("SELECT co.* FROM public.commercial_offers co JOIN public.commercial_plans cp ON cp.id=co.plan_id WHERE cp.code=$1 AND co.market_code='GLOBAL' AND co.currency_code='USD' AND co.billing_interval='ANNUAL'", [plan])).rows[0];
   const ARGS14 = "$1,$2,$3,$4,$5,$6,$7::smallint,$8,$9,$10::smallint,'POLAR','production',$11,$12";
+const ARGS16 = ARGS14 + ",$13,$14";
   const acquire14 = async (acct, plan, ref = `SAFF-${uuid().slice(0, 10)}`) => {
     await setState("CUSTOMER_PAYMENTS_ENABLED");
     try { const o = await offer(plan); return (await one(SERVICE, `SELECT public.acquire_checkout_attempt(${ARGS14}) r`, [acct.bc, product, o.plan_id, o.id, o.market_code, o.currency_code, o.currency_exponent, o.amount_minor, o.billing_interval, o.billing_interval_count, acct.uid, ref])).r; }
     finally { await setState("PAYMENTS_DISABLED"); }
   };
-  const acquire15 = async (acct, plan, version, ref = `SAFF-${uuid().slice(0, 10)}`) => {
+  const acquire15 = async (acct, plan, version, ref = `SAFF-${uuid().slice(0, 10)}`, consent = true) => {
     await setState("CUSTOMER_PAYMENTS_ENABLED");
-    try { const o = await offer(plan); return (await one(SERVICE, `SELECT public.acquire_checkout_attempt(${ARGS14},$13) r`, [acct.bc, product, o.plan_id, o.id, o.market_code, o.currency_code, o.currency_exponent, o.amount_minor, o.billing_interval, o.billing_interval_count, acct.uid, ref, version])).r; }
+    try { const o = await offer(plan); return (await one(SERVICE, `SELECT public.acquire_checkout_attempt(${ARGS16}) r`, [acct.bc, product, o.plan_id, o.id, o.market_code, o.currency_code, o.currency_exponent, o.amount_minor, o.billing_interval, o.billing_interval_count, acct.uid, ref, version, consent])).r; }
     finally { await setState("PAYMENTS_DISABLED"); }
   };
   const meta = async (id) => (await admin.query("SELECT metadata, status, created_at, expected_amount_minor, saff_reference FROM public.payment_checkout_intents WHERE id=$1", [id])).rows[0];
-  const KEYS = ["terms_version", "terms_accepted_at", "terms_accepted_by_user_id"];
+  const KEYS = ["terms_version", "terms_accepted", "terms_accepted_at", "terms_accepted_by_user_id", "immediate_service_consent"];
 
-  group("Old callers (today's deployed function sends 14 arguments)");
+  group("No intent without the acknowledgement (a 14-argument caller - the pre-release function - is refused, nothing written)");
   const A = await account("old-caller");
+  await check("a 14-argument acquisition is REFUSED with TERMS_ACCEPTANCE_REQUIRED and creates no intent", async () => {
+    const e = await errOf(() => acquire14(A, "SOLO"));
+    const n = await admin.query("SELECT count(*)::int n FROM public.payment_checkout_intents WHERE billing_customer_id=$1", [A.bc]);
+    return e && /TERMS_ACCEPTANCE_REQUIRED/.test(e.message) && n.rows[0].n === 0 ? true : { e: code(e), n: n.rows[0].n };
+  });
+  await check("a version without the consent flag (false, or NULL) is refused the same way; nothing written", async () => {
+    const e1 = await errOf(() => acquire15(A, "SOLO", VERSION, `SAFF-${uuid().slice(0, 10)}`, false));
+    const e2 = await errOf(() => acquire15(A, "SOLO", VERSION, `SAFF-${uuid().slice(0, 10)}`, null));
+    const n = await admin.query("SELECT count(*)::int n FROM public.payment_checkout_intents WHERE billing_customer_id=$1", [A.bc]);
+    return e1 && e2 && /TERMS_ACCEPTANCE_REQUIRED/.test(e1.message) && /TERMS_ACCEPTANCE_REQUIRED/.test(e2.message) && n.rows[0].n === 0 ? true : { e1: code(e1), e2: code(e2), n: n.rows[0].n };
+  });
+  // A historical intent (created before this migration) for the immutability cases: inserted as the pre-release function would have.
   let a14;
-  await check("a 14-argument acquisition still creates a NEW_ATTEMPT", async () => { a14 = await acquire14(A, "SOLO"); return a14.action === "NEW_ATTEMPT" ? true : a14; });
-  await check("its intent records NO acceptance key (NULL = not recorded, never inferred)", async () => { const m = await meta(a14.intent_id); return KEYS.every((k) => !(k in m.metadata)) ? true : m.metadata; });
+  await check("a historical intent (inserted without the keys, as before the migration) carries NO acceptance key", async () => {
+    const o = await offer("SOLO");
+    a14 = (await admin.query("INSERT INTO public.payment_checkout_intents (billing_customer_id, commercial_offer_id, plan_id, product_id, market_code, expected_amount_minor, currency_code, currency_exponent, billing_interval, billing_interval_count, provider, provider_environment, saff_reference, status, created_by_user_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'POLAR','production',$11,'FAILED',$12) RETURNING id AS intent_id",
+      [A.bc, o.id, o.plan_id, product, o.market_code, o.amount_minor, o.currency_code, o.currency_exponent, o.billing_interval, o.billing_interval_count, `SAFF-${uuid().slice(0, 10)}`, A.uid])).rows[0];
+    const m = await meta(a14.intent_id); return KEYS.every((k) => !(k in m.metadata)) ? true : m.metadata;
+  });
 
   group("Recorded acceptance (after)");
   const B = await account("accepting");
   let b15;
-  await check("a 15-argument acquisition records terms_version, terms_accepted_at and terms_accepted_by_user_id (the purchaser)", async () => {
+  await check("a 16-argument acquisition records terms_version, terms_accepted, terms_accepted_at, terms_accepted_by_user_id (the purchaser) and immediate_service_consent", async () => {
     b15 = await acquire15(B, "PRACTICE", VERSION);
     if (b15.action !== "NEW_ATTEMPT") return b15;
     const m = await meta(b15.intent_id);
     const at = m.metadata.terms_accepted_at && new Date(m.metadata.terms_accepted_at);
-    return m.metadata.terms_version === VERSION && m.metadata.terms_accepted_by_user_id === B.uid && at && Math.abs(at - new Date(m.created_at)) < 5000 ? true : m.metadata;
+    return m.metadata.terms_version === VERSION && m.metadata.terms_accepted === true && m.metadata.immediate_service_consent === true && m.metadata.terms_accepted_by_user_id === B.uid && at && Math.abs(at - new Date(m.created_at)) < 5000 ? true : m.metadata;
   });
-  await check("nothing else on the row changed shape: status CREATING, the expected amount, the reference, and exactly the three keys", async () => {
+  await check("nothing else on the row changed shape: status CREATING, the expected amount, the reference, and exactly the five keys", async () => {
     const m = await meta(b15.intent_id); const o = await offer("PRACTICE");
     return m.status === "CREATING" && Number(m.expected_amount_minor) === Number(o.amount_minor) && m.saff_reference === b15.saff_reference && Object.keys(m.metadata).sort().join() === KEYS.slice().sort().join() ? true : m;
   });
@@ -183,10 +200,10 @@ async function main() {
     const m = await meta(b15.intent_id);
     return ["ALREADY_IN_PROGRESS", "REUSE_EXISTING", "OPEN_CHECKOUT_BLOCKS_NEW_ATTEMPT", "MANUAL_REVIEW_BLOCKS_NEW_ATTEMPT"].includes(again.action) && m.metadata.terms_version === VERSION && m.metadata.terms_accepted_by_user_id === B.uid ? true : { again, m: m.metadata };
   });
-  await check("a 14-argument retry (an older client) for the same customer leaves the recorded acceptance intact", async () => {
+  await check("a 14-argument retry (the pre-release function) for the same customer still returns the existing intent read-only and leaves its acceptance intact", async () => {
     const again = await acquire14(B, "PRACTICE");
     const m = await meta(b15.intent_id);
-    return again.action !== "NEW_ATTEMPT" && m.metadata.terms_version === VERSION ? true : { again, m: m.metadata };
+    return again.action !== "NEW_ATTEMPT" && m.metadata.terms_version === VERSION && m.metadata.immediate_service_consent === true ? true : { again, m: m.metadata };
   });
 
   group("Immutability (the acceptance is written at acquisition and nowhere else)");
@@ -198,13 +215,15 @@ async function main() {
     const e = await errOf(() => admin.query("UPDATE public.payment_checkout_intents SET metadata = metadata - 'terms_version' - 'terms_accepted_at' - 'terms_accepted_by_user_id' WHERE id=$1", [b15.intent_id]));
     return e && /TERMS_ACCEPTANCE_IMMUTABLE/.test(e.message) ? true : code(e);
   });
-  await check("changing terms_accepted_by_user_id or terms_accepted_at is refused", async () => {
+  await check("changing terms_accepted_by_user_id, terms_accepted_at, terms_accepted or immediate_service_consent is refused", async () => {
     const e1 = await errOf(() => admin.query("UPDATE public.payment_checkout_intents SET metadata = metadata || jsonb_build_object('terms_accepted_by_user_id', $2::text) WHERE id=$1", [b15.intent_id, A.uid]));
     const e2 = await errOf(() => admin.query("UPDATE public.payment_checkout_intents SET metadata = metadata || jsonb_build_object('terms_accepted_at', now()) WHERE id=$1", [b15.intent_id]));
-    return e1 && e2 && /TERMS_ACCEPTANCE_IMMUTABLE/.test(e1.message) && /TERMS_ACCEPTANCE_IMMUTABLE/.test(e2.message) ? true : { e1: code(e1), e2: code(e2) };
+    const e3 = await errOf(() => admin.query("UPDATE public.payment_checkout_intents SET metadata = metadata || jsonb_build_object('immediate_service_consent', false) WHERE id=$1", [b15.intent_id]));
+    const e4 = await errOf(() => admin.query("UPDATE public.payment_checkout_intents SET metadata = metadata || jsonb_build_object('terms_accepted', false) WHERE id=$1", [b15.intent_id]));
+    return [e1, e2, e3, e4].every((e) => e && /TERMS_ACCEPTANCE_IMMUTABLE/.test(e.message)) ? true : [e1, e2, e3, e4].map(code);
   });
   await check("a historical intent without acceptance cannot receive one retrospectively", async () => {
-    const e = await errOf(() => admin.query("UPDATE public.payment_checkout_intents SET metadata = metadata || jsonb_build_object('terms_version', $2::text, 'terms_accepted_at', now(), 'terms_accepted_by_user_id', $3::text) WHERE id=$1", [a14.intent_id, VERSION, A.uid]));
+    const e = await errOf(() => admin.query("UPDATE public.payment_checkout_intents SET metadata = metadata || jsonb_build_object('terms_version', $2::text, 'terms_accepted', true, 'terms_accepted_at', now(), 'terms_accepted_by_user_id', $3::text, 'immediate_service_consent', true) WHERE id=$1", [a14.intent_id, VERSION, A.uid]));
     const after = await meta(a14.intent_id);
     return e && /TERMS_ACCEPTANCE_IMMUTABLE/.test(e.message) && KEYS.every((k) => !(k in after.metadata)) ? true : code(e);
   });
@@ -227,8 +246,8 @@ async function main() {
   group("Authority");
   await check("authenticated cannot EXECUTE acquire_checkout_attempt (42501); anon neither", async () => {
     const o = await offer("SOLO"); const D = await account("direct");
-    const e1 = await errOf(() => one(user(D.uid), `SELECT public.acquire_checkout_attempt(${ARGS14},$13) r`, [D.bc, product, o.plan_id, o.id, o.market_code, o.currency_code, o.currency_exponent, o.amount_minor, o.billing_interval, o.billing_interval_count, D.uid, `SAFF-${uuid().slice(0, 10)}`, VERSION]));
-    const e2 = await errOf(() => one(ANON, `SELECT public.acquire_checkout_attempt(${ARGS14},$13) r`, [D.bc, product, o.plan_id, o.id, o.market_code, o.currency_code, o.currency_exponent, o.amount_minor, o.billing_interval, o.billing_interval_count, D.uid, `SAFF-${uuid().slice(0, 10)}`, VERSION]));
+    const e1 = await errOf(() => one(user(D.uid), `SELECT public.acquire_checkout_attempt(${ARGS16}) r`, [D.bc, product, o.plan_id, o.id, o.market_code, o.currency_code, o.currency_exponent, o.amount_minor, o.billing_interval, o.billing_interval_count, D.uid, `SAFF-${uuid().slice(0, 10)}`, VERSION, true]));
+    const e2 = await errOf(() => one(ANON, `SELECT public.acquire_checkout_attempt(${ARGS16}) r`, [D.bc, product, o.plan_id, o.id, o.market_code, o.currency_code, o.currency_exponent, o.amount_minor, o.billing_interval, o.billing_interval_count, D.uid, `SAFF-${uuid().slice(0, 10)}`, VERSION, true]));
     return e1?.code === "42501" && e2?.code === "42501" ? true : { e1: code(e1), e2: code(e2) };
   });
   await check("the owner can still READ their own intent's recorded acceptance (SELECT policy unchanged); another user cannot", async () => {

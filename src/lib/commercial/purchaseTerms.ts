@@ -38,11 +38,17 @@ export const REFUNDS_AND_CANCELLATION = {
  * texts). The browser sends it with the checkout request; the server refuses any other value before writing anything and
  * records ITS constant on the intent. Format: <publication date>.<first 12 hex of the policy-text SHA-256>.
  */
-export const TERMS_VERSION = "2026-11-13.ff1cd08560f3";
+export const TERMS_VERSION = "2026-11-13.43956c6fa6a8";
 
-/** The acceptance control shown before "Continue to payment" (UI copy, not legal text; the Terms themselves are linked). */
+/**
+ * The two acknowledgements required before "Continue to payment" (commercial package 12.7). Box 1 is the Terms acceptance; box 2 is the
+ * customer's consent to the plan starting as soon as the payment is confirmed (ETA s.30(5)(d)). APPROVAL STATUS of box 2's WORDING:
+ * DRAFT, subject to counsel (C6); the flag it records is technically determinate. Neither is legal text of its own: the Terms are linked.
+ */
 export const TERMS_ACCEPTANCE = {
-  label: `I have read and accept the Terms of Service (version ${TERMS_VERSION}), including the refund and cancellation terms above.`,
+  label: `I accept the CFOClose Terms of Service (version ${TERMS_VERSION}) and Privacy Policy, including the refund terms above.`,
+  /** DRAFT until counsel C6 (package 12.7). */
+  consentLabel: "I ask for my plan to start as soon as Polar confirms my payment. I understand that, because the service starts immediately at my request, the seven-day cancellation right under the Electronic Transactions Act does not apply; the CFOClose refund policy above still applies.",
   /** Shown when the server answers TERMS_VERSION_NOT_CURRENT or TERMS_VERSION_REQUIRED. */
   outdated: "The Terms of Service were updated after this page was opened. Reload the page to review and accept the current version; nothing was charged.",
 } as const;

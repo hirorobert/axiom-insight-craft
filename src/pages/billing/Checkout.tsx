@@ -56,6 +56,8 @@ export default function Checkout() {
   const [phone, setPhone] = useState("");
   const [phoneError, setPhoneError] = useState<string | null>(null);
   const [termsAccepted, setTermsAccepted] = useState(false);
+  const [serviceConsent, setServiceConsent] = useState(false);
+  const acknowledged = termsAccepted && serviceConsent;
   const [submitting, setSubmitting] = useBusyState("Opening secure payment…");
   const [error, setError] = useState<{ text: string; ref: string | null; kind: string } | null>(null);
 
@@ -108,8 +110,8 @@ export default function Checkout() {
     }
     if (!setSubmitting(true)) return;
     try {
-    if (!termsAccepted) { setSubmitting(false); return; }
-    const result = await startCheckout(plan as PlanCode, chosen.paymentRoute, chosen.paymentRoute === "MOBILE_MONEY" ? phone : null, TERMS_VERSION);
+    if (!acknowledged) { setSubmitting(false); return; }
+    const result = await startCheckout(plan as PlanCode, chosen.paymentRoute, chosen.paymentRoute === "MOBILE_MONEY" ? phone : null, TERMS_VERSION, true);
     if ("checkoutUrl" in result) {
       // The provider's hosted page: https (a loopback page only in local sandbox tests — the server never returns one in
       // production).
@@ -119,7 +121,7 @@ export default function Checkout() {
     }
     const r = result as { error: string; saffReference: string | null; previousPlanName?: string | null };
     setSubmitting(false);
-    if (r.error === "TERMS_VERSION_NOT_CURRENT" || r.error === "TERMS_VERSION_REQUIRED") { setTermsAccepted(false); setError({ kind: "terms", ref: null, text: TERMS_ACCEPTANCE.outdated }); return; }
+    if (r.error === "TERMS_VERSION_NOT_CURRENT" || r.error === "TERMS_VERSION_REQUIRED" || r.error === "SERVICE_CONSENT_REQUIRED") { setTermsAccepted(false); setServiceConsent(false); setError({ kind: "terms", ref: null, text: TERMS_ACCEPTANCE.outdated }); return; }
     if (r.error.startsWith("PHONE_NUMBER_INVALID")) { setPhoneError("Enter a mobile money number on +255, for example 0712 345 678."); return; }
     if (r.error.startsWith("CHECKOUT_OUTCOME_UNCERTAIN") || r.error === "NETWORK") {
       setError({ kind: "uncertain", ref: r.saffReference, text: "We could not confirm whether the payment was started. Do not pay again: check this order first." });
@@ -233,6 +235,10 @@ export default function Checkout() {
             <input type="checkbox" className="mt-1 h-4 w-4" checked={termsAccepted} onChange={(e) => setTermsAccepted(e.target.checked)} data-testid="checkout-accept-terms" aria-describedby="checkout-refunds-title" />
             <span>{TERMS_ACCEPTANCE.label}</span>
           </label>
+          <label className="mt-2 flex items-start gap-2 text-sm" data-testid="checkout-accept-service-consent-label">
+            <input type="checkbox" className="mt-1 h-4 w-4" checked={serviceConsent} onChange={(e) => setServiceConsent(e.target.checked)} data-testid="checkout-accept-service-consent" />
+            <span>{TERMS_ACCEPTANCE.consentLabel}</span>
+          </label>
 
           {error?.kind === "open" && error.ref && (
             // Cleared (closed just now, or found already closed or paid): read the options again, so the placement reflects
@@ -248,7 +254,7 @@ export default function Checkout() {
             </div>
           )}
 
-          <Button pending={submitting} pendingLabel="Opening secure payment…" className="mt-6 w-full sm:w-auto" disabled={!chosen || !termsAccepted || submitting || error?.kind === "previous" || error?.kind === "open" || error?.kind === "uncertain"} onClick={submit} data-testid="checkout-continue">
+          <Button pending={submitting} pendingLabel="Opening secure payment…" className="mt-6 w-full sm:w-auto" disabled={!chosen || !acknowledged || submitting || error?.kind === "previous" || error?.kind === "open" || error?.kind === "uncertain"} onClick={submit} data-testid="checkout-continue">
             {chosen?.paymentRoute === "MOBILE_MONEY" ? "Send the payment prompt" : "Continue to payment"}
           </Button>
           <p className="mt-3 text-xs text-muted-foreground">Your plan starts as soon as the payment is verified.</p>

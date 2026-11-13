@@ -44,6 +44,8 @@ export interface CreateCheckoutParams {
   intentId: string;
   /** The Terms version the server accepted for this purchase (CURRENT_TERMS_VERSION); null for callers that record none. */
   termsVersion: string | null;
+  /** The customer's separately recorded consent to the plan starting at payment confirmation (ETA s.30(5)(d)); null = not recorded. */
+  immediateServiceConsent: true | null;
   billingCustomerId: string;
   amountMinor: bigint;
   currencyCode: string;

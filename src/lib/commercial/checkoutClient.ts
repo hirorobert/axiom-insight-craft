@@ -80,14 +80,14 @@ export type StartCheckoutResult =
   | { ok: true; saffReference: string; checkoutUrl: string; provider: string; paymentRoute: PaymentRoute; reused: boolean }
   | { ok: false; error: string; saffReference: string | null; previousPlanName?: string | null };
 
-export async function startCheckout(plan: PlanCode, paymentRoute: PaymentRoute, phoneNumber: string | null, termsVersion: string): Promise<StartCheckoutResult> {
+export async function startCheckout(plan: PlanCode, paymentRoute: PaymentRoute, phoneNumber: string | null, termsVersion: string, immediateServiceConsent: true): Promise<StartCheckoutResult> {
   const { token } = await session();
   if (!token) return { ok: false, error: "NOT_SIGNED_IN", saffReference: null };
   try {
     const res = await fetch(fnUrl("commercial-create-checkout"), {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ planCode: plan, billingInterval: "ANNUAL", paymentRoute, termsVersion, ...(paymentRoute === "MOBILE_MONEY" ? { phoneNumber } : {}) }),
+      body: JSON.stringify({ planCode: plan, billingInterval: "ANNUAL", paymentRoute, termsVersion, immediateServiceConsent, ...(paymentRoute === "MOBILE_MONEY" ? { phoneNumber } : {}) }),
     });
     const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     if (!res.ok) return { ok: false, error: String(json.error ?? "CHECKOUT_FAILED"), saffReference: (json.saffReference ?? json.previousSaffReference ?? null) as string | null, previousPlanName: (json.previousPlanName ?? null) as string | null };
