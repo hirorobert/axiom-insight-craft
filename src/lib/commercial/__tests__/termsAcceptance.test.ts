@@ -32,6 +32,8 @@ import Privacy from "@/pages/Privacy";
 import { REFUNDS_AND_CANCELLATION, TERMS_ACCEPTANCE, TERMS_VERSION } from "@/lib/commercial/purchaseTerms";
 import { checkCheckoutAcknowledgement, checkTermsVersion, CURRENT_TERMS_VERSION } from "../../../../supabase/functions/_shared/commercial/termsVersion";
 import { LEGAL_ARCHIVE, archivedVersions, publishedVersions } from "@/legal/archive";
+import { BUSINESS_IDENTITY, telephoneLine } from "@/lib/commercial/businessIdentity";
+import { Footer } from "@/components/Footer";
 
 const ROOT = path.join(__dirname, "../../../..");
 const read = (p: string) => fs.readFileSync(path.join(ROOT, p), "utf8");
@@ -59,7 +61,7 @@ describe("T3 · the Terms version identifies the exact applicable policy text", 
     expect(TERMS_ACCEPTANCE.label).toContain(TERMS_VERSION);
     expect(TERMS_ACCEPTANCE.label).toMatch(/refund terms above/);
     expect(TERMS_ACCEPTANCE.consentLabel).toMatch(/start as soon as Polar confirms my payment/);
-    expect(TERMS_ACCEPTANCE.consentLabel).toMatch(/seven-day cancellation right/);
+    expect(TERMS_ACCEPTANCE.consentLabel).not.toMatch(/does not apply/); // Update 5: the conservative A3 wording states no loss of a statutory right
     expect(TERMS_ACCEPTANCE.outdated).toMatch(/nothing was charged/);
   });
 });
@@ -198,5 +200,61 @@ describe("ARCHIVE · every published version is kept as rendered text and served
     const h = renderToStaticMarkup(createElement(MemoryRouter, { initialEntries: [`/privacy?v=${TERMS_VERSION}`] }, createElement(Privacy)));
     expect(text(h)).toContain(`Version ${TERMS_VERSION}`);
     expect(h).not.toContain("privacy-archived-text");
+  });
+});
+
+describe("UPDATE 4 · the settled commercial text is rendered from one identity source; nothing gated is rendered (handoff Update 4, S1-S8)", () => {
+  const terms = text(html(Terms));
+  const privacy = text(html(Privacy));
+  it("S1 · Terms section 1 states the owner-closed identity, with no corporate suffix and no placeholder", () => {
+    expect(terms).toContain("1. Who we are " + BUSINESS_IDENTITY.termsIdentity);
+    expect(terms).toContain("E-mail: support@cfoclose.com ; legal notices: contact@cfoclose.com .");
+    expect(BUSINESS_IDENTITY.termsIdentity).not.toMatch(/\b(Ltd|Limited|Inc\.?|LLC|Plc|Company)\b/);
+    expect(terms).not.toMatch(/\{BUSINESS_TELEPHONE\}|\[COUNSEL|\[OWNER|TODO|placeholder/i);
+  });
+  it("S1 · the telephone line is rendered only once a value exists: null renders nothing, never an empty label", () => {
+    expect(BUSINESS_IDENTITY.telephone).toBeNull();
+    expect(telephoneLine()).toBeNull();
+    expect(terms).not.toContain("Telephone");
+  });
+  it("S1 · the footer carries the identity line exactly once, from the same source", () => {
+    const f = text(html(Footer));
+    expect(f.split(BUSINESS_IDENTITY.footerLine).length - 1).toBe(1);
+    expect(BUSINESS_IDENTITY.footerLine).toContain("reg. 705538");
+  });
+  it("S2 · Terms section 2 names Polar Software, Inc. as reseller and merchant of record under the Polar Checkout Buyer Terms", () => {
+    expect(terms).toContain("2. Who sells your plan Plans are sold by our reseller and merchant of record, Polar Software, Inc.");
+    expect(terms).toContain("https://polar.sh/legal/checkout-buyer-terms");
+    expect(BUSINESS_IDENTITY.checkoutNotice).toMatch(/^You are buying from Polar Software, Inc\., our reseller and merchant of record, under the Polar Checkout Buyer Terms\./);
+  });
+  it("S3 · scope, plans and term as in package 10.3 sections 3 and 5", () => {
+    for (const s of ["The service available to customers is trial balance review", "QuickBooks connections are not currently available", "AI features are disabled",
+      "Not available to customers: tax computation, bank reconciliation, analytics, filing packs", "does not provide an audit, an audit opinion, assurance, tax or legal advice",
+      "Solo (1 active entity), Practice (5) and Firm (25)", "USD 490, 990 and 2,990 a year", "a plan starts when Polar has confirmed the payment to us",
+      "when a term ends, nothing is deleted"]) expect(terms, s).toContain(s);
+  });
+  it("S4 · the refund text is package 10.5 (five paragraphs), rendered identically on the Terms page and the checkout", () => {
+    expect(REFUNDS_AND_CANCELLATION.paragraphs).toHaveLength(5);
+    expect(REFUNDS_AND_CANCELLATION.paragraphs[0]).toMatch(/stop a future charge\. Seven-day cancellation\. You may cancel within seven days of buying a plan by writing to billing@cfoclose\.com and receive a full refund, whether or not you have started using it\. You may cancel a plan before its term ends/);
+    expect(REFUNDS_AND_CANCELLATION.paragraphs[4]).toBe("Refunds we approve are issued through Polar within thirty days of cancellation. This policy does not limit any right you have under the law that applies to you.");
+    expect(terms).toContain(text(REFUNDS_AND_CANCELLATION.text));
+    expect(read("src/pages/billing/Checkout.tsx")).toMatch(/whitespace-pre-line[^>]*>\{REFUNDS_AND_CANCELLATION\.text\}/);
+  });
+  it("S5 · Privacy: controller line, Polar as an independent controller, provider-neutral hosting, verified processors, no PDPC/permit statement", () => {
+    expect(privacy).toContain(BUSINESS_IDENTITY.privacyController);
+    expect(privacy).toMatch(/Polar Software, Inc\. acts as merchant of record and processes your payment and billing details as an independent controller under its own privacy terms/);
+    expect(privacy).toContain("Personal data is stored and processed outside Tanzania by the service providers listed in section 6, which include providers based in the United States.");
+    expect(privacy).not.toMatch(/eu-west-1|Ireland|European Union|AWS|Snippe/);
+    expect(privacy).not.toMatch(/PDPC|Personal Data Protection Commission|permit|transfer basis/i);
+    expect(privacy).toMatch(/Backups held by our hosting provider expire on its backup schedule/);
+    expect(privacy).not.toMatch(/within \d+ (days|months)|\d+ (years|months) after/);
+  });
+  it("S6/S8 + Update 5 · box 1 final; box 2 is the conservative A3 candidate, still DRAFT, stating no loss of any statutory right; no Liability or Law section is rendered (A1, A2 await approval)", () => {
+    expect(TERMS_ACCEPTANCE.label).toContain(TERMS_VERSION);
+    expect(TERMS_ACCEPTANCE.consentLabel).toBe("I ask for my plan to start as soon as Polar confirms my payment.");
+    expect(read("src/lib/commercial/purchaseTerms.ts")).not.toMatch(/does not apply/);
+    expect(read("src/lib/commercial/purchaseTerms.ts")).toMatch(/DRAFT until the owner approves A3/);
+    expect(terms).not.toMatch(/Liability|Law and disputes|governing law|Delaware|arbitration/);
+    expect(LEGAL_ARCHIVE[TERMS_VERSION].status).toBe("draft");
   });
 });

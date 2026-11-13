@@ -386,6 +386,13 @@ describe("Ω3-BRAND · Header/Footer/Auth — no visible SAFF ERP wordmark (real
       expect(src).not.toContain("SAFF ERP");
     }
   });
+
+  it("47b · the footer's legal identity line (the registered business name, not a wordmark) comes only from businessIdentity.ts", () => {
+    // Commercial handoff Update 4, S1: "CFOClose is provided by CFOCLOSE, proprietor of SAFF ERP (Tanzania business name reg. 705538), Kati, Pangani."
+    // is a statutory identity disclosure, rendered from the one identity module; the footer source itself names no SAFF ERP.
+    expect(footerSrc).toMatch(/import \{ BUSINESS_IDENTITY \} from ["']@\/lib\/commercial\/businessIdentity["']/);
+    expect(footerSrc).toMatch(/data-testid="footer-identity"[^>]*>\{BUSINESS_IDENTITY\.footerLine\}/);
+  });
 });
 
 describe("Ω3-BRAND · index.html metadata (real source)", () => {

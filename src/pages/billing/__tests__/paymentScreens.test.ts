@@ -36,6 +36,7 @@ import PaymentReturn from "@/pages/billing/PaymentReturn";
 import CommercialAdmin from "@/pages/commercial/CommercialAdmin";
 import { PlanCatalogue } from "@/components/commercial/PlanCatalogue";
 import { REFUNDS_AND_CANCELLATION, TERMS_ACCEPTANCE, TERMS_VERSION } from "@/lib/commercial/purchaseTerms";
+import { BUSINESS_IDENTITY } from "@/lib/commercial/businessIdentity";
 
 const flush = async () => { for (let i = 0; i < 6; i++) await act(async () => { await Promise.resolve(); }); };
 let where = "";
@@ -71,6 +72,7 @@ describe("checkout", () => {
     expect(box.checked).toBe(false);
     expect(consent.checked).toBe(false);
     expect(byTestId(m, "checkout-accept-terms-label")!.textContent).toContain(TERMS_VERSION);
+    expect(byTestId(m, "checkout-seller-notice")!.textContent).toBe(BUSINESS_IDENTITY.checkoutNotice);
     expect(byTestId(m, "checkout-accept-terms-label")!.textContent).toBe(TERMS_ACCEPTANCE.label);
     expect(byTestId(m, "checkout-accept-service-consent-label")!.textContent).toBe(TERMS_ACCEPTANCE.consentLabel);
     expect((byTestId(m, "checkout-continue") as HTMLButtonElement).disabled).toBe(true);

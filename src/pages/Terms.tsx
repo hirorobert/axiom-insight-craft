@@ -1,10 +1,14 @@
 import { Link } from "react-router-dom";
 import { channel, mailtoHref } from "@/lib/contact/contactChannels";
 import { REFUNDS_AND_CANCELLATION } from "@/lib/commercial/purchaseTerms";
+import { BUSINESS_IDENTITY, telephoneLine } from "@/lib/commercial/businessIdentity";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { ArchivedPolicy, PolicyVersionLine, usePolicyVersion } from "@/components/legal/PolicyVersion";
 
+// Sections 1-6 carry the settled text of the commercial package (sections 10.3 and 10.5; handoff "Update 4", S1-S4). The
+// Liability and Law-and-disputes sections (package 10 and 11) are NOT rendered: their wording waits for the owner's approval
+// (A1, A2) and nothing is rendered in their place. The QuickBooks and AI sections keep their existing text.
 export default function Terms() {
   const version = usePolicyVersion();
   if (version.requested && (version.archived || version.unknown)) {
@@ -16,6 +20,7 @@ export default function Terms() {
       </div>
     );
   }
+  const telephone = telephoneLine();
   return (
     <div className="min-h-screen bg-background">
       <Header />
@@ -25,32 +30,55 @@ export default function Terms() {
 
         <section className="space-y-8 text-sm leading-relaxed text-muted-foreground">
           <div>
-            <h2 className="text-lg font-semibold text-foreground mb-2">1. What CFOClose is today</h2>
-            <p>
-              CFOClose is accounting-workflow software for audit and finance
-              teams. The service available to customers today is trial balance
-              review: upload and validate a trial balance, review and confirm
-              its account classifications, and reach a reviewed trial balance
-              ready for statement preparation. Each review decision is recorded
-              against the signed-in user who made it. A workspace whose filing
-              jurisdiction has a jurisdiction pack may also show that
-              jurisdiction's own record-keeping panel.
-            </p>
-            <p className="mt-3">
-              Financial reporting is a pilot by invitation: it is offered only
-              to companies we have invited, it is not generally available, and
-              its accounting has not been independently validated. Other parts
-              of the software are not available to customers.
-            </p>
-            <p className="mt-3">
-              CFOClose assists a firm's own professionals — it does not replace
-              professional judgment, and it is not itself a licensed audit or
-              accounting firm.
+            <h2 className="text-lg font-semibold text-foreground mb-2">1. Who we are</h2>
+            <p data-testid="terms-identity">
+              {BUSINESS_IDENTITY.termsIdentity}
+              {telephone ? ` ${telephone}` : null}
+              {" "}E-mail: <a href={mailtoHref("support")} className="underline hover:text-foreground">{channel("support").address}</a>;
+              legal notices: <a href={mailtoHref("contact")} className="underline hover:text-foreground">{channel("contact").address}</a>.
             </p>
           </div>
 
           <div>
-            <h2 className="text-lg font-semibold text-foreground mb-2">2. Accounts and access</h2>
+            <h2 className="text-lg font-semibold text-foreground mb-2">2. Who sells your plan</h2>
+            <p data-testid="terms-seller">
+              Plans are sold by our reseller and merchant of record, Polar Software, Inc. Polar takes your payment on its
+              own page, adds any tax that applies to your location, shows the total before you pay and issues your
+              receipt, under the{" "}
+              <a href="https://polar.sh/legal/checkout-buyer-terms" className="underline hover:text-foreground">Polar Checkout Buyer Terms</a>{" "}
+              (https://polar.sh/legal/checkout-buyer-terms). Your card details never reach us. We provide the service you
+              buy, under these Terms.
+            </p>
+          </div>
+
+          <div>
+            <h2 className="text-lg font-semibold text-foreground mb-2">3. What CFOClose is today</h2>
+            <p>
+              CFOClose is accounting-workflow software for audit and finance teams. The service available to customers is
+              trial balance review:
+            </p>
+            <ul className="mt-2 list-disc space-y-1 pl-5">
+              <li>upload and validate a trial balance;</li>
+              <li>review and confirm its account classifications;</li>
+              <li>reach a reviewed trial balance ready for statement preparation.</li>
+            </ul>
+            <p className="mt-3">Each review decision is recorded against the signed-in user who made it.</p>
+            <ul className="mt-2 list-disc space-y-1 pl-5">
+              <li>Financial reporting is a pilot, offered only to companies we invite. It is not generally available, and its accounting has not been independently validated.</li>
+              <li>QuickBooks connections are not currently available. They await Intuit's production authorisation.</li>
+              <li>AI features are disabled.</li>
+              <li>Not available to customers: tax computation, bank reconciliation, analytics, filing packs and other modules present in the software.</li>
+            </ul>
+            <p className="mt-3">
+              CFOClose assists your firm's own professionals. It does not provide an audit, an audit opinion, assurance,
+              tax or legal advice, and it does not guarantee that any trial balance, classification or financial statement
+              is complete, accurate or compliant. You remain responsible for your professional judgement and for what you
+              sign.
+            </p>
+          </div>
+
+          <div>
+            <h2 className="text-lg font-semibold text-foreground mb-2">4. Accounts and access</h2>
             <p>
               You need an account to use the service. You are responsible for the
               accuracy of information you submit and for restricting access to your
@@ -59,57 +87,38 @@ export default function Terms() {
           </div>
 
           <div>
-            <h2 className="text-lg font-semibold text-foreground mb-2">3. Plans, payment and term</h2>
-            <p>
-              Plans and their prices are listed on the{" "}
-              <Link to="/plans" className="underline hover:text-foreground">plans page</Link>. Each plan is
-              bought by a one-time card payment for a 12-month term. A plan
-              does not renew automatically: nothing is charged again unless you
-              buy a new term.
-            </p>
-            <p className="mt-3">
-              Card payments are processed by Polar, acting as merchant of
-              record: Polar takes the payment on its own secure page, adds any
-              sales tax that applies to your location and shows the total before
-              you pay. Your card details never reach CFOClose. Polar's own terms
-              apply to the payment.
-            </p>
-            <p className="mt-3">
-              A plan starts only when the payment has been verified with Polar,
-              not when you return from the payment page. An upgrade starts when
-              its payment is verified and ends your current plan at that moment;
-              unused time on the current plan is not refunded automatically, and
-              you can contact us to have it credited. Connecting an accounting
-              source does not itself authorize a purchase or change your plan.
-            </p>
-            <p className="mt-3">
-              When a term ends, the plan ends. Nothing is deleted: the account
-              holder can still read the work already prepared, while team
-              members' access and actions that need a current plan, such as
-              adding an entity, stop until a new term is bought. The end date is
-              shown in your billing settings; we do not currently send a
-              reminder before a term ends.
-            </p>
+            <h2 className="text-lg font-semibold text-foreground mb-2">5. Plans, price and term</h2>
+            <ul className="list-disc space-y-2 pl-5">
+              <li>
+                Plans: Solo (1 active entity), Practice (5) and Firm (25), each with unlimited team members, at the prices
+                on our <Link to="/plans" className="underline hover:text-foreground">plans page</Link> (currently USD 490,
+                990 and 2,990 a year), before tax. Enterprise is agreed by contract.
+              </li>
+              <li>Term: each plan is a one-time payment for a 12-month term and does not renew automatically. Nothing is charged again unless you buy a new term.</li>
+              <li>Start: a plan starts when Polar has confirmed the payment to us, not when you return from the payment page.</li>
+              <li>Upgrades: an upgrade starts when its payment is confirmed and ends the current plan at that moment.</li>
+              <li>End of term: when a term ends, nothing is deleted. The account holder can still read work already prepared, and actions that need a current plan stop until a new term is bought. The end date is shown in your billing settings.</li>
+            </ul>
           </div>
 
           <div>
-            <h2 id={REFUNDS_AND_CANCELLATION.anchor} className="text-lg font-semibold text-foreground mb-2">4. {REFUNDS_AND_CANCELLATION.heading}</h2>
-            <p data-testid="terms-refunds">{REFUNDS_AND_CANCELLATION.text}</p>
+            <h2 id={REFUNDS_AND_CANCELLATION.anchor} className="text-lg font-semibold text-foreground mb-2">6. {REFUNDS_AND_CANCELLATION.heading}</h2>
+            <p className="whitespace-pre-line" data-testid="terms-refunds">{REFUNDS_AND_CANCELLATION.text}</p>
           </div>
 
           <div>
-            <h2 className="text-lg font-semibold text-foreground mb-2">5. Your data</h2>
+            <h2 className="text-lg font-semibold text-foreground mb-2">7. Your data</h2>
             <p>
               Trial balances, supporting documents, review decisions and every
-              other record you prepare with the service — including records created with
-              services that are no longer offered — belong to you and your firm.
+              other record you prepare with the service - including records created with
+              services that are no longer offered - belong to you and your firm.
               We do not sell your data. See the <Link to="/privacy" className="underline hover:text-foreground">Privacy Policy</Link> for how it is
               handled.
             </p>
           </div>
 
           <div>
-            <h2 className="text-lg font-semibold text-foreground mb-2">6. No warranty of statutory accuracy</h2>
+            <h2 className="text-lg font-semibold text-foreground mb-2">8. No warranty of statutory accuracy</h2>
             <p>
               Accounting rules applied by the service are updated on a
               best-effort basis. The service does not warrant that every
@@ -121,23 +130,24 @@ export default function Terms() {
           </div>
 
           <div>
-            <h2 className="text-lg font-semibold text-foreground mb-2">7. Changes to these terms</h2>
+            <h2 className="text-lg font-semibold text-foreground mb-2">9. Changes to these terms</h2>
             <p>
               We may update these terms as the service changes. Material changes
-              will be reflected on this page with an updated date above.
+              will be reflected on this page with an updated version above.
             </p>
           </div>
 
           <div>
-            <h2 className="text-lg font-semibold text-foreground mb-2">8. Contact</h2>
+            <h2 className="text-lg font-semibold text-foreground mb-2">10. Contact</h2>
             <p>
-              For support or questions about these terms, email{" "}
-              <a href={mailtoHref("support")} className="underline hover:text-foreground">{channel("support").address}</a>.
+              Support: <a href={mailtoHref("support")} className="underline hover:text-foreground">{channel("support").address}</a>.
+              Billing and refunds: <a href={mailtoHref("billing")} className="underline hover:text-foreground">{channel("billing").address}</a>.
+              Legal notices: <a href={mailtoHref("contact")} className="underline hover:text-foreground">{channel("contact").address}</a>.
             </p>
           </div>
 
           <div>
-            <h2 className="text-lg font-semibold text-foreground mb-2">9. QuickBooks connections and imports</h2>
+            <h2 className="text-lg font-semibold text-foreground mb-2">11. QuickBooks connections and imports</h2>
             <p>
               Customer QuickBooks connections are not currently available. The
               integration is being tested with Intuit sandbox companies. When
@@ -163,7 +173,7 @@ export default function Terms() {
           </div>
 
           <div>
-            <h2 className="text-lg font-semibold text-foreground mb-2">10. Optional AI assistance</h2>
+            <h2 className="text-lg font-semibold text-foreground mb-2">12. Optional AI assistance</h2>
             <p>
               Customer-facing AI features are currently disabled or withheld
               server-side. Trial balance ingestion and financial calculations

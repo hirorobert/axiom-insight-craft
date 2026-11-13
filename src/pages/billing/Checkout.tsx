@@ -24,6 +24,7 @@ import { BillingHelpLine } from "@/components/contact/ContactChannels";
 import { getCheckoutOptions, rememberCheckoutPlan, startCheckout, type CheckoutOptions, type PaymentRoute, type RouteOption } from "@/lib/commercial/checkoutClient";
 import { UnfinishedCheckoutBanner } from "@/components/commercial/UnfinishedCheckoutBanner";
 import { REFUNDS_AND_CANCELLATION, TERMS_ACCEPTANCE, TERMS_VERSION } from "@/lib/commercial/purchaseTerms";
+import { BUSINESS_IDENTITY } from "@/lib/commercial/businessIdentity";
 
 const TZ_MOBILE = /^(?:\+?255|0)[67]\d{8}$/;
 const formatDate = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
@@ -223,12 +224,15 @@ export default function Checkout() {
             </div>
           )}
 
-          {/* The refund and cancellation terms, the same text as Terms §4, before anything leaves for the payment page. */}
+          {/* The refund and cancellation terms, the same text as Terms section 6, before anything leaves for the payment page. */}
           <section className="mt-6 border-t border-border pt-4" aria-labelledby="checkout-refunds-title" data-testid="checkout-refunds">
             <h2 id="checkout-refunds-title" className="text-sm font-medium">{REFUNDS_AND_CANCELLATION.heading}</h2>
-            <p className="mt-1 text-xs text-muted-foreground">{REFUNDS_AND_CANCELLATION.text}</p>
+            <p className="mt-1 whitespace-pre-line text-xs text-muted-foreground">{REFUNDS_AND_CANCELLATION.text}</p>
             <Link to={`/terms#${REFUNDS_AND_CANCELLATION.anchor}`} className="mt-1 inline-block text-xs font-medium underline" data-testid="checkout-terms-link">Read the Terms of Service</Link>
           </section>
+
+          {/* Who sells and who provides (commercial handoff Update 4, S2), above the acknowledgements. */}
+          <p className="mt-4 text-xs text-muted-foreground" data-testid="checkout-seller-notice">{BUSINESS_IDENTITY.checkoutNotice}</p>
 
           {/* The acceptance the server requires: the version shown here is the one sent; the server refuses any other. */}
           <label className="mt-4 flex items-start gap-2 text-sm" data-testid="checkout-accept-terms-label">
