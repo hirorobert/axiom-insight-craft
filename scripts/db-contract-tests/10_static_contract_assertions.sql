@@ -285,7 +285,9 @@ BEGIN
 
   v_acquire := public.acquire_checkout_attempt(
     v_bc_id, v_product_id, v_plan_id, v_offer_id, 'GLOBAL', 'USD', 2::smallint, 4900::bigint, 'MONTHLY', 1::smallint,
-    'FLUTTERWAVE', 'production', v_user_id, 'CI-HAPPY-PATH-REF'
+    'FLUTTERWAVE', 'production', v_user_id, 'CI-HAPPY-PATH-REF',
+    -- 20261229100000: no intent without the acknowledgement (the version the server accepted, and the consent to an immediate start)
+    'ci-terms-version', true
   );
   IF v_acquire->>'action' != 'NEW_ATTEMPT' THEN
     RAISE EXCEPTION 'FAIL: expected NEW_ATTEMPT, got %', v_acquire->>'action';

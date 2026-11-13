@@ -11,7 +11,8 @@ export function usePolicyVersion(): { requested: string | null; archived: Archiv
   const [params] = useSearchParams();
   const requested = params.get("v");
   if (!requested || requested === TERMS_VERSION) return { requested, archived: null, unknown: false };
-  const archived = LEGAL_ARCHIVE[requested] ?? null;
+  const entry = LEGAL_ARCHIVE[requested];
+  const archived = entry && entry.status === "published" ? entry : null; // a draft version is never served by link
   return { requested, archived, unknown: archived === null };
 }
 

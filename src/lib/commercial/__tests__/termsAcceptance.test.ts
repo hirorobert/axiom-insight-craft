@@ -31,7 +31,7 @@ import Terms from "@/pages/Terms";
 import Privacy from "@/pages/Privacy";
 import { REFUNDS_AND_CANCELLATION, TERMS_ACCEPTANCE, TERMS_VERSION } from "@/lib/commercial/purchaseTerms";
 import { checkCheckoutAcknowledgement, checkTermsVersion, CURRENT_TERMS_VERSION } from "../../../../supabase/functions/_shared/commercial/termsVersion";
-import { LEGAL_ARCHIVE, archivedVersions } from "@/legal/archive";
+import { LEGAL_ARCHIVE, archivedVersions, publishedVersions } from "@/legal/archive";
 
 const ROOT = path.join(__dirname, "../../../..");
 const read = (p: string) => fs.readFileSync(path.join(ROOT, p), "utf8");
@@ -190,9 +190,13 @@ describe("ARCHIVE · every published version is kept as rendered text and served
     expect(text(h)).toContain(`Read the current version (${TERMS_VERSION})`);
     expect(h).not.toContain("terms-archived-text");
   });
-  it("an archived version renders its archived text verbatim (the current version's archive, requested through the registry path)", () => {
-    const h = renderToStaticMarkup(createElement(MemoryRouter, { initialEntries: [`/privacy?v=${TERMS_VERSION}`] }, createElement(Privacy)));
-    expect(text(h)).toContain(`Version ${TERMS_VERSION}`); // current → live page, not the archive view
+  it("a DRAFT version is archived for its hash but never served by link: an old draft answers as unknown; only published versions are reachable", () => {
     expect(Object.keys(LEGAL_ARCHIVE).every((v) => /^\d{4}-\d{2}-\d{2}\.[0-9a-f]{12}$/.test(v))).toBe(true);
+    expect(LEGAL_ARCHIVE[TERMS_VERSION].status).toBe("draft"); // flipped to "published" by the owner's publication, never before
+    expect(publishedVersions()).not.toContain(TERMS_VERSION);
+    // The current text is reachable only as the live page (it IS the current text); nothing pre-approval is served as "a published version".
+    const h = renderToStaticMarkup(createElement(MemoryRouter, { initialEntries: [`/privacy?v=${TERMS_VERSION}`] }, createElement(Privacy)));
+    expect(text(h)).toContain(`Version ${TERMS_VERSION}`);
+    expect(h).not.toContain("privacy-archived-text");
   });
 });
