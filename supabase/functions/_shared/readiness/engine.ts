@@ -137,7 +137,7 @@ export function evaluateReadiness(I: ReadinessInput, pack: RulePack = PILOT_RULE
         } else add("BOOK_ENTRY_UNMATCHED", "suspected", scope, { detail: { entry: e.id } });
       }
       rows.forEach((r, i) => { if (!used.has(i) && !(b.reconciling_bank_items ?? []).includes(r.ref ?? "")) add("BANK_ROW_UNMATCHED", "suspected", scope, { detail: { date: r.date, amount: r.amount } }); });
-      const last = unique.length ? [...unique].sort((x, y) => (x.to < y.to ? -1 : 1)).at(-1) : null;
+      const last = unique.length ? [...unique].sort((x, y) => (x.to < y.to ? -1 : 1)).slice(-1)[0] : null;
       const bankClose = last?.rows?.length ? big(last.rows.at(-1)!.balance) : null;
       if (bankClose !== null && !gap && b.ledger_key) {
         const outstandingTotal = sum((b.outstanding ?? []).map((o) => book.find((e) => e.id === o.entry_id)!.amount));
