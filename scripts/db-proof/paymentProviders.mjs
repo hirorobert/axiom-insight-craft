@@ -194,7 +194,7 @@ async function main() {
   const acquire = async (acct, plan, provider = "POLAR", env = "production") => {
     const o = OFFER[plan];
     const ref = `SAFF-${uuid().slice(0, 12)}`;
-    const a = await one(SERVICE, `SELECT public.acquire_checkout_attempt($1,$2,$3,$4,$5,$6,$7::smallint,$8,$9,$10::smallint,$11,$12,$13,$14) r`,
+    const a = await one(SERVICE, `SELECT public.acquire_checkout_attempt($1,$2,$3,$4,$5,$6,$7::smallint,$8,$9,$10::smallint,$11,$12,$13,$14,'proof-terms-version',true) r`,
       [acct.bc, product, o.plan_id, o.id, o.market_code, o.currency_code, o.currency_exponent, o.amount_minor, o.billing_interval, o.billing_interval_count, provider, env, acct.uid, ref]);
     if (a.r.action !== "NEW_ATTEMPT") throw new Error(`acquire: ${JSON.stringify(a.r)}`);
     await one(SERVICE, "SELECT public.begin_provider_checkout_request($1,$2) r", [a.r.intent_id, a.r.creation_token]);
@@ -397,7 +397,7 @@ async function main() {
     const i = await acquire(a, "FIRM");
     const r = await commit(i);
     const o = OFFER.SOLO;
-    const again = await one(SERVICE, `SELECT public.acquire_checkout_attempt($1,$2,$3,$4,$5,$6,$7::smallint,$8,$9,$10::smallint,'POLAR','production',$11,$12) r`,
+    const again = await one(SERVICE, `SELECT public.acquire_checkout_attempt($1,$2,$3,$4,$5,$6,$7::smallint,$8,$9,$10::smallint,'POLAR','production',$11,$12,'proof-terms-version',true) r`,
       [a.bc, product, o.plan_id, o.id, o.market_code, o.currency_code, o.currency_exponent, o.amount_minor, o.billing_interval, o.billing_interval_count, a.uid, `SAFF-${uuid().slice(0, 10)}`]);
     return r.status === "PLACEMENT_REVIEW_REQUIRED" && again.r.action === "MANUAL_REVIEW_BLOCKS_NEW_ATTEMPT" ? true : { r, again: again.r };
   });

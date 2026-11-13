@@ -141,7 +141,7 @@ async function main() {
     await setState(env === "sandbox" ? "SANDBOX_ONLY" : "CUSTOMER_PAYMENTS_ENABLED");
     const o = provider === "SNIPPE" ? await offer(plan, "TZ") : await offer(plan, "GLOBAL");
     const ref = `SAFF-${uuid().slice(0, 12)}`;
-    const a = (await one(SERVICE, `SELECT public.acquire_checkout_attempt($1,$2,$3,$4,$5,$6,$7::smallint,$8,$9,$10::smallint,$11,$12,$13,$14) r`,
+    const a = (await one(SERVICE, `SELECT public.acquire_checkout_attempt($1,$2,$3,$4,$5,$6,$7::smallint,$8,$9,$10::smallint,$11,$12,$13,$14,'proof-terms-version',true) r`,
       [acct.bc, product, o.plan_id, o.id, o.market_code, o.currency_code, o.currency_exponent, o.amount_minor, o.billing_interval, o.billing_interval_count, provider, env, acct.uid, ref])).r;
     if (a.action !== "NEW_ATTEMPT") throw new Error(`acquire: ${JSON.stringify(a)}`);
     const pref = `pi_${uuid().replace(/-/g, "").slice(0, 12)}`;

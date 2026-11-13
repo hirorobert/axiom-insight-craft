@@ -1004,6 +1004,10 @@ describe("database inertness — schema and functions", () => {
     // First-period governed review: its loopback-only real-PostgreSQL proof, the shared helper, the old-rule bypass reproduction and the two earlier proofs whose first-period
     // expectations changed (a declaration is a claim; only a verified review is the exception). No deploy behaviour.
     allowed.add("scripts/db-proof/checkoutTermsAcceptance.mjs");
+    // 20261229100000 (PR #266): every proof and harness that acquires a checkout intent now passes the acknowledgement the RPC requires.
+    for (const f of ["scripts/db-contract-tests/10_static_contract_assertions.sql", "scripts/db-contract-tests/20_concurrency_tests.sh", "scripts/db-proof/checkoutAbandon.mjs",
+      "scripts/db-proof/checkoutOpenSessionConflict.sh", "scripts/db-proof/paidTermPreservation.mjs", "scripts/db-proof/paymentProviders.mjs", "scripts/db-proof/paymentReversalAuthority.mjs",
+      "scripts/db-proof/sandboxLicenceIsolation.mjs", "scripts/db-proof/snippeLedger.mjs", "scripts/db-proof/verifiedChargeOutcomes.mjs", "scripts/e2e/paymentJourney.mjs"]) allowed.add(f);
     for (const f of ["firstPeriodGovernedReview", "firstPeriodBypassReproduction", "lib/firstPeriodKit", "comparatives", "closeReviewAuthority", "returningClientJourney", "lib/returningClientKit", "lib/returningClientWorld", "lib/pgQuery"]) allowed.add(`scripts/db-proof/${f}.mjs`);
     allowed.add("scripts/readiness/writePilotFixtures.mjs");
     // Client-data containment (2026-11-11): a local, read-only scan of tracked files with a hash-only denylist, and the

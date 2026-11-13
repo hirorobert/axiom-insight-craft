@@ -167,7 +167,7 @@ async function main() {
     [acct.bc, PLAN[plan], start, end]).then((r) => r.rows[0].id);
   const acquire = async (acct, plan, env) => {
     const o = OFFER[plan]; const ref = `SAFF-${uuid().slice(0, 12)}`;
-    const a = await one(SERVICE, `SELECT public.acquire_checkout_attempt($1,$2,$3,$4,$5,$6,$7::smallint,$8,$9,$10::smallint,$11,$12,$13,$14) r`,
+    const a = await one(SERVICE, `SELECT public.acquire_checkout_attempt($1,$2,$3,$4,$5,$6,$7::smallint,$8,$9,$10::smallint,$11,$12,$13,$14,'proof-terms-version',true) r`,
       [acct.bc, product, o.plan_id, o.id, o.market_code, o.currency_code, o.currency_exponent, o.amount_minor, o.billing_interval, o.billing_interval_count, "POLAR", env, acct.uid, ref]);
     if (a.r.action !== "NEW_ATTEMPT") throw new Error(`acquire: ${JSON.stringify(a.r)}`);
     await one(SERVICE, "SELECT public.begin_provider_checkout_request($1,$2) r", [a.r.intent_id, a.r.creation_token]);

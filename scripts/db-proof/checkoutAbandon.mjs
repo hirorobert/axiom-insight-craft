@@ -130,7 +130,7 @@ async function main() {
     await setState(env === "sandbox" ? "SANDBOX_ONLY" : "CUSTOMER_PAYMENTS_ENABLED");
     try {
       const o = await offer(plan);
-      return (await one(SERVICE, `SELECT public.acquire_checkout_attempt($1,$2,$3,$4,$5,$6,$7::smallint,$8,$9,$10::smallint,'POLAR',$11,$12,$13) r`,
+      return (await one(SERVICE, `SELECT public.acquire_checkout_attempt($1,$2,$3,$4,$5,$6,$7::smallint,$8,$9,$10::smallint,'POLAR',$11,$12,$13,'proof-terms-version',true) r`,
         [acct.bc, product, o.plan_id, o.id, o.market_code, o.currency_code, o.currency_exponent, o.amount_minor, o.billing_interval, o.billing_interval_count, env, acct.uid, `SAFF-${uuid().slice(0, 12)}`])).r;
     } finally { await setState("PAYMENTS_DISABLED"); }
   };

@@ -145,7 +145,7 @@ async function main() {
   const attempt = async (acct, plan, provider, env) => {
     const o = provider === "SNIPPE" ? await offer(plan, "TZ") : await offer(plan, "GLOBAL");
     const ref = `SAFF-${uuid().slice(0, 12)}`;
-    return (await one(SERVICE, `SELECT public.acquire_checkout_attempt($1,$2,$3,$4,$5,$6,$7::smallint,$8,$9,$10::smallint,$11,$12,$13,$14) r`,
+    return (await one(SERVICE, `SELECT public.acquire_checkout_attempt($1,$2,$3,$4,$5,$6,$7::smallint,$8,$9,$10::smallint,$11,$12,$13,$14,'proof-terms-version',true) r`,
       [acct.bc, product, o.plan_id, o.id, o.market_code, o.currency_code, o.currency_exponent, o.amount_minor, o.billing_interval, o.billing_interval_count, provider, env, acct.uid, ref])).r;
   };
   /** A Snippe (or Polar) order whose payment request was created: the intent is PENDING with the provider's reference. */
