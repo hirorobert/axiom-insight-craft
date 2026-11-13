@@ -211,6 +211,11 @@ const setByLabel = (label, value) => page.evaluate((lab, val) => {
   el.dispatchEvent(new Event("change", { bubbles: true }));
   return true;
 }, label, value);
+/** PR #266: the Terms acceptance control gates "Continue to payment"; tick it (once) as the customer would. */
+const acceptTerms = async () => {
+  const state = await page.evaluate(() => { const b = document.querySelector('[data-testid="checkout-accept-terms"]'); return b ? { present: true, checked: b.checked } : { present: false }; });
+  if (state.present && !state.checked) await page.click('[data-testid="checkout-accept-terms"]');
+};
 const setInput = (selector, value) => page.evaluate((sel, val) => {
   const el = document.querySelector(sel);
   if (!el) return false;
@@ -522,7 +527,7 @@ async function main() {
   await check("card → the provider's hosted page; nothing is recorded as paid before the provider confirms", async () => {
     await page.click('[data-testid="route-CARD"] input');
     await page.waitForText("Sales tax may apply");
-    await page.click('[data-testid="checkout-continue"]');
+    await acceptTerms(); await page.click('[data-testid="checkout-continue"]');
     await page.waitForUrl(/127\.0\.0\.1:9911\/pay\//, { timeout: 30000 });
     const [i] = await intentsOf(U.card);
     cardRef = i?.saff_reference; cardCheckout = i?.provider_checkout_ref;
@@ -595,7 +600,7 @@ async function main() {
     await page.click('[data-testid="route-MOBILE_MONEY"] input');
     await page.waitForSelector('[data-testid="checkout-phone"]');
     await setInput('[data-testid="checkout-phone"]', "0712 345 678");
-    await page.click('[data-testid="checkout-continue"]');
+    await acceptTerms(); await page.click('[data-testid="checkout-continue"]');
     await page.waitForUrl(/\/billing\/payment\/return\?ref=/, { timeout: 30000 });
     await page.waitForText("Approve the payment on your phone");
     const [i] = await intentsOf(U.mobile);
@@ -654,7 +659,7 @@ async function main() {
   await check("a card checkout left unpaid, then expired at the provider: the status page says no payment was taken", async () => {
     await go("/billing/checkout?plan=SOLO", "Card · USD 490");
     await page.click('[data-testid="route-CARD"] input');
-    await page.click('[data-testid="checkout-continue"]');
+    await acceptTerms(); await page.click('[data-testid="checkout-continue"]');
     await page.waitForUrl(/127\.0\.0\.1:9911\/pay\//, { timeout: 30000 });
     const [i] = await intentsOf(U.other);
     otherRef = i.saff_reference;
@@ -667,7 +672,7 @@ async function main() {
     await page.click('[data-testid="next-try-again"]');
     await page.waitForText("Card · USD 490");
     await page.click('[data-testid="route-CARD"] input');
-    await page.click('[data-testid="checkout-continue"]');
+    await acceptTerms(); await page.click('[data-testid="checkout-continue"]');
     await page.waitForUrl(/127\.0\.0\.1:9911\/pay\//, { timeout: 30000 });
     const all = await intentsOf(U.other);
     return all.length === 2 && all[1].status === "PENDING" ? true : all;
@@ -719,8 +724,8 @@ async function main() {
   });
   await check("Back: card → the provider's page → its Back link lands on /plans naming the unfinished checkout (recorded state only: 'No payment has been recorded'), Resume and Choose another plan — never a spinner", async () => {
     await go("/billing/checkout?plan=PRACTICE", "Card, on Polar\'s secure page");
-    await page.waitForSelector('[data-testid="checkout-continue"]:not([disabled])');
-    await page.click('[data-testid="checkout-continue"]');
+    await acceptTerms(); await page.waitForSelector('[data-testid="checkout-continue"]:not([disabled])');
+    await acceptTerms(); await page.click('[data-testid="checkout-continue"]');
     await page.waitForUrl(/127\.0\.0\.1:9911\/pay\//, { timeout: 30000 });
     const [i] = await intentsOf(U.leaver);
     leftRef = i?.saff_reference; leftSession = i?.provider_checkout_ref;
@@ -779,7 +784,7 @@ async function main() {
   await check("…then another plan's payment starts at once (no waiting for the old session to expire)", async () => {
     await go("/billing/checkout?plan=SOLO", "Card · USD 490");
     await page.click('[data-testid="route-CARD"] input');
-    await page.click('[data-testid="checkout-continue"]');
+    await acceptTerms(); await page.click('[data-testid="checkout-continue"]');
     await page.waitForUrl(/127\.0\.0\.1:9911\/pay\//, { timeout: 30000 });
     const all = await intentsOf(U.leaver);
     return all.length === 2 && all[0].status === "CANCELLED" && all[1].status === "PENDING" ? true : all.map((x) => x.status);
@@ -828,8 +833,8 @@ async function main() {
     mock.checkouts.get(pending.provider_checkout_ref).status = "expired";
     await sleep(61_000); // the review page's own read may hold the verification claim
     await go("/billing/checkout?plan=PRACTICE", "Card, on Polar\'s secure page");
-    await page.waitForSelector('[data-testid="checkout-continue"]:not([disabled])');
-    await page.click('[data-testid="checkout-continue"]');
+    await acceptTerms(); await page.waitForSelector('[data-testid="checkout-continue"]:not([disabled])');
+    await acceptTerms(); await page.click('[data-testid="checkout-continue"]');
     await page.waitForUrl(/127\.0\.0\.1:9911\/pay\//, { timeout: 30000 });
     const all = await intentsOf(U.leaver);
     return !offered && all.length === 3 && all[1].status === "EXPIRED" && all[2].status === "PENDING" ? true : { offered, all: all.map((x) => x.status) };

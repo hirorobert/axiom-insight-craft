@@ -70,13 +70,22 @@ END $$;
 
 DO $$
 BEGIN
-  IF NOT has_function_privilege('service_role', 'public.acquire_checkout_attempt(uuid,uuid,uuid,uuid,text,text,smallint,bigint,text,smallint,text,text,uuid,text)', 'EXECUTE') THEN
+  -- 20261229100000 (PR #266): exactly one acquire_checkout_attempt, with the optional trailing p_terms_version; the 14-argument
+  -- overload is retired in the same transaction so a 14-argument caller resolves through the default (no PostgREST ambiguity).
+  IF to_regprocedure('public.acquire_checkout_attempt(uuid,uuid,uuid,uuid,text,text,smallint,bigint,text,smallint,text,text,uuid,text)') IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL: 14-arg acquire_checkout_attempt overload must be retired by 20261229100000';
+  END IF;
+  IF (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname = 'acquire_checkout_attempt') <> 1 THEN
+    RAISE EXCEPTION 'FAIL: expected exactly one acquire_checkout_attempt overload live';
+  END IF;
+  RAISE NOTICE 'PASS: 14-arg acquire_checkout_attempt overload retired; exactly one (15-arg, p_terms_version DEFAULT NULL) live';
+  IF NOT has_function_privilege('service_role', 'public.acquire_checkout_attempt(uuid,uuid,uuid,uuid,text,text,smallint,bigint,text,smallint,text,text,uuid,text,text)', 'EXECUTE') THEN
     RAISE EXCEPTION 'FAIL: service_role missing EXECUTE on acquire_checkout_attempt';
   END IF;
-  IF has_function_privilege('authenticated', 'public.acquire_checkout_attempt(uuid,uuid,uuid,uuid,text,text,smallint,bigint,text,smallint,text,text,uuid,text)', 'EXECUTE') THEN
+  IF has_function_privilege('authenticated', 'public.acquire_checkout_attempt(uuid,uuid,uuid,uuid,text,text,smallint,bigint,text,smallint,text,text,uuid,text,text)', 'EXECUTE') THEN
     RAISE EXCEPTION 'FAIL: authenticated must NOT have EXECUTE on acquire_checkout_attempt';
   END IF;
-  IF has_function_privilege('anon', 'public.acquire_checkout_attempt(uuid,uuid,uuid,uuid,text,text,smallint,bigint,text,smallint,text,text,uuid,text)', 'EXECUTE') THEN
+  IF has_function_privilege('anon', 'public.acquire_checkout_attempt(uuid,uuid,uuid,uuid,text,text,smallint,bigint,text,smallint,text,text,uuid,text,text)', 'EXECUTE') THEN
     RAISE EXCEPTION 'FAIL: anon must NOT have EXECUTE on acquire_checkout_attempt';
   END IF;
   RAISE NOTICE 'PASS: acquire_checkout_attempt EXECUTE grants are service_role-only';
