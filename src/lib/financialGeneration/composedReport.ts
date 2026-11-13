@@ -10,7 +10,7 @@
 import { canonicalStringify, sha256Hex } from "@/lib/canonicalStatement/serialization";
 import { CANONICAL_SCHEMA_VERSION, type CanonicalFinancialStatementReport, type RuleEvaluationRecord, type TextualDisclosure } from "@/lib/canonicalStatement/types";
 import { buildRuleContext } from "@/lib/canonicalStatement/rules/ruleEngine";
-import { runCanonicalRulePackV2, CANONICAL_RULE_PACK_V2, ENGINE_VERSION_V2 } from "@/lib/canonicalStatement/rules/rulePack";
+import { runCanonicalRulePackV2_5, CANONICAL_RULE_PACK_V2_5, ENGINE_VERSION_V2_5 } from "@/lib/canonicalStatement/rules/rulePack";
 import { ZERO_TOLERANCE } from "@/lib/canonicalStatement/money";
 import type { EvidenceBatch } from "@/lib/financialEvidence/types";
 import { FRAMEWORK_PROFILES } from "@/lib/financialStatementsWorkspace/frameworkProfiles";
@@ -151,10 +151,10 @@ export const reportContentHash = (report: CanonicalFinancialStatementReport): st
 /** The canonical rule pack's evaluation of the report, with the same deterministic identity the existing save path uses. */
 export function evaluateComposedReport(report: CanonicalFinancialStatementReport, clock: () => string = () => new Date().toISOString()) {
   const inputHash = reportContentHash(report);
-  const findings: readonly RuleEvaluationRecord[] = runCanonicalRulePackV2(buildRuleContext(report, ZERO_TOLERANCE), clock);
+  const findings: readonly RuleEvaluationRecord[] = runCanonicalRulePackV2_5(buildRuleContext(report, ZERO_TOLERANCE), clock);
   return {
-    evaluationRunId: sha256Hex(canonicalStringify({ reportId: report.reportIdentity.reportId, reportVersion: report.reportIdentity.reportVersion, rulePack: CANONICAL_RULE_PACK_V2, engineVersion: ENGINE_VERSION_V2, inputHash })),
-    rulePackId: CANONICAL_RULE_PACK_V2.rulePackId, rulePackVersion: CANONICAL_RULE_PACK_V2.rulePackVersion, engineVersion: ENGINE_VERSION_V2,
+    evaluationRunId: sha256Hex(canonicalStringify({ reportId: report.reportIdentity.reportId, reportVersion: report.reportIdentity.reportVersion, rulePack: CANONICAL_RULE_PACK_V2_5, engineVersion: ENGINE_VERSION_V2_5, inputHash })),
+    rulePackId: CANONICAL_RULE_PACK_V2_5.rulePackId, rulePackVersion: CANONICAL_RULE_PACK_V2_5.rulePackVersion, engineVersion: ENGINE_VERSION_V2_5,
     inputHash, findings,
   };
 }

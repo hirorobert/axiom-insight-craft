@@ -8,7 +8,7 @@
 import { moneyFromDecimalString } from "@/lib/canonicalStatement/money";
 import { canonicalStringify, sha256Hex } from "@/lib/canonicalStatement/serialization";
 import { hasControlCharacter, hasHiddenCharacter, isBlankRecord, isFormulaLike, parseCsv } from "./csv";
-import { FAMILY_SCHEMAS, type CellKind, type ColumnSpec, type RowAccess } from "./schemas";
+import { COUNTER_CASH_ACCOUNT_COLUMN, FAMILY_SCHEMAS, TRANSFER_ACTIVITY, familySchemaFor, type CellKind, type ColumnSpec, type RowAccess } from "./schemas";
 import { EVIDENCE_SCHEMA_VERSION, type EvidenceBatch, type EvidenceBatchDocument, type EvidenceDiagnostic, type EvidenceType, type PeriodRole, type ReplayStatus, type ValidationStatus } from "./types";
 
 /** The content identity of evidence: a hash of its canonical records (header + rows as exact strings), independent of file format. */
@@ -165,12 +165,12 @@ export function ingestRecords(req: IntakeCommon, records: readonly (readonly str
   if (req.evidenceType === "TRIAL_BALANCE") {
     return rejected(err("USE_TRIAL_BALANCE_IMPORT", "Trial balances are imported and reviewed through the Prepare Data stage; they are not parsed here."));
   }
-  const schema = FAMILY_SCHEMAS[req.evidenceType];
   const diagnostics: EvidenceDiagnostic[] = [...(source.extraDiagnostics ?? [])];
 
   let currency: string | null = null;
   let scale: number | null = null;
-  if (schema.hasAmounts) {
+  // Currency and scale depend on the family only: every schema version of a family carries the same amount columns.
+  if (FAMILY_SCHEMAS[req.evidenceType].hasAmounts) {
     if (!req.currency || !/^[A-Z]{3}$/.test(req.currency)) return rejected(err("CURRENCY_REQUIRED", "This evidence type carries amounts, so an ISO 4217 currency code must be declared explicitly; none is assumed."));
     if (req.scale === undefined || !Number.isInteger(req.scale) || req.scale < 0 || req.scale > 6) return rejected(err("SCALE_REQUIRED", "This evidence type carries amounts, so the number of decimal places (0-6) must be declared explicitly; none is assumed."));
     currency = req.currency;
@@ -186,6 +186,9 @@ export function ingestRecords(req: IntakeCommon, records: readonly (readonly str
   if (header.length === 1 && /[;\t|]/.test(records[0][0])) {
     return rejected(err("UNSUPPORTED_DELIMITER", "The header looks semicolon-, tab- or pipe-delimited. Only comma-delimited CSV is accepted."));
   }
+  // The schema version follows the header: only a ledger naming counter_cash_account_code is read under 1.1.0 (transfers between
+  // cash accounts). Every other file is read exactly as before, so a stored batch re-parses to the identical document.
+  const { schema, schemaVersion } = familySchemaFor(req.evidenceType, header);
   const dupHeader = header.filter((h, i) => h !== "" && header.indexOf(h) !== i);
   for (const d of new Set(dupHeader)) diagnostics.push(err("DUPLICATE_COLUMN", `Column "${d}" appears more than once in the header.`, { column: d }));
 
@@ -221,6 +224,16 @@ export function ingestRecords(req: IntakeCommon, records: readonly (readonly str
     });
   }
 
+  // A 1.0.0 ledger cannot express a transfer (it has no counter account): say how to record one, beside the refused value.
+  if (req.evidenceType === "TRANSACTION_LEDGER" && schemaVersion === EVIDENCE_SCHEMA_VERSION && !hasHeaderErrors) {
+    const ai = columns.indexOf("activity");
+    rows.forEach((cells, idx) => {
+      if (!misaligned.has(idx) && (cells[ai] ?? "").trim() === TRANSFER_ACTIVITY) {
+        diagnostics.push(err("TRANSFER_NEEDS_COUNTER_ACCOUNT_COLUMN", `Row ${idx + 1} is a transfer between cash accounts. Add the column ${COUNTER_CASH_ACCOUNT_COLUMN} and name the other cash account on every transfer row (both legs are recorded, one on each account).`, { row: idx + 1, column: "activity", value: TRANSFER_ACTIVITY }));
+      }
+    });
+  }
+
   const cellErrors = diagnostics.some((d) => d.severity === "ERROR");
   if (!cellErrors && schema.crossRow) {
     const access: RowAccess = {
@@ -240,7 +253,7 @@ export function ingestRecords(req: IntakeCommon, records: readonly (readonly str
   const contentHash = source.contentHash;
   const replayIdentity = replayIdentityOf({ companyId: req.companyId, reportingPeriodId: req.reportingPeriodId, evidenceType: req.evidenceType, periodRole: req.periodRole, seriesKey, contentHash });
   const document: EvidenceBatchDocument = {
-    schemaVersion: EVIDENCE_SCHEMA_VERSION,
+    schemaVersion,
     evidenceType: req.evidenceType,
     periodRole: req.periodRole,
     reportingPeriodId: req.reportingPeriodId,
@@ -268,7 +281,7 @@ export function ingestRecords(req: IntakeCommon, records: readonly (readonly str
       periodRole: req.periodRole,
       reportingPeriodId: req.reportingPeriodId,
       seriesKey,
-      schemaVersion: EVIDENCE_SCHEMA_VERSION,
+      schemaVersion,
       sourceFileName: source.fileName ?? req.fileName ?? null,
       contentHash,
       replayIdentity,

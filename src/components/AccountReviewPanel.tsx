@@ -311,6 +311,20 @@ export function AccountReviewPanel({
     touch(key);
   }, [touch]);
 
+  /**
+   * S2-A05: the contra-account designation is tri-state. "Not reviewed" removes it from the row's decision (the server
+   * keeps whatever the account already has); "Contra account" / "Not a contra account" record true / false.
+   */
+  const setContra = useCallback((key: string, val: "" | "true" | "false") => {
+    setFlagChoices((prev) => {
+      const row = { ...prev[key] };
+      if (val === "") delete row.is_contra_account;
+      else row.is_contra_account = val === "true";
+      return { ...prev, [key]: row };
+    });
+    touch(key);
+  }, [touch]);
+
   const toggleExclude = useCallback((key: string) => {
     touch(key);
     setExcluded((prev) => {
@@ -628,6 +642,23 @@ export function AccountReviewPanel({
               </span>
             </label>
           ))}
+          {/* S2-A05: tri-state. A contra account reduces its category (accumulated depreciation, an allowance), so its
+              balance is expected on the opposite side; the sign check then flags it only when it is NOT on that side. */}
+          <label className="flex flex-col gap-1 w-full pt-1">
+            <span className="text-[11px] text-muted-foreground">Reduces its category (contra account)?</span>
+            <select
+              data-testid="contra-account-designation"
+              aria-label={`Contra account designation for ${account.account_name}${account.account_code ? ` (${account.account_code})` : ""}`}
+              value={flags?.is_contra_account === undefined ? "" : String(flags.is_contra_account)}
+              onChange={(e) => setContra(key, e.target.value as "" | "true" | "false")}
+              disabled={isWorking}
+              className="h-8 w-full border border-border bg-background px-2 text-[12px]"
+            >
+              <option value="">Not reviewed</option>
+              <option value="true">Contra account — balance expected on the opposite side</option>
+              <option value="false">Not a contra account</option>
+            </select>
+          </label>
         </div>
       )}
     </div>

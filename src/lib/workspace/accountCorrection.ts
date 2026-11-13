@@ -101,12 +101,16 @@ export const reasonValid = (r: string) => { const n = r.trim().length; return n 
 /**
  * The ONE decision a correction records: the ordinary manual classification of Account review (USER_MANUAL_
  * CLASSIFICATION, statement and normal side from the class), with the reviewer's reason and where it was made. No
- * flag is sent, so the server keeps the mapping's cash / retained-earnings / payroll values.
+ * cash / retained-earnings / payroll flag is sent, so the server keeps the mapping's values; the contra-account designation
+ * (S2-A05) is sent only when the reviewer decided it here.
  */
-export function correctionDecision(account: { account_code: string | null; account_name: string }, classification: ClassificationValue, reason: string, findingKey: string): ReviewDecisionPayload & { source: string } {
+export function correctionDecision(account: { account_code: string | null; account_name: string }, classification: ClassificationValue, reason: string, findingKey: string,
+  contra?: boolean): ReviewDecisionPayload & { source: string } {
   if (!isClassification(classification)) throw new Error("unknown classification");
   if (!reasonValid(reason)) throw new Error(`a correction needs a reason of ${REASON_MIN}–${REASON_MAX} characters`);
-  const d = buildReviewDecision({ account_code: account.account_code, account_name: account.account_name }, false, classification, classificationMeta);
+  // S2-A05: the contra-account designation is sent only when the reviewer decided it (undefined: not sent, the server keeps it).
+  const d = buildReviewDecision({ account_code: account.account_code, account_name: account.account_name }, false, classification, classificationMeta,
+    contra === undefined ? undefined : { is_contra_account: contra });
   return { ...d, reason: reason.trim(), source: `close_review_finding:${findingKey}` };
 }
 
@@ -192,15 +196,19 @@ export async function saveCorrection(
  * balance and the account it was made for, and restored only for exactly those: another actor signed in on the same
  * browser never sees or resends it. Without a known actor nothing is stored.
  */
-export interface PendingSave { actor: string; uploadId: string; accountKey: string; requestId: string; classification: ClassificationValue; reason: string }
+export interface PendingSave { actor: string; uploadId: string; accountKey: string; requestId: string; classification: ClassificationValue; reason: string;
+  /** S2-A05: the contra-account designation sent with it (absent: not sent). */
+  contra?: boolean }
 export const pendingKey = (actor: string, uploadId: string, accountKey: string) => `cfoclose.accountCorrection.v2.${actor}.${uploadId}.${accountKey}`;
 export function parsePending(raw: string | null, expected: { actor: string; uploadId: string; accountKey: string }): PendingSave | null {
   if (!raw) return null;
   try {
     const v = JSON.parse(raw) as Partial<PendingSave>;
     const ok = v.actor === expected.actor && v.uploadId === expected.uploadId && v.accountKey === expected.accountKey
-      && typeof v.requestId === "string" && UUID.test(v.requestId) && isClassification(v.classification) && typeof v.reason === "string" && reasonValid(v.reason);
-    return ok ? { actor: v.actor!, uploadId: v.uploadId!, accountKey: v.accountKey!, requestId: v.requestId!, classification: v.classification!, reason: v.reason! } : null;
+      && typeof v.requestId === "string" && UUID.test(v.requestId) && isClassification(v.classification) && typeof v.reason === "string" && reasonValid(v.reason)
+      && (v.contra === undefined || typeof v.contra === "boolean");
+    return ok ? { actor: v.actor!, uploadId: v.uploadId!, accountKey: v.accountKey!, requestId: v.requestId!, classification: v.classification!, reason: v.reason!,
+      ...(typeof v.contra === "boolean" ? { contra: v.contra } : {}) } : null;
   } catch { return null; }
 }
 

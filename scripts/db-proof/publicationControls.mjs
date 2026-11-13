@@ -30,7 +30,7 @@
 //   PUBLICATION_CONTROLS_ABSENT=1 applies the chain WITHOUT 20261111100000: the regression run. It MUST fail — its
 //   failures are exactly the cases the control exists for (E, A, B, D, J, L). Its output is evidence, not a pass.
 import crypto from "node:crypto";
-import { applyChain, applyChainBefore, certifier, chainFiles, clientDb, csv, DECISIONS_1_2_0, EVIDENCE_FY2025_COMPARATIVE, EVIDENCE_FY2026, FY2026, makeWorld, migrationText, openDatabase, prepareReporting, reporter, uuid, WORDS_1_2_0 } from "./lib/reportingKit.mjs";
+import { applyChain, applyChainBefore, ASSIGN, certifier, chainFiles, clientDb, csv, DECISIONS_1_2_0, EVIDENCE_FY2025_COMPARATIVE, EVIDENCE_FY2026, FY2026, makeWorld, migrationText, openDatabase, prepareReporting, reporter, TB, uuid, WORDS_1_2_0 } from "./lib/reportingKit.mjs";
 import { ingestEvidence } from "../../src/lib/financialEvidence/intake.ts";
 import { signoffClient } from "../../src/lib/reporting/signoff.ts";
 import { prepareReportVersion } from "../../src/lib/reporting/prepareVersion.ts";
@@ -40,6 +40,11 @@ import { STATEMENT_COMPILER_SHA256 } from "../../supabase/functions/_shared/stat
 
 const FILE = "20261111100000_fs_publication_controls.sql";
 const ABSENT = process.env.PUBLICATION_CONTROLS_ABSENT === "1";
+// S2_CONTROLS_ABSENT=1 applies the chain WITHOUT 20261222100000 (transfers between cash accounts; the reviewer's acceptance of a
+// post-closing finding) — but WITH the compiler identity 20261222200000, so the current bundle compiles: main's database behaviour
+// for the S2 cases T and P. It MUST fail exactly T1, T2, T3 (the server presents the transfer legs), T4, T5 and P3; everything else passes.
+const S2_FILE = "20261222100000_fs_cash_transfers_and_post_closing.sql";
+const S2_ABSENT = process.env.S2_CONTROLS_ABSENT === "1";
 const { group, check, refused, finish } = reporter();
 const hex = (s) => crypto.createHash("sha256").update(s).digest("hex");
 const slug = (s) => sha256Hex(s).slice(0, 10);
@@ -50,10 +55,20 @@ async function main() {
   group(ABSENT ? "Replay WITHOUT the control (regression run: the cases below must fail)" : "Replay");
   if (ABSENT) {
     await check(`the chain before ${FILE} applies`, async () => (await applyChainBefore(db, FILE)) ?? true);
+  } else if (S2_ABSENT) {
+    await check(`the chain before ${S2_FILE} applies, with the compiler identity`, async () => (await applyChainBefore(db, S2_FILE)) ?? true);
   } else {
     await check(`${FILE} is in the chain and the whole chain applies`, async () => (!chainFiles().includes(FILE) ? `${FILE} missing` : (await applyChain(db)) ?? true));
     await refused("re-applying is refused by its preflight", "P0001", () => db.admin.query(migrationText(FILE)), "PREFLIGHT_REFUSED");
+    await refused(`re-applying ${S2_FILE} is refused by its preflight`, "P0001", () => db.admin.query(migrationText(S2_FILE)), "PREFLIGHT_REFUSED");
+    await check("re-applying the compiler identity 20261222200000 is a no-op (the proofs apply it early)", async () => { await db.admin.query(migrationText("20261222200000_statement_compiler_transfers_post_closing.sql")); return true; });
   }
+  await check(`static contract: ${S2_FILE} adds no DELETE or UPDATE without a WHERE clause (safeupdate), and no writer at all: its only DELETE is the existing guarded one it re-anchors`, async () => {
+    const code = migrationText(S2_FILE).replace(/--[^\n]*/g, "");
+    const bare = [...code.matchAll(/\bDELETE\s+FROM\s+[\w.]+\s*;/gi), ...code.matchAll(/\bUPDATE\s+[\w.]+\s+SET\b(?:(?!\bWHERE\b)[^;])*;/gi)].map((m) => m[0].slice(0, 60));
+    const writes = [...code.matchAll(/\b(INSERT\s+INTO|UPDATE\s+[\w.]+\s+SET)\b/gi)].map((m) => m[0]);
+    return bare.length === 0 && writes.length === 0 ? true : { bare, writes };
+  });
   await check("static contract: no DELETE or UPDATE without a WHERE clause anywhere in the migration (Supabase API sessions load safeupdate, which refuses them inside SECURITY DEFINER functions too; a direct-connection proof cannot see that)", async () => {
     const code = migrationText(FILE).replace(/--[^\n]*/g, "");
     const bare = [...code.matchAll(/\bDELETE\s+FROM\s+[\w.]+\s*;/gi), ...code.matchAll(/\bUPDATE\s+[\w.]+\s+SET\b(?:(?!\bWHERE\b)[^;])*;/gi)].map((m) => m[0].slice(0, 60));
@@ -632,6 +647,148 @@ async function main() {
     return pf.state === "no_prior_final" && now.doc_sha === storedFinal.doc_sha && b?.document_sha256 === issued.doc_sha ? true : { pf: pf.state };
   });
 
+  // ── S2-A01 / S2-A02 (20261222100000) ─────────────────────────────────────────────────────────────────────────────
+  // Each in its own synthetic workspace (makeWorld), so nothing above is disturbed.
+  const evidenceFor = (company, type, role, text) => {
+    const y = role === "CURRENT" ? Y : Y - 1;
+    const r = ingestEvidence({ companyId: company, evidenceType: type, periodRole: role, reportingPeriodId: `FY${Y}`, currency: "TZS", scale: 2, text, fileName: `${type.toLowerCase()}-${y}.csv`, periodStart: `${y}-01-01`, periodEnd: `${y}-12-31` });
+    if (r.outcome !== "PARSED") throw new Error(`${type} rejected: ${JSON.stringify(r).slice(0, 300)}`);
+    return r.batch;
+  };
+  const worldWith = async (rows, assign) => {
+    const w = await makeWorld(db); await w.rollout(w.A, true);
+    const e = await certifier(db, w.U); await prepareReporting(db, w, e, { year: Y, rows, assign });
+    const who = (uid) => { const d = clientDb(db, uid); return { d, c: signoffClient(d) }; };
+    return { w, pre: who(w.U.preparer), partner: who(w.U.partner), owner: who(w.U.owner) };
+  };
+  const prepare = (x, rid, newEvidence) => prepareReportVersion(x.pre.d, x.pre.c, { companyId: x.w.A, periodYear: Y, legalName: "Synthetic SME Limited", reportId: rid, newEvidence, idempotencyKey: `s2-${uuid()}`, evaluatedAt: "2027-02-02T09:00:00.000Z" });
+  const depsOf = (x) => db.asUser(x.w.U.owner, "SELECT public.fs_reporting_dependencies($1,$2) r", [x.w.A, Y]).then((r) => r.r);
+
+  group("T. S2-A01 — a transfer between two cash accounts of the perimeter is in each account's roll-forward and in no presented line, on the server too");
+  // The bank of TB split in two: bank 1000 7,800.00 → 11,500.00 and petty cash 1001 200.00 → 1,000.00 (together 8,000.00 → 12,500.00, as
+  // before). The FY2026 ledger is EVIDENCE_FY2026's seven bank rows (net +4,500.00) plus one transfer of 800.00, bank → petty cash, as its
+  // two legs. Hand-computed: bank ledger 4,500.00 − 800.00 = 3,700.00 = 11,500.00 − 7,800.00; petty cash 800.00 = 1,000.00 − 200.00; every
+  // presented figure unchanged from H (operating 6,200.00, financing −1,700.00, net increase 4,500.00, closing 8,000.00 + 4,500.00 = 12,500.00).
+  const TB_TWO_CASH = TB.flatMap((r) => (r[0] === "1000" ? [["1000", "Bank", "current_assets", "balance_sheet", "debit", "11500.00", "", "7800.00", ""], ["1001", "Petty cash", "current_assets", "balance_sheet", "debit", "1000.00", "", "200.00", ""]] : [r]));
+  const withCounter = (ledgerText, extra) => {
+    const [header, ...body] = ledgerText.trim().split("\n");
+    return [`${header},counter_cash_account_code`, ...body.map((l) => `${l},`), ...extra].join("\n") + "\n";
+  };
+  const TO_PETTY = "X1,2026-08-01,1000,Cash withdrawn for petty cash,,800.00,TRANSFER_BETWEEN_CASH_ACCOUNTS,Transfer to petty cash,1001";
+  const FROM_BANK = "X2,2026-08-01,1001,Cash received from the bank,800.00,,TRANSFER_BETWEEN_CASH_ACCOUNTS,Transfer from the bank,1000";
+  const MAP_TWO_CASH = "account_key,category,effect,include_in_cash_flow,note\n1000,BANK_ACCOUNT,ADD,Y,Main operating account\n1001,CASH_ON_HAND,ADD,Y,Petty cash\n";
+  const T = await worldWith(TB_TWO_CASH, { ...ASSIGN, 1001: "sfp.cash_and_cash_equivalents" });
+  const ridT = `rpt-transfers-${uuid()}`;
+  let vT;
+  await check("T1. the ledger with both transfer legs is schema 1.1.0 and VALID; the version saves and is ready — the server's figures are the browser's, no blocker of any kind", async () => {
+    const ledger = evidenceFor(T.w.A, "TRANSACTION_LEDGER", "CURRENT", withCounter(EVIDENCE_FY2026.TRANSACTION_LEDGER, [TO_PETTY, FROM_BANK]));
+    const ev = [ledger, evidenceFor(T.w.A, "EQUITY_MOVEMENTS", "CURRENT", EVIDENCE_FY2026.EQUITY_MOVEMENTS), evidenceFor(T.w.A, "CASH_ACCOUNT_MAP", "CURRENT", MAP_TWO_CASH),
+      ...["TRANSACTION_LEDGER", "EQUITY_MOVEMENTS", "PRIOR_PERIOD_STATEMENTS"].map((t) => evidenceFor(T.w.A, t, "COMPARATIVE", EVIDENCE_FY2025_COMPARATIVE[t]))];
+    const r = await prepare(T, ridT, ev);
+    vT = r.reportVersion;
+    const rd = await T.partner.c.readiness(T.w.A, ridT, vT);
+    return ledger.schemaVersion === "1.1.0" && ledger.validationStatus === "VALID" && r.outcome === "saved" && rd.ready === true && rd.blockers.length === 0 ? true : { schema: ledger.schemaVersion, status: ledger.validationStatus, r: r.outcome, blockers: rd.blockers };
+  });
+  await check("T2. the server's figures, by hand: no line for either transfer leg; operating 6,200.00, financing −1,700.00, net increase 4,500.00, closing 12,500.00; roll-forward bank 3,700.00 = 3,700.00, petty cash 800.00 = 800.00; every figure in the document", async () => {
+    const d = await depsOf(T);
+    const f = Object.fromEntries(d.figures.map((x) => [x.factId, x.amountMinor]));
+    const want = {
+      "fact:line:cf:operating:net:CURRENT": "620000", "fact:line:cf:financing:net:CURRENT": "-170000", "fact:line:cf:net-increase:CURRENT": "450000",
+      "fact:line:cf:opening:CURRENT": "800000", "fact:line:cf:closing:CURRENT": "1250000", "fact:cashperim:cfexpected:CURRENT": "1250000",
+      [`fact:cashroll:ledger:${slug("1000")}`]: "370000", [`fact:cashroll:tb:${slug("1000")}`]: "370000",
+      [`fact:cashroll:ledger:${slug("1001")}`]: "80000", [`fact:cashroll:tb:${slug("1001")}`]: "80000",
+    };
+    const wrong = Object.entries(want).filter(([id, v]) => f[id] !== v).map(([id, v]) => `${id}: server ${f[id]} want ${v}`);
+    const transferLines = d.figures.filter((x) => [slug("Transfer to petty cash"), slug("Transfer from the bank")].some((s) => x.factId.includes(`:${s}:`)) || /transfer_between_cash_accounts/.test(x.factId)).map((x) => x.factId);
+    const doc = (await stored(ridT, vT)).report_document;
+    const docFacts = new Map(doc.facts.map((x) => [x.factId, x.value.minorUnits.__bigint__]));
+    const absent = d.figures.filter((x) => docFacts.get(x.factId) !== x.amountMinor).map((x) => x.factId);
+    return wrong.length === 0 && transferLines.length === 0 && absent.length === 0 && d.blockers.length === 0 ? true : { wrong, transferLines, absent: absent.slice(0, 4), blockers: d.blockers };
+  });
+  await check("T3. REVIEWED (partner) then FINAL (owner): the server compilation of the 1.1.0 ledger matches the document (rule pack 2.5.0, the pack in force: 2.4.0 with subtotal-casting 1.1.0)", async () => {
+    const rv = await T.partner.c.setState(T.w.A, ridT, vT, "REVIEWED", "Reviewed: the transfer is in both roll-forwards and in no line");
+    const fin = await T.owner.c.setState(T.w.A, ridT, vT, "FINAL", "Approved for issue");
+    const rc = await db.one("SELECT matches, evaluation->>'rulePackVersion' AS pack FROM public.fs_server_compilations WHERE report_id=$1 AND report_version=$2 ORDER BY id DESC LIMIT 1", [ridT, vT]);
+    return rv.state === "REVIEWED" && fin.state === "FINAL" && rc?.matches === true && rc.pack === "2.5.0" ? true : { rv: rv.state, fin: fin.state, rc };
+  });
+  // As a defective or tampering client would: a ledger batch the intake refuses, stored with a VALID claim. The server's twin refuses it.
+  const forgeLedger = async (text, schemaVersion) => {
+    const parsed = evidenceFor(T.w.A, "TRANSACTION_LEDGER", "CURRENT", withCounter(EVIDENCE_FY2026.TRANSACTION_LEDGER, [TO_PETTY, FROM_BANK]));
+    const [header, ...rows] = text.trim().split("\n").map((l) => l.split(","));
+    const document = { ...parsed.document, schemaVersion, columns: header, rows };
+    const latestId = (await db.one("SELECT evidence_batch_id FROM public.financial_evidence_batches WHERE company_id=$1 AND evidence_type='TRANSACTION_LEDGER' AND period_role='CURRENT' ORDER BY version DESC LIMIT 1", [T.w.A])).evidence_batch_id;
+    const member = (await db.one("SELECT id FROM public.firm_members WHERE company_id=$1 AND user_id=$2", [T.w.A, T.w.U.preparer])).id;
+    const id = `eb-forged-${uuid().slice(0, 8)}`;
+    await db.admin.query("SELECT public.fs_ingest_evidence_internal($1,$2,$3,$4,'TRANSACTION_LEDGER','CURRENT','default',$5,'forged.csv',$6,'TZS',2,$7::jsonb,'VALID','[]'::jsonb,$8)",
+      [member, id, T.w.A, `FY${Y}`, schemaVersion, hex(id), JSON.stringify(document), latestId]);
+    return id;
+  };
+  await check("T4. an unmatched transfer leg (the petty-cash receipt missing) forged as VALID: CASHFLOW_TRANSFER_UNMATCHED names the pair and the net −800.00, beside the petty-cash roll-forward difference; no line for it", async () => {
+    await forgeLedger(withCounter(EVIDENCE_FY2026.TRANSACTION_LEDGER, [TO_PETTY]), "1.1.0");
+    const d = await depsOf(T);
+    return d.blockers.includes("CASHFLOW_TRANSFER_UNMATCHED:CURRENT:1000:1001:-80000") && d.blockers.includes("CASHFLOW_ACCOUNT_ROLLFORWARD:1001:-80000")
+      && !d.figures.some((x) => x.factId.includes(`:${slug("Transfer to petty cash")}:`)) ? true : { blockers: d.blockers };
+  });
+  await check("T5. a transfer row without a counter account (a 1.0.0-shaped ledger), forged as VALID, is unreadable: no cash-flow figure from it, EVIDENCE_ROWS_UNREADABLE", async () => {
+    const legacy = EVIDENCE_FY2026.TRANSACTION_LEDGER.trim() + "\nX1,2026-08-01,1000,Cash withdrawn for petty cash,,800.00,TRANSFER_BETWEEN_CASH_ACCOUNTS,Transfer to petty cash\nX2,2026-08-01,1001,Cash received from the bank,800.00,,TRANSFER_BETWEEN_CASH_ACCOUNTS,Transfer from the bank\n";
+    await forgeLedger(legacy, "1.0.0");
+    const d = await depsOf(T);
+    const cf = d.figures.filter((x) => x.factId.startsWith("fact:line:cf:") && x.factId.endsWith(":CURRENT")).map((x) => x.factId);
+    return d.blockers.includes("EVIDENCE_ROWS_UNREADABLE:TRANSACTION_LEDGER:CURRENT") && cf.length === 0 ? true : { blockers: d.blockers, cf: cf.slice(0, 6) };
+  });
+
+  group("P. S2-A02 — a post-closing trial balance (profit already in retained earnings) blocks REVIEWED until a reviewer accepts it with a reason");
+  // Both years exported after closing entries: no income or expense account; retained earnings 5,900.00 + 5,100.00 = 11,000.00 (FY2026)
+  // and 3,500.00 + 3,100.00 = 6,600.00 (FY2025). Debits 39,000.00 = credits 39,000.00 (FY2026); 32,800.00 = 32,800.00 (FY2025). The cash
+  // is unchanged, so the ledgers are EVIDENCE_FY2026's. The equity movements state the result for the period as 0.00 (what the nil SCI
+  // shows) and carry the closed result as an OTHER_MOVEMENT: every equity tie then holds (a statement of changes in equity with no
+  // result line at all is refused by equity-profit-tie, INSUFFICIENT_EVIDENCE — verified while building this case).
+  const TB_POST_CLOSING = TB.filter((r) => r[3] === "balance_sheet").map((r) => (r[0] === "3100" ? [...r.slice(0, 5), "", "11000.00", "", "6600.00"] : r));
+  const ASSIGN_SFP = Object.fromEntries(Object.entries(ASSIGN).filter(([key]) => TB_POST_CLOSING.some((r) => r[0] === key)));
+  const EQUITY_POST_CLOSING = {
+    CURRENT: EVIDENCE_FY2026.EQUITY_MOVEMENTS.replace("Retained earnings,PROFIT_OR_LOSS,5100.00,", "Retained earnings,PROFIT_OR_LOSS,0.00,\nRetained earnings,OTHER_MOVEMENT,5100.00,Result closed to retained earnings"),
+    COMPARATIVE: EVIDENCE_FY2025_COMPARATIVE.EQUITY_MOVEMENTS.replace("Retained earnings,PROFIT_OR_LOSS,3100.00,", "Retained earnings,PROFIT_OR_LOSS,0.00,\nRetained earnings,OTHER_MOVEMENT,3100.00,Result closed to retained earnings"),
+  };
+  const P = await worldWith(TB_POST_CLOSING, ASSIGN_SFP);
+  const ridP = `rpt-post-closing-${uuid()}`;
+  let vP, findingKey;
+  const readyP = () => P.partner.c.readiness(P.w.A, ridP, vP);
+  const decideP = (uid, type, rationale) => { const id = `d-pc-${uuid()}`; return db.asUser(uid, "SELECT * FROM public.fs_append_decision($1,$2,$3,$4::jsonb)", [id, ridP, P.w.A, JSON.stringify({ decisionId: id, decisionType: type, target: { kind: "FINDING_KEY", findingKey }, rationale, decidedAt: "2027-02-03T10:00:00.000Z" })]); };
+  await check("P1. the version saves; the browser's and the server's evaluations both carry comprehensive-income-activity FAIL HIGH (and no other blocking finding); REVIEWED is refused (BLOCKING_FINDINGS:1 and SERVER_COMPILATION_FINDINGS)", async () => {
+    const ev = [evidenceFor(P.w.A, "TRANSACTION_LEDGER", "CURRENT", EVIDENCE_FY2026.TRANSACTION_LEDGER), evidenceFor(P.w.A, "EQUITY_MOVEMENTS", "CURRENT", EQUITY_POST_CLOSING.CURRENT), evidenceFor(P.w.A, "CASH_ACCOUNT_MAP", "CURRENT", EVIDENCE_FY2026.CASH_ACCOUNT_MAP),
+      evidenceFor(P.w.A, "TRANSACTION_LEDGER", "COMPARATIVE", EVIDENCE_FY2025_COMPARATIVE.TRANSACTION_LEDGER), evidenceFor(P.w.A, "EQUITY_MOVEMENTS", "COMPARATIVE", EQUITY_POST_CLOSING.COMPARATIVE), evidenceFor(P.w.A, "PRIOR_PERIOD_STATEMENTS", "COMPARATIVE", EVIDENCE_FY2025_COMPARATIVE.PRIOR_PERIOD_STATEMENTS)];
+    const r = await prepare(P, ridP, ev);
+    vP = r.reportVersion;
+    const server = await db.one("SELECT evaluation FROM public.fs_server_compilations WHERE report_id=$1 AND report_version=$2 ORDER BY id DESC LIMIT 1", [ridP, vP]);
+    const browser = await db.one("SELECT findings FROM public.financial_statement_evaluations WHERE report_id=$1 AND report_version=$2 ORDER BY seq DESC LIMIT 1", [ridP, vP]);
+    const of = (list) => (list ?? []).filter((x) => x.ruleId === "comprehensive-income-activity" && x.outcome === "FAIL" && x.failureSeverity === "HIGH" && x.actionable);
+    const s = of(server?.evaluation?.findings), b = of(browser?.findings);
+    findingKey = s[0]?.findingKey;
+    const blocking = (server?.evaluation?.findings ?? []).filter((x) => x.actionable && (x.outcome === "INSUFFICIENT_EVIDENCE" || ["CRITICAL", "HIGH"].includes(x.failureSeverity))).map((x) => `${x.ruleId}:${x.outcome}`);
+    const rd = await readyP();
+    const ref = await refusal(() => P.partner.c.setState(P.w.A, ridP, vP, "REVIEWED", "Attempted review of a post-closing trial balance"));
+    return r.outcome === "saved" && s.length === 1 && b.length === 1 && b[0].findingKey === findingKey && blocking.length === 1
+      && rd.blockers.includes("BLOCKING_FINDINGS:1") && rd.blockers.includes("SERVER_COMPILATION_FINDINGS") && /PT409/.test(ref ?? "") ? true : { r: r.outcome, s: s.length, b: b.length, blocking, blockers: rd.blockers, ref };
+  });
+  await check("P2. the preparer cannot accept it (42501); a reviewer's REJECT, or an acceptance without a reason, clears the finding count but not the server compilation's: SERVER_COMPILATION_FINDINGS stays and REVIEWED is refused", async () => {
+    const pre = await refusal(() => decideP(P.w.U.preparer, "ACCEPT_FINDING", "Preparer says dormant"));
+    await decideP(P.w.U.partner, "REJECT_FINDING", "Not a real finding");
+    const afterReject = await readyP();
+    await decideP(P.w.U.partner, "ACCEPT_FINDING", "  ");
+    const afterBlank = await readyP();
+    const ref = await refusal(() => P.partner.c.setState(P.w.A, ridP, vP, "REVIEWED", "Attempted review"));
+    return /^42501:/.test(pre ?? "") && !afterReject.blockers.some((x) => x.startsWith("BLOCKING_FINDINGS")) && afterReject.blockers.includes("SERVER_COMPILATION_FINDINGS")
+      && afterBlank.blockers.includes("SERVER_COMPILATION_FINDINGS") && /PT409/.test(ref ?? "") ? true : { pre, afterReject: afterReject.blockers, afterBlank: afterBlank.blockers, ref };
+  });
+  await check("P3. the reviewer records ACCEPT_FINDING with the reason (the legitimate case: a genuinely dormant entity): no blocker remains; REVIEWED (partner) then FINAL (owner)", async () => {
+    await decideP(P.w.U.partner, "ACCEPT_FINDING", "Dormant in 2026: no income and no expense; confirmed to the board minute of 15 January 2027");
+    const rd = await readyP();
+    const rv = await refusal(() => P.partner.c.setState(P.w.A, ridP, vP, "REVIEWED", "Reviewed: dormant year accepted with documented judgement"));
+    const fin = rv ? "not attempted" : await refusal(() => P.owner.c.setState(P.w.A, ridP, vP, "FINAL", "Approved for issue"));
+    const pubs = (await db.admin.query("SELECT state FROM public.financial_statement_publications WHERE report_id=$1 AND report_version=$2 ORDER BY seq", [ridP, vP])).rows.map((x) => x.state);
+    return rd.ready === true && rd.blockers.length === 0 && rv === null && fin === null && pubs.join(",") === "REVIEWED,FINAL" ? true : { blockers: rd.blockers, rv, fin, pubs };
+  });
+
   // ── I ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
   group("I. Issued history unchanged");
   await check("after every later version, replacement and discrepancy above, the FINAL version's document, content hash and both bindings are byte-identical; bindings cannot be altered", async () => {
@@ -685,7 +842,7 @@ async function main() {
 
 let crashed = false;
 try { await main(); } catch (e) { crashed = true; console.error(`\nINFRASTRUCTURE FAILURE: ${e?.stack ?? e}`); }
-const ok = finish(ABSENT ? "PUBLICATION_CONTROLS (control ABSENT — failures expected)" : "PUBLICATION_CONTROLS", crashed);
+const ok = finish(ABSENT ? "PUBLICATION_CONTROLS (control ABSENT — failures expected)" : S2_ABSENT ? "PUBLICATION_CONTROLS (20261222100000 ABSENT — T and P3 failures expected)" : "PUBLICATION_CONTROLS", crashed);
 process.on("uncaughtException", (e) => { if (/Connection terminated unexpectedly/.test(String(e?.message))) return; console.error(`shutdown error: ${e?.stack ?? e}`); process.exit(1); });
 await db?.close();
 process.exit(ok ? 0 : 1);

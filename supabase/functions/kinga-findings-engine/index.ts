@@ -938,7 +938,7 @@ async function runModuleB(params: ModuleBParams): Promise<ModuleBResult> {
 
       // ── Presumptive tax ceiling guard (FA2026 s.31(a)(ii)) ────────────
       // Band rules only apply to companies with turnover ≤ TZS 200M.
-      // Kamanga Medics: TZS 9.4B revenue — 47× above ceiling. Skip all bands.
+      // Example: an entity whose turnover is far above the ceiling skips all bands.
       // The advisory 'presumptive_tax_threshold' rule (rate_is_threshold=true)
       // is deliberately excluded from this guard and fires correctly as LOW/advisory.
       if (PRESUMPTIVE_TAX_BAND_CATEGORIES.has(rule.trigger_category) &&
@@ -1000,10 +1000,10 @@ async function runModuleB(params: ModuleBParams): Promise<ModuleBResult> {
       // The finding will show gross obligation. Preparer then adds payment records
       // and re-runs — next run produces the correct net figure.
       //
-      // Kamanga Medics example:
-      //   gross_obligation:  103,072,691
-      //   declared_paid:      61,930,070  (from tax_payments for period 2025-12)
-      //   net_variance:       41,142,621  ← matches Note 6 SDL outstanding exactly
+      // Illustrative example (invented figures):
+      //   gross_obligation:  1,000,000
+      //   declared_paid:       600,000  (from tax_payments for the period)
+      //   net_variance:        400,000  (the outstanding amount the finding reports)
 
       let declaredAmount    = 0;
       let paymentSource     = "none";

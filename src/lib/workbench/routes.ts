@@ -17,6 +17,7 @@ export type WorkbenchPageId =
   | "overview"
   | "tb-intake"
   | "tb-review"
+  | "close-books"
   | "close-findings"
   | "close-adjustments"
   | "fs-statements"
@@ -57,6 +58,7 @@ export const WORKBENCH_GROUPS: readonly WorkbenchGroup[] = Object.freeze([
     label: "Close Review",
     stage: "prepare",
     pages: [
+      { id: "close-books", label: "Check my books", segment: "close/books" },
       { id: "close-findings", label: "Findings", segment: "close/findings" },
       { id: "close-adjustments", label: "Adjustments", segment: "close/adjustments" },
     ],
@@ -99,6 +101,8 @@ export const RELEASED_WORKBENCH_PAGES: ReadonlySet<WorkbenchPageId> = new Set<Wo
   // Adjustments: the one adjustment path (server functions, 20261015100000). Released with the retirement of the legacy
   // browser-write journal panel (ReconcileWorkspace now shows earlier entries read-only; 20261026100000 revokes the writes).
   "close-adjustments",
+  // Check my books (Ready for Reporting pilot): the readiness engine runs on the server; opted in per period. Offered where reporting is.
+  "close-books",
 ]);
 
 /**

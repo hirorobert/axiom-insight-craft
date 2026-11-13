@@ -232,7 +232,7 @@ describe("2. only Prepare and Reconcile are customer-reachable", () => {
     // Workbench pages built ahead of release (Close Review): registered only when BOTH the gate is on AND the page is in
     // RELEASED_WORKBENCH_PAGES (src/lib/workbench/routes.ts), behind the same Prepare stage scope gate.
     const releaseGated = [...app.matchAll(/\{WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES\.has\("([a-z-]+)"\) && <Route path="([a-z/-]+)" element=\{<StageScopeGate stage="([a-z]+)">/g)].map((m) => [m[1], m[2], m[3]]).filter((r) => r[2] !== "statements");
-    expect(releaseGated).toEqual([["close-findings", "close/findings", "prepare"], ["close-adjustments", "close/adjustments", "prepare"]]);
+    expect(releaseGated).toEqual([["close-books", "close/books", "prepare"], ["close-findings", "close/findings", "prepare"], ["close-adjustments", "close/adjustments", "prepare"]]);
     expect(staged.filter((x) => x === "reconcile")).toHaveLength(1);
     // +1: the IPSAS accrual preparation page (path "ipsas"), under the same Prepare stage and scope gate; the ipsas_* server
     // functions decide capability, rollout and framework, and the page is only linked for ipsas_accrual companies.

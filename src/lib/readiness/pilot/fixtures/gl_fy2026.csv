@@ -1,0 +1,20 @@
+Account,Date,Transaction Type,Txn Id,Line,Num,Name,Memo,Debit,Credit
+1020 NMB bank,2025-06-30,Beginning Balance,OPENING,1,,,Opening balance,88050597.63,
+1500 Equipment,2025-06-30,Beginning Balance,OPENING,2,,,Opening balance,40000000.00,
+2000 Trade payables,2025-06-30,Beginning Balance,OPENING,3,,,Opening balance,0.00,
+2200 Accrued liabilities,2025-06-30,Beginning Balance,OPENING,4,,,Opening balance,0.00,
+3050 Opening Balance Equity,2025-06-30,Beginning Balance,OPENING,5,,,Opening balance,,305357378.30
+4000 Revenue,2025-06-30,Beginning Balance,OPENING,6,,,Opening balance,0.00,
+5300 Supplies,2025-06-30,Beginning Balance,OPENING,7,,,Opening balance,0.00,
+5607 Food ration,2025-06-30,Beginning Balance,OPENING,8,,,Opening balance,0.00,
+9999 Balance of remaining accounts (constructed),2025-06-30,Beginning Balance,OPENING,9,,,Opening balance,177306780.67,
+5607 Food ration,2025-07-02,Check,CHQ-001593,1,001593,Enduimet Rangers Association,"Cheque 001593, Enduimet Rangers Association, bill 003/2024.2025",33518793.00,
+1020 NMB bank,2025-07-02,Check,CHQ-001593,2,001593,Enduimet Rangers Association,"Cheque 001593, Enduimet Rangers Association, bill 003/2024.2025",,33518793.00
+1020 NMB bank,2026-06-15,Deposit,DEP-0615,1,DEP-0615,Customers,"Customer receipts, banked",11240413.71,
+4000 Revenue,2026-06-15,Deposit,DEP-0615,2,DEP-0615,Customers,"Customer receipts, banked",,11240413.71
+5607 Food ration,2026-06-30,Journal Entry,JE-FOOD-AGG,1,,,"Food rations, remaining year (constructed aggregate)",105279755.00,
+9999 Balance of remaining accounts (constructed),2026-06-30,Journal Entry,JE-FOOD-AGG,2,,,"Food rations, remaining year (constructed aggregate)",,105279755.00
+9999 Balance of remaining accounts (constructed),2026-06-30,Journal Entry,JE-SALES-AGG,1,,,"Sales invoices, year (constructed aggregate)",238759586.29,
+4000 Revenue,2026-06-30,Journal Entry,JE-SALES-AGG,2,,,"Sales invoices, year (constructed aggregate)",,238759586.29
+5300 Supplies,2026-06-30,Journal Entry,JE-SUPPLIES-AGG,1,,,"Supplies, year (constructed aggregate)",12000000.00,
+9999 Balance of remaining accounts (constructed),2026-06-30,Journal Entry,JE-SUPPLIES-AGG,2,,,"Supplies, year (constructed aggregate)",,12000000.00

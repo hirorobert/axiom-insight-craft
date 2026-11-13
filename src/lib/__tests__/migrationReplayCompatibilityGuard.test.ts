@@ -289,7 +289,16 @@ describe("migration directory integrity", () => {
     // 207 -> 209: CF-03 legacy write revocation and QuickBooks connector storage, both pending hosted apply.
     // 209 -> 210: canonical QBO readiness controls, registered but not installed.
     // 210 -> 211: intuit-security-r1 API Cache-Control pre-request hook, registered but not installed.
-    expect(files.length).toBe(211);
+    // 211 -> 212: 20261221100000 financial table member write revocation (second-pass S2-S01/S2-S03/S2-S04), pending hosted apply.
+    // 212 -> 214: transfers between cash accounts and the post-closing finding (20261222100000) and the compiler identity that carries them (20261222200000), authored and not applied.
+    // 214 -> 215: first-period governed review, standalone on main (20261223100000; the exception is a verified decision, not a declaration), authored and not applied.
+    // 215 -> 216: 20261224100000 reviewed contra-account designation (second-pass S2-A05), pending hosted apply.
+    // 216 -> 219: the Ready for Reporting stack renumbered after the merged tail - the pilot (20261225100000, was 20261216100000), issued comparative
+    //   schedules (20261226100000, was 20261218100000) and the prior FINAL pack as opening position (20261227100000, was 20261219100000); #256's
+    //   20261217100000 is NOT in the chain: 20261223100000 (merged) is the first-period governed review. Authored and not applied.
+    // 219 -> 220: 20261228100000 the THIRD compiler identity (restated-comparative and one-period casting declaration, rule pack 2.5.0 = 2.4.0 +
+    //   subtotal-casting 1.1.0), re-authored over the merged 20261222200000; authored and not applied.
+    expect(files.length).toBe(220);
   });
 });
 

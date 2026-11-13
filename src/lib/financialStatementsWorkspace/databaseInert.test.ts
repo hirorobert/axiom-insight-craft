@@ -14,7 +14,7 @@ import path from "node:path";
 import { execSync } from "node:child_process";
 import { FINANCIAL_STATEMENT_PERSISTENCE_ENABLED } from "./persistenceGate";
 import { FINANCIAL_STATEMENTS_WORKSPACE_ENABLED } from "./workspaceGate";
-import { resolveComparisonBase, unreviewedChanges, unreviewedPaths } from "../../../scripts/ci/inertBase.mjs";
+import { isLovablePlanningNote, resolveComparisonBase, unreviewedChanges, unreviewedPaths } from "../../../scripts/ci/inertBase.mjs";
 
 const ROOT = path.join(__dirname, "../../../");
 const rel = (p: string) => path.relative(ROOT, p).split(path.sep).join("/");
@@ -101,6 +101,12 @@ describe("database inertness — schema and functions", () => {
     // Neither migration modifies or deletes any pre-existing migration, function or config, and neither touches the
     // financial-statements schema this file otherwise documents.
     const added = new Set([
+      // SheetJS 0.20.3 vendored (CVE-2023-30533, CVE-2024-22363; vendor/sheetjs/PROVENANCE.md): the official ESM build, its type
+      // declarations and its Apache-2.0 licence, byte-identical to vendor/sheetjs/xlsx-0.20.3.tgz and pinned by
+      // scripts/ci/assertVendoredDependencies.mjs. Third-party library code: no schema, no query, no network.
+      "supabase/functions/_shared/vendor/sheetjs-0.20.3/xlsx.mjs",
+      "supabase/functions/_shared/vendor/sheetjs-0.20.3/types/index.d.ts",
+      "supabase/functions/_shared/vendor/sheetjs-0.20.3/LICENSE",
       // Independent saved-report compilation; no existing migration is edited or hosted write performed.
       "supabase/migrations/20261123100000_fs_server_compilation.sql",
       "supabase/functions/compile-financial-report/index.ts",
@@ -534,6 +540,12 @@ describe("database inertness — schema and functions", () => {
       // PR #32 user-based validation: process-trial-balance resolves its actor with tbu_resolve_processing_actor, and the
       // idempotency claim records a workspace_user actor (actor_user_id) with no firm membership.
       "supabase/functions/process-trial-balance/index.ts",
+      // SheetJS 0.20.3 (CVE-2023-30533, CVE-2024-22363): the spreadsheet import names the vendored ESM build
+      // (_shared/vendor/sheetjs-0.20.3/xlsx.mjs) instead of esm.sh 0.18.5. One import line each (and its @deno-types line);
+      // no schema, no query.
+      "supabase/functions/process-trial-balance/auditedAccountsAdapter.ts",
+      "supabase/functions/trial-balance-layout/index.ts",
+      "supabase/functions/layout-assist/index.ts",
       // PR #34 release blocker P-1 (after main received PR #34 in production): the processing entitlement helpers
       // (processingEntitlementRefusal, isEntitlementWallError) added to the reviewed paid-action gate. No financial-statements schema.
       "supabase/functions/_shared/paidAction.ts",
@@ -624,13 +636,59 @@ describe("database inertness — schema and functions", () => {
     // Cache-Control: no-cache, no-store; no RLS, policy or table change), the Cache-Control value of eight functions, and proxied delivery of the
     // original file after the unchanged issuance decision. No financial write, authority or schema change of an existing object.
     added.add("supabase/migrations/20261215100000_api_cache_control_headers.sql");
+    // Ready for Reporting pilot (docs/ready-for-reporting-v3, branch feat/ready-for-reporting-pilot): ONE forward-only migration (an opt-in readiness gate spliced
+    // into fs_publication_blockers, immutable readiness tables, writers that take the existing scope lock), one Edge Function that runs the engine for a signed-in
+    // member, the pure engine under _shared/readiness, and the registration of that function. AUTHORED, NOT APPLIED.
+    added.add("supabase/migrations/20261225100000_ready_for_reporting_pilot.sql");
+    added.add("supabase/functions/rfr-check-books/index.ts");
+    for (const f of ["types", "money", "evidence", "rulePack", "corrections", "finalization", "engine", "load", "index"]) added.add(`supabase/functions/_shared/readiness/${f}.ts`);
+    modified.add("supabase/config.toml");
+    // First-period governed review: #256's 20261217100000 is NOT in this tree - the merged standalone 20261223100000 (below) is the first-period
+    // governed review; #256's remaining unique change is the browser client's tolerance for a comparative with no dates (signoff.ts).
+    modified.add("src/lib/reporting/signoff.ts");
+    // Returning-client integration (docs/release/returning-client): one forward-only migration (statements issued outside CFOClose as a hash-bound comparative source; AUTHORED, NOT APPLIED),
+    // the readiness engine's treatment of an unposted prior-year adjustment, and its wording.
+    added.add("supabase/migrations/20261226100000_issued_comparative_schedules.sql");
+    // The prior FINAL pack read as the approved opening position (rfr_import_prior_pack): derived on the server, never typed; AUTHORED, NOT APPLIED.
+    added.add("supabase/migrations/20261227100000_rfr_prior_pack_basis.sql");
+    modified.add("src/lib/readiness/client.ts");
+    modified.add("src/components/readiness/CheckBooksView.tsx");
+    // Compiler follow-up (restated comparative and one-period lines cast): a second reviewed compiler identity, accepted by ONE forward migration; AUTHORED, NOT APPLIED.
+    added.add("supabase/migrations/20261228100000_statement_compiler_casting_declaration.sql");
+    added.add("src/lib/statements/castingNil.test.ts"); added.add("src/lib/reporting/missingComparativeDates.test.ts");
+    for (const f of ["src/lib/canonicalStatement/types.ts", "src/lib/canonicalStatement/validation.ts", "src/lib/canonicalStatement/rules/subtotalCasting.ts", "src/lib/canonicalStatement/rules/rulePack.ts",
+      "src/lib/statements/canonicalDocument.ts", "supabase/functions/_shared/statementCompiler.generated.mjs", "supabase/functions/_shared/statementCompiler.manifest.mjs"]) modified.add(f);
+    modified.add("supabase/functions/_shared/readiness/engine.ts");
+    modified.add("src/lib/readiness/present.ts");
+    // Second-pass S2-S01/S2-S03/S2-S04: one forward-only migration that REMOVES client write policies and write-class privileges on
+    // eighteen financial/evidence tables and tightens three professional-input tables (no row changed, SELECT and service_role kept;
+    // proof: scripts/db-proof/financialWriteBoundary.mjs), and the five functions that wrote those tables with the caller's token now
+    // verify an accepted member holding prepare_close and write with the service role. No financial-statements schema.
+    added.add("supabase/migrations/20261221100000_financial_table_member_write_revocation.sql");
+    for (const file of ["supabase/functions/safisha-efdms-ingest/index.ts", "supabase/functions/safisha-categorize/index.ts", "supabase/functions/safisha-score/index.ts",
+      "supabase/functions/maono-cashflow/index.ts", "supabase/functions/maono-risk/index.ts"]) modified.add(file);
     for (const file of ["supabase/functions/qbo-oauth-callback/index.ts", "supabase/functions/trial-balance-draft/index.ts", "supabase/functions/trial-balance-source-download/index.ts",
       "supabase/functions/trial-balance-source-signer/index.ts", "supabase/functions/_shared/sourceDownload.ts"]) modified.add(file);
+    // S2-A01 / S2-A02 (fix/fs-cash-transfers-and-post-closing): two forward-only migrations (fs_evidence_statements leaves transfers
+    // between cash accounts out of every presented line; a reviewer's reasoned acceptance clears the post-closing finding; the
+    // compiler identity of rule pack 2.4.0) and the regenerated compiler bundle with its digest. No table, grant or writer is added.
+    added.add("supabase/migrations/20261222100000_fs_cash_transfers_and_post_closing.sql");
+    added.add("supabase/migrations/20261222200000_statement_compiler_transfers_post_closing.sql");
+    for (const file of ["supabase/functions/_shared/statementCompiler.generated.mjs", "supabase/functions/_shared/statementCompiler.manifest.mjs"]) modified.add(file);
+    // First-period governed review, standalone on main (S2-A03; docs/release/first-period-governed-review): ONE forward-only migration (the exception becomes a
+    // verified, bound decision by a different approver; the blockers function is spliced, not copied). AUTHORED, NOT APPLIED. Supersedes 20261217100000 (PR #256).
+    added.add("supabase/migrations/20261223100000_first_period_governed_review_standalone.sql");
+    // Second-pass S2-A05: one forward-only migration adding the reviewed, nullable account_mappings.is_contra_account (no back-fill;
+    // written only by resolve_account_review_batch) and re-creating that RPC, the S1 mapping-content/provenance helpers and
+    // close_review_refresh_findings with only the A01 expected-side test changed (proof: scripts/db-proof/closeReviewAuthority.mjs,
+    // "Contra designation"). No financial-statements schema, no Edge Function, no composition or presentation change.
+    added.add("supabase/migrations/20261224100000_contra_account_designation.sql");
     expect(unreviewedChanges(changed, { added, modified, removed })).toEqual([]);
   });
 
   it("changes no automation-deploy surface other than the reviewed CI/RLS hardening, the disposable-database proof and the guarded hosted-staging acceptance script", () => {
-    const changed = gitStrict(`diff --name-only ${baseSha()}...HEAD -- .github package.json supabase/config.toml .lovable scripts`);
+    // core.quotepath=off: a non-ASCII path is listed as itself, not git-quoted (an unregistered one is still unreviewed).
+    const changed = gitStrict(`-c core.quotepath=off diff --name-only ${baseSha()}...HEAD -- .github package.json supabase/config.toml .lovable scripts`);
     // Every file the branch touches in these locations must be part of the reviewed RLS-regression safety hardening.
     const allowed = new Set([
       // Deterministic local shared-code bundle generation/check only; no deployment or hosted access.
@@ -771,7 +829,7 @@ describe("database inertness — schema and functions", () => {
       // The reporting workbench: its loopback-only real-PostgreSQL proof, the loopback bridge for the dev harness (a
       // throwaway database; reads and the reporting functions only) and the headless-browser journey over it. No deploy
       // behaviour.
-      "scripts/db-proof/reportingWorkbench.mjs", "scripts/db-proof/serveReporting.mjs", "scripts/browser-acceptance/reportingJourney.mjs",
+      "scripts/db-proof/reportingWorkbench.mjs", "scripts/db-proof/serveReporting.mjs", "scripts/browser-acceptance/reportingJourney.mjs", "scripts/db-proof/serveReturning.mjs", "scripts/browser-acceptance/returningClientJourney.mjs",
       "scripts/db-proof/reportingClosure.mjs",
       // The reporting release: its loopback-only mixed-version / forward-recovery proof, the read-only deployed-bundle
       // verifier (hashes a downloaded tree; executes nothing) and the review-package renderer (writes docs only).
@@ -932,7 +990,35 @@ describe("database inertness — schema and functions", () => {
     for (const file of ["scripts/db-proof/apiCacheHeaders.mjs", "scripts/db-proof/qboRealmProtectionCandidate.mjs", "scripts/ci/releaseJournal.mjs",
       "scripts/db-proof/serviceWithholding.mjs", "scripts/db-proof/trackAHardening.mjs", "scripts/e2e/sourceDownloadJourney.mjs",
       "scripts/e2e/localStackJourney.mjs", "scripts/browser-acceptance/cdp.mjs"]) allowed.add(file);
-    expect(unreviewedPaths(changed, allowed)).toEqual([]);
+    // Ready for Reporting pilot: the acceptance contract (fixtures, strict runner, adapter, regression), its PostgreSQL proof and the pilot fixture writer.
+    for (const f of ["implementation.mjs"]) allowed.add(`scripts/acceptance/rfr-v3/adapters/${f}`);
+    for (const f of ["auditRegression", "cases", "compare", "referenceModel", "run", "sandboxProof"]) allowed.add(`scripts/acceptance/rfr-v3/${f}.mjs`);
+    for (const f of ["readinessFinalization.manifest", "readinessFinalization"]) allowed.add(`scripts/db-proof/${f}.mjs`);
+    // First-period governed review: its loopback-only real-PostgreSQL proof, the shared helper, the old-rule bypass reproduction and the two earlier proofs whose first-period
+    // expectations changed (a declaration is a claim; only a verified review is the exception). No deploy behaviour.
+    for (const f of ["firstPeriodGovernedReview", "firstPeriodBypassReproduction", "lib/firstPeriodKit", "comparatives", "closeReviewAuthority", "returningClientJourney", "lib/returningClientKit", "lib/returningClientWorld", "lib/pgQuery"]) allowed.add(`scripts/db-proof/${f}.mjs`);
+    allowed.add("scripts/readiness/writePilotFixtures.mjs");
+    // Client-data containment (2026-11-11): a local, read-only scan of tracked files with a hash-only denylist, and the
+    // invented trial balance the guarded staging scripts now upload instead of a client-derived file. No hosted access.
+    for (const file of ["scripts/ci/clientDataGuard.mjs", "scripts/ci/clientDataDenylist.json", "scripts/fixtures/synthetic-sme-tb-2025.csv"]) allowed.add(file);
+    // SheetJS 0.20.3 vendored (vendor/sheetjs/PROVENANCE.md): the offline CI guard that pins the vendored files and refuses any
+    // externally hosted spreadsheet code (reads files only), and the manual re-verification script (never run by CI; downloads
+    // the publisher's tarball and tagged files into memory and compares hashes). Neither deploys, applies or touches a database.
+    for (const file of ["scripts/ci/assertVendoredDependencies.mjs", "scripts/vendor/reverifySheetjs.mjs"]) allowed.add(file);
+    // Financial table write boundary (20261221100000): a loopback-only disposable-database proof and its manifest, and the two
+    // migration-tail lists that pin the newest migration. No hosted access, no deploy capability.
+    // The two parked-candidate proofs (20261004100000 / 20261005100000) replay client SAFISHA writes the revocation removes,
+    // so they now stop the chain just before it (loopback only, no deploy behaviour).
+    for (const file of ["scripts/db-proof/financialWriteBoundary.mjs", "scripts/db-proof/financialWriteBoundary.manifest.mjs",
+      "scripts/db-proof/serviceWithholding.mjs", "scripts/db-proof/trackAHardening.mjs",
+      "scripts/db-proof/reconciliationAuthority.mjs", "scripts/db-proof/safishaIngestion.mjs"]) allowed.add(file);
+    // First-period governed review, standalone on main (S2-A03): its loopback-only real-PostgreSQL proof with its case manifest, the shared helper, the old-rule
+    // bypass reproduction, and the two earlier proofs whose first-period expectations changed (a declaration is a claim; only a verified review is the
+    // exception). No deploy behaviour.
+    for (const f of ["firstPeriodGovernedReview", "firstPeriodGovernedReview.manifest", "firstPeriodBypassReproduction", "lib/firstPeriodKit", "comparatives", "closeReviewAuthority"]) allowed.add(`scripts/db-proof/${f}.mjs`);
+    // Lovable's own markdown planning notes (.lovable/plan.md, .lovable/plan/*.md, .lovable/north-star/*.md) deploy nothing
+    // (scripts/ci/inertBase.mjs isLovablePlanningNote). Every other .lovable path is still reviewed by exact file.
+    expect(unreviewedPaths(changed, allowed).filter((p) => !isLovablePlanningNote(p))).toEqual([]);
   });
 
   it("package.json adds only exact reviewed local PDF/OCR runtime packages and the existing test-only exceptions relative to the exact base", () => {
@@ -944,7 +1030,14 @@ describe("database inertness — schema and functions", () => {
     // Adding any other package/version still fails this guard. None creates a database or provider connection.
     const REVIEWED_LOCAL_DOCUMENT_DEPENDENCIES = new Map([["@tesseract.js-data/eng", "1.0.0"], ["pdfjs-dist", "6.4.299"], ["tesseract.js", "6.0.1"]]);
     const reviewedRuntimeLines = new Set([...REVIEWED_LOCAL_DOCUMENT_DEPENDENCIES].map(([name, version]) => `+    "${name}": "${version}",`));
-    expect(diff.filter((l) => /"[@\w./-]+":\s*"[\^~]?\d/.test(l) && !REVIEWED_DEV_DEPENDENCIES.has(l) && !reviewedRuntimeLines.has(l))).toEqual([]);
+    // SheetJS 0.20.3 (CVE-2023-30533, CVE-2024-22363): SheetJS publishes 0.19+ only on its own CDN, and the owner does not
+    // accept an externally hosted dependency, so the official tarball is vendored and the dependency names that file
+    // (vendor/sheetjs/PROVENANCE.md; pinned by scripts/ci/assertVendoredDependencies.mjs; bun.lock records its sha512).
+    // Exactly this local-file line is reviewed. A dependency given by any URL scheme, git, owner/repo shorthand, another
+    // file:/link: path or an npm: alias is checked like a version: an unreviewed one fails (the first revision's
+    // cdn.sheetjs.com URL line included).
+    const REVIEWED_SHEETJS = '+    "xlsx": "file:vendor/sheetjs/xlsx-0.20.3.tgz",';
+    expect(diff.filter((l) => /"[@\w./-]+":\s*"(?:[\^~]?\d|[a-z][a-z0-9+.-]*:|git|[\w.-]+\/[\w.-]+)/i.test(l) && !REVIEWED_DEV_DEPENDENCIES.has(l) && !reviewedRuntimeLines.has(l) && l !== REVIEWED_SHEETJS)).toEqual([]);
     const pkgNow = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
     for (const name of ["axe-core", "jsdom"]) {
       expect(pkgNow.dependencies?.[name], `${name} must never be a runtime dependency`).toBeUndefined();
@@ -952,6 +1045,7 @@ describe("database inertness — schema and functions", () => {
     }
     for (const [name, version] of REVIEWED_LOCAL_DOCUMENT_DEPENDENCIES) expect(pkgNow.dependencies[name]).toBe(version);
     expect(pkgNow.dependencies.fflate).toBeDefined();
+    expect(pkgNow.dependencies.xlsx).toBe("file:vendor/sheetjs/xlsx-0.20.3.tgz");
   });
 });
 
@@ -974,7 +1068,7 @@ describe("database inertness — the workspace code cannot mutate a database", (
     const offenders: string[] = [];
     for (const f of workspaceSources) {
       if (TRANSPORT_FILES.has(rel(f))) continue; // audited separately below
-      if (rel(f) === "dev-harness/bridgeBackend.ts" || rel(f) === "dev-harness/reporting/bridgeDb.ts") continue; // loopback-only dev tools, audited below
+      if (rel(f) === "dev-harness/bridgeBackend.ts" || rel(f) === "dev-harness/reporting/bridgeDb.ts" || rel(f) === "dev-harness/returning/bridgeClient.ts" || rel(f) === "dev-harness/returning/bridgeSupabase.ts") continue; // loopback-only dev tools, audited below
       if (SYNTHETIC_JOURNEY_HARNESS.has(rel(f))) continue; // in-memory synthetic backend, audited below
       const src = stripComments(fs.readFileSync(f, "utf8"));
       for (const [re, what] of forbidden) if (re.test(src)) offenders.push(`${rel(f)}: ${what}`);
@@ -1021,6 +1115,11 @@ describe("database inertness — the workspace code cannot mutate a database", (
     const reportingBridge = stripComments(fs.readFileSync(path.join(ROOT, "dev-harness/reporting/bridgeDb.ts"), "utf8"));
     expect(reportingBridge).toMatch(/assertLoopback\(bridge\);\n {2}const post/);
     expect(reportingBridge).toMatch(/host !== "127\.0\.0\.1" && host !== "localhost"/);
+    // the returning-client start harness replaces the Supabase client by a stand-in that talks ONLY to the loopback bridge (dev-only, never part of a build)
+    const startShim = stripComments(fs.readFileSync(path.join(ROOT, "dev-harness/returning/bridgeSupabase.ts"), "utf8"));
+    expect(startShim).toMatch(/assertLoopback\(BRIDGE\)/);
+    expect(startShim).not.toMatch(/@supabase\/supabase-js|createClient|service_role|VITE_/i);
+    expect(stripComments(fs.readFileSync(path.join(ROOT, "dev-harness/returning/startMain.tsx"), "utf8"))).toMatch(/if \(!import\.meta\.env\.DEV\)/);
     const adapter = stripComments(fs.readFileSync(path.join(ROOT, "src/lib/financialStatementsWorkspace/supabaseFsBackend.ts"), "utf8"));
     expect(adapter).toMatch(/return gate \? new FsRpcTransport\(supabaseFsBackend\) : null/);
   });

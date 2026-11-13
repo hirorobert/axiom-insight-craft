@@ -5,7 +5,7 @@
 // (absent), and a blank required cell is an ERROR. Cross-row rules (unique keys,
 // one-of-two amounts, single opening/closing balance) live beside the columns.
 
-import type { EvidenceDiagnostic, EvidenceType } from "./types";
+import { EVIDENCE_SCHEMA_VERSION, LEDGER_TRANSFER_SCHEMA_VERSION, type EvidenceDiagnostic, type EvidenceType } from "./types";
 
 export type CellKind = "DECIMAL" | "DATE" | "TEXT" | "LONGTEXT" | "KEY" | "CODE" | "YESNO" | { readonly oneOf: readonly string[] };
 
@@ -36,6 +36,17 @@ const err = (code: string, message: string, row?: number, column?: string, value
 const warn = (code: string, message: string, row?: number, column?: string, value?: string): EvidenceDiagnostic => ({ code, severity: "WARNING", message, row, column, value });
 
 export const ACTIVITIES = ["OPERATING", "INVESTING", "FINANCING"] as const;
+/**
+ * Ledger schema 1.1.0 (S2-A01): a movement between two cash accounts of the perimeter (bank → petty cash) is not a cash flow
+ * (IFRS for SMEs, 2015 edition, Section 7 Statement of Cash Flows, presents inflows and outflows of cash and cash equivalents; a
+ * movement between two of them is neither — IAS 7 paragraph 9 states the exclusion explicitly. Paragraph-level citations
+ * unverified: the pinned 2015 text is referenced by hash in docs/reporting/IFRS_FOR_SMES_PACK.md, not held in this repository.)
+ * Both legs stay in the ledger, because the per-account roll-forward needs every movement of every cash account,
+ * and each names the other account in counter_cash_account_code. The direct-method statement leaves them out of every line.
+ */
+export const TRANSFER_ACTIVITY = "TRANSFER_BETWEEN_CASH_ACCOUNTS" as const;
+export const LEDGER_ACTIVITIES_WITH_TRANSFERS = [...ACTIVITIES, TRANSFER_ACTIVITY] as const;
+export const COUNTER_CASH_ACCOUNT_COLUMN = "counter_cash_account_code";
 export const EQUITY_MOVEMENT_TYPES = [
   "OPENING_BALANCE",
   "PROFIT_OR_LOSS",
@@ -208,3 +219,74 @@ export const FAMILY_SCHEMAS: Readonly<Record<Exclude<EvidenceType, "TRIAL_BALANC
     crossRow: (rows) => uniqueKey(rows, ["candidate_id"], "DUPLICATE_CANDIDATE_ID", "Candidate id"),
   },
 };
+
+/** An exact decimal string (already validated as a plain, non-negative decimal of at most six places) as an integer of 10^-12 units. */
+const exact = (v: string): bigint => {
+  const [i, f = ""] = v.trim().split(".");
+  return BigInt(i + f.padEnd(12, "0"));
+};
+const showExact = (n: bigint): string => {
+  const neg = n < 0n;
+  const s = (neg ? -n : n).toString().padStart(13, "0");
+  const frac = s.slice(-12).replace(/0+$/, "");
+  return `${neg ? "-" : ""}${s.slice(0, -12)}${frac ? `.${frac}` : ""}`;
+};
+const byCodepoint = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+
+/**
+ * TRANSACTION_LEDGER, schema 1.1.0: the 1.0.0 columns and rules unchanged, plus counter_cash_account_code and the transfer
+ * activity. Fail-closed rules on the transfer legs (the cash perimeter itself is checked later, by the per-account roll-forward,
+ * which refuses any ledger row naming an account that is not an established cash account):
+ *   - a transfer names its counter account, which is a different account; an ordinary row names none;
+ *   - for every pair of accounts, the legs recorded between them net to zero within the period — a transfer whose other leg is
+ *     missing, differs, or runs the same way is money entering or leaving the pair, i.e. a cash flow, and is refused.
+ */
+export const TRANSACTION_LEDGER_WITH_TRANSFERS: FamilySchema = {
+  hasAmounts: true,
+  columns: [
+    ...FAMILY_SCHEMAS.TRANSACTION_LEDGER.columns.map((c) => (c.name === "activity" ? req("activity", { oneOf: LEDGER_ACTIVITIES_WITH_TRANSFERS }) : c)),
+    opt(COUNTER_CASH_ACCOUNT_COLUMN, "CODE"),
+  ],
+  crossRow(rows, ctx) {
+    const out: EvidenceDiagnostic[] = [...FAMILY_SCHEMAS.TRANSACTION_LEDGER.crossRow!(rows, ctx)];
+    const pairs = new Map<string, { a: string; b: string; net: bigint; rows: number[] }>();
+    for (let i = 0; i < rows.count; i++) {
+      const own = rows.cell(i, "cash_account_code");
+      const counter = rows.cell(i, COUNTER_CASH_ACCOUNT_COLUMN);
+      const isTransfer = rows.cell(i, "activity") === TRANSFER_ACTIVITY;
+      if (!isTransfer) {
+        if (!blank(counter)) out.push(err("COUNTER_ACCOUNT_ONLY_ON_TRANSFERS", `Row ${i + 1} is not a transfer between cash accounts, so it must not name a counter cash account.`, i + 1, COUNTER_CASH_ACCOUNT_COLUMN, counter));
+        continue;
+      }
+      if (blank(counter)) {
+        out.push(err("TRANSFER_COUNTER_ACCOUNT_REQUIRED", `Row ${i + 1} is a transfer between cash accounts and must name the other cash account in ${COUNTER_CASH_ACCOUNT_COLUMN}.`, i + 1, COUNTER_CASH_ACCOUNT_COLUMN, counter));
+        continue;
+      }
+      if (counter === own) {
+        out.push(err("TRANSFER_TO_SAME_ACCOUNT", `Row ${i + 1} records a transfer from account ${own} to itself.`, i + 1, COUNTER_CASH_ACCOUNT_COLUMN, counter));
+        continue;
+      }
+      const r = rows.cell(i, "receipt");
+      const amount = blank(r) ? -exact(rows.cell(i, "payment")) : exact(r);
+      const [a, b] = [own, counter].sort(byCodepoint);
+      const key = `${a}\u0000${b}`;
+      const cur = pairs.get(key) ?? { a, b, net: 0n, rows: [] };
+      pairs.set(key, { a, b, net: cur.net + amount, rows: [...cur.rows, i + 1] });
+    }
+    for (const key of [...pairs.keys()].sort(byCodepoint)) {
+      const p = pairs.get(key)!;
+      if (p.net !== 0n) {
+        out.push(err("TRANSFER_LEGS_DO_NOT_MATCH",
+          `The transfers recorded between cash accounts ${p.a} and ${p.b} (rows ${p.rows.join(", ")}) do not net to zero (net ${showExact(p.net)}). Each transfer needs both legs in this ledger: a payment on one account and a receipt of the same amount on the other, each naming the other account. Money leaving the two accounts is a cash flow, not a transfer; a transfer still in transit at the period end belongs to a cash-in-transit account in the cash account map.`,
+          p.rows[0], COUNTER_CASH_ACCOUNT_COLUMN, `${p.a}|${p.b}`));
+      }
+    }
+    return out;
+  },
+};
+
+/** The schema (and its version) a file of this family is read under. Only a ledger whose header names the counter column is 1.1.0. */
+export function familySchemaFor(type: Exclude<EvidenceType, "TRIAL_BALANCE">, header: readonly string[]): { readonly schema: FamilySchema; readonly schemaVersion: string } {
+  if (type === "TRANSACTION_LEDGER" && header.includes(COUNTER_CASH_ACCOUNT_COLUMN)) return { schema: TRANSACTION_LEDGER_WITH_TRANSFERS, schemaVersion: LEDGER_TRANSFER_SCHEMA_VERSION };
+  return { schema: FAMILY_SCHEMAS[type], schemaVersion: EVIDENCE_SCHEMA_VERSION };
+}

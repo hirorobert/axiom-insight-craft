@@ -8,4 +8,4 @@ if (violations.length) {
   for (const v of violations) console.error(`PACKAGE_MANAGER_AUTHORITY: ${v}`);
   process.exit(1);
 }
-console.log("PACKAGE_MANAGER_AUTHORITY: OK (bun is the only package manager; bun.lock is the only lockfile)");
+console.log("PACKAGE_MANAGER_AUTHORITY: OK (bun is the only package manager; bun.lock is the only lockfile; every dependency comes from the registry or a file in the repository)");

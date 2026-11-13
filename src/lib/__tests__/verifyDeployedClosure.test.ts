@@ -25,8 +25,10 @@ const LAYOUT_FILES = [
   "supabase/functions/_shared/trialBalanceLayout.ts",
   "supabase/functions/_shared/uploadLifecycle.ts",
   "supabase/functions/_shared/uploadPolicy.ts",
+  // SheetJS 0.20.3, vendored and shipped with the function (vendor/sheetjs/PROVENANCE.md).
+  "supabase/functions/_shared/vendor/sheetjs-0.20.3/xlsx.mjs",
 ];
-const tree = (contents: Record<string, Buffer>) => {
+const tree =(contents: Record<string, Buffer>) => {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), "deployed-"));
   for (const [f, b] of Object.entries(contents)) { fs.mkdirSync(path.dirname(path.join(d, f)), { recursive: true }); fs.writeFileSync(path.join(d, f), b); }
   return d;
@@ -96,7 +98,7 @@ describe("which compile-financial-report bundle is deployed", () => {
     return [f, f === alter ? Buffer.concat([b, Buffer.from(" ")]) : b];
   })));
   it("registers the approved full closure, distinct from the compiler bundle digest", () => {
-    expect(KNOWN_CLOSURES["compile-financial-report"].required.sha256).toBe("745c8170099329911db55ee2ee20f5a989c0ae2a10003be0860c8cb679e4db59");
+    expect(KNOWN_CLOSURES["compile-financial-report"].required.sha256).toBe("8419ff178ea7469ffb8ca373a71e65c1a69ce28f770bbd2ff8ae2704d82bfc9f");
     expect(classify("compile-financial-report", "49fc0852e33ce71604f4c1430916144910a700ab33873a3ef8e8ad85adbf4789").verdict).toBe("UNKNOWN");
   });
   it("a downloaded bundle of exactly the approved files is REQUIRED", () => {

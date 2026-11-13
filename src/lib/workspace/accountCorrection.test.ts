@@ -60,6 +60,19 @@ describe("the decision is the ordinary manual classification, with a reason and 
     expect(Object.keys(d)).not.toEqual(expect.arrayContaining(["is_cash_account"]));
     for (const k of ["is_cash_account", "is_retained_earnings", "is_payroll_account"]) expect(k in d).toBe(false);
   });
+  it("S2-A05: the contra-account designation is sent only when decided here (true or false); otherwise omitted", () => {
+    const acct = { account_code: "1510", account_name: "Accumulated depreciation" };
+    expect("is_contra_account" in correctionDecision(acct, "non_current_assets", "Reduces equipment cost", "A01:1510")).toBe(false);
+    expect(correctionDecision(acct, "non_current_assets", "Reduces equipment cost", "A01:1510", true).is_contra_account).toBe(true);
+    expect(correctionDecision(acct, "non_current_assets", "Reviewed: an ordinary asset", "A01:1510", false).is_contra_account).toBe(false);
+    for (const k of ["is_cash_account", "is_retained_earnings", "is_payroll_account"]) expect(k in correctionDecision(acct, "non_current_assets", "Reduces equipment cost", "A01:1510", true)).toBe(false);
+  });
+  it("S2-A05: an unproven attempt keeps its contra designation; a non-boolean one is not restored", () => {
+    const at = { actor: "user-a", uploadId: UP, accountKey: "1510" };
+    const good = { ...at, requestId: "11111111-1111-4111-8111-111111111111", classification: "non_current_assets", reason: "Reduces equipment cost", contra: true };
+    expect(parsePending(JSON.stringify(good), at)).toEqual(good);
+    expect(parsePending(JSON.stringify({ ...good, contra: "yes" }), at)).toBeNull();
+  });
   it("refuses an unknown class and a missing or oversized reason", () => {
     expect(() => correctionDecision({ account_code: "1", account_name: "x" }, "assets" as never, "valid reason", "A01:1")).toThrow();
     expect(() => correctionDecision({ account_code: "1", account_name: "x" }, "revenue", "  ", "A01:1")).toThrow();

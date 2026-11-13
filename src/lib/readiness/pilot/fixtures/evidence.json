@@ -1,0 +1,82 @@
+[
+  {
+    "id": "EV-NMB-001593",
+    "kind": "bank_statement",
+    "extraction": "reproduced",
+    "facts": {
+      "amount": "3351879300",
+      "ref": "001593",
+      "date": "2025-07-02",
+      "counterparty": "ENDUIMET RANGERS ASSOCIATION"
+    },
+    "file_name": "bank_nmb_fy2026.csv",
+    "file_sha256": "90af2c88854cf694f1f5fbccc25b82a1f9724ca6932d5f05ed85a0f53168c9d4"
+  },
+  {
+    "id": "EV-V02-N13",
+    "kind": "approved_fs_note",
+    "extraction": "human_confirmed",
+    "facts": {
+      "amount": "3351879300",
+      "ref": "003/2024.2025"
+    },
+    "file_name": "approved_fs_2024_25_note13.pdf",
+    "file_sha256": "d86228d6ed9db3fa66a89f40a882b981966ae0c500a9ac28c76987b34b3f43b0"
+  },
+  {
+    "id": "EV-PV-001593",
+    "kind": "payment_voucher",
+    "extraction": "human_confirmed",
+    "facts": {
+      "amount": "3351879300",
+      "ref": "003/2024.2025"
+    },
+    "file_name": "payment_voucher_001593.pdf",
+    "file_sha256": "cf1ccc3620d4aa2713e7e1f0581237d383cf0d76a2e493ef6504e59203a13824"
+  },
+  {
+    "id": "EV-ERA-CONF",
+    "kind": "supplier_confirmation",
+    "extraction": "human_confirmed",
+    "facts": {
+      "counterparty": "ENDUIMET RANGERS ASSOCIATION",
+      "ref": "003/2024.2025",
+      "amount": "3351879300"
+    },
+    "file_name": "payee_confirmation.pdf",
+    "file_sha256": "1d14207e25d78ad4019c2356bd23f9f28ca766ce3d32d7361cbc1122e8a15a94"
+  },
+  {
+    "id": "EV-OBE-JNL",
+    "kind": "opening_journal",
+    "extraction": "human_confirmed",
+    "facts": {
+      "account": "2000",
+      "amount": "3351879300",
+      "date": "2025-06-30",
+      "ref": "003/2024.2025"
+    },
+    "file_name": "opening_journal.csv",
+    "file_sha256": "8473c5173f47d9dac54ced7e84658a1018b3430f523ceb4287c796ec221f2293"
+  },
+  {
+    "id": "EV-PAYLIST",
+    "kind": "subsequent_payments_listing",
+    "extraction": "human_confirmed",
+    "facts": {
+      "date": "2026-08-14"
+    },
+    "file_name": "payments_listing_to_2026-08-14.csv",
+    "file_sha256": "78b64d0905d3445e303d1ece1d6205cf2406708e73d9836b3308ab1fc20f9dac"
+  },
+  {
+    "id": "EV-INVREG",
+    "kind": "supplier_invoice_register",
+    "extraction": "human_confirmed",
+    "facts": {
+      "date": "2026-08-14"
+    },
+    "file_name": "supplier_invoice_register_to_2026-08-14.csv",
+    "file_sha256": "6743582dee8029907d25a3a9dd6a1aee2ee81e0bc0f14f049ca5228cf51762c3"
+  }
+]

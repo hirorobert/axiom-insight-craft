@@ -12,9 +12,13 @@ const code = result.outputFiles[0].text;
 const digest = crypto.createHash('sha256').update(code).digest('hex');
 const manifestPath = path.join(root, 'supabase/functions/_shared/statementCompiler.manifest.mjs');
 const manifest = `// GENERATED. SHA-256 of the complete deployed compiler closure.\nexport const STATEMENT_COMPILER_SHA256 = '${digest}';\n`;
-const migration = fs.readFileSync(path.join(root, 'supabase/migrations/20261123100000_fs_server_compilation.sql'), 'utf8');
+// The database accepts a digest only through the migrations that pin it: the receipt table (20261123100000, applied; it pins the
+// first digest), the second identity (20261222200000, merged) and the forward migration that accepts the current one (20261228100000).
+const migration = fs.readFileSync(path.join(root, 'supabase/migrations/20261123100000_fs_server_compilation.sql'), 'utf8')
+  + fs.readFileSync(path.join(root, 'supabase/migrations/20261222200000_statement_compiler_transfers_post_closing.sql'), 'utf8')
+  + fs.readFileSync(path.join(root, 'supabase/migrations/20261228100000_statement_compiler_casting_declaration.sql'), 'utf8');
 if (process.argv.includes('--check')) {
   if (!fs.existsSync(target) || fs.readFileSync(target, 'utf8') !== code) throw Error('STATEMENT_COMPILER_DEPLOYMENT_DRIFT: regenerate with node scripts/buildStatementCompiler.mjs');
-  if (!fs.existsSync(manifestPath) || fs.readFileSync(manifestPath, 'utf8') !== manifest || !migration.includes(`compiler_sha256 = '${digest}'`)) throw Error('STATEMENT_COMPILER_MANIFEST_DRIFT: regenerate and review the pending migration compiler digest');
+  if (!fs.existsSync(manifestPath) || fs.readFileSync(manifestPath, 'utf8') !== manifest || !migration.includes(`'${digest}'`)) throw Error('STATEMENT_COMPILER_MANIFEST_DRIFT: regenerate and review the pending migration compiler digest');
   console.log('STATEMENT_COMPILER_DEPLOYMENT: OK');
 } else { fs.writeFileSync(target, code); fs.writeFileSync(manifestPath, manifest); }

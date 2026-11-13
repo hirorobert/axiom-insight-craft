@@ -18,6 +18,7 @@
 //   DB_PROOF_MODE=external DB_PROOF_CONN=postgres://… (a throwaway, EMPTY loopback database) also works (CI).
 import crypto from "node:crypto";
 import { ASSIGN, FY2025, FY2026, TB, applyChain, assignmentPairs, certifier, chainFiles, csv, makeWorld, migrationText, openDatabase, reporter, uuid } from "./lib/reportingKit.mjs";
+import { verifyGenuineFirstPeriod } from "./lib/firstPeriodKit.mjs";
 
 const FILE = "20261020100000_fs_comparatives.sql";
 const { group, check, refused, finish } = reporter();
@@ -194,10 +195,13 @@ async function main() {
     const s = await status(H);
     return s.comparative.state === "reference_only" && s.comparative.blockers.includes("COMPARATIVE_REQUIRED_MISSING") ? true : s.comparative;
   });
-  await check("a genuinely first period with an approved declaration in force: first_period_exception, no blocker", async () => {
+  await check("a declaration alone is a claim, never the exception (20261223100000): the status stays missing; only a VERIFIED governed review is first_period_exception", async () => {
     const d = (await db.asUser(U.owner, "SELECT public.fs_declare_first_period($1,2026,true,'First reporting period since incorporation','certificate_of_incorporation','Certificate no. 9','2026-01-10') r", [N])).r;
+    const s0 = await status(N);
+    const v = await verifyGenuineFirstPeriod(db, U, N, 2026, { name: "New SME", start: "2026-01-01", end: "2026-12-31", registrationDate: "2026-01-10" });
     const s = await status(N);
-    return d.outcome === "recorded" && s.comparative.state === "first_period_exception" && s.comparative.blockers.length === 0 && s.comparative.firstPeriodDeclared === true ? true : { d, s: s.comparative };
+    return d.outcome === "recorded" && s0.comparative.state === "missing" && s0.comparative.firstPeriodDeclared === false
+      && v.decision.outcome === "recorded" && s.comparative.state === "first_period_exception" && s.comparative.blockers.length === 0 && s.comparative.firstPeriodDeclared === true ? true : { d, s0: s0.comparative, v: [v.claim, v.decision], s: s.comparative };
   });
 
   group("Tenancy, append-only");

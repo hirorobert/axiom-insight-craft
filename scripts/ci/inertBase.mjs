@@ -11,6 +11,20 @@
 //
 // Review is EXACT-FILE: a changed path is accepted only if it is byte-for-byte one of the registered paths. No pattern,
 // prefix, glob or normalisation is applied, so whitespace, "./", "..", case or separator variants never match.
+// The ONE named exception is isLovablePlanningNote() below, applied only by the automation-surface check.
+
+// Lovable's planning notes: the markdown files Lovable's agent (gpt-engineer-app[bot]) commits to main as it works —
+// .lovable/plan.md, .lovable/plan/<note>.md and .lovable/north-star/<note>.md. Every .lovable file in this repository's
+// history was added by that bot and is markdown; nothing in src/, scripts/, supabase/, .github/, vite.config.ts or
+// package.json reads .lovable/, and the guard already registered two such notes as reviewed by exact path. They deploy,
+// apply and configure nothing. Only those three single-level markdown shapes match: any other .lovable path (a
+// config, a script, a nested directory, another suffix or case, a git-quoted name) is still an unreviewed change.
+const LOVABLE_PLANNING_NOTE = /^\.lovable\/(?:plan\.md|(?:plan|north-star)\/[^/]+\.md)$/;
+
+/** @param {string} file one path from `git -c core.quotepath=off diff --name-only` @returns {boolean} */
+export function isLovablePlanningNote(file) {
+  return LOVABLE_PLANNING_NOTE.test(file);
+}
 
 const SHA = /^[0-9a-f]{40}$/;
 const EVENTS_REQUIRING_A_BASE = new Set(["pull_request", "push"]);
