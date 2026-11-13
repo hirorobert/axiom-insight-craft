@@ -108,3 +108,13 @@ describe("which compile-financial-report bundle is deployed", () => {
     expect(classify("compile-financial-report", deployedClosure("compile-financial-report", copy(f))).verdict).toBe("UNKNOWN");
   });
 });
+
+describe("the two commercial functions that carry the Terms version (PR #266)", () => {
+  it("are pinned to the current tree's closures, with main 9a919c0 as the known predecessor", () => {
+    expect(KNOWN_CLOSURES["commercial-create-checkout"].required.sha256).toBe("e8c715020045b87950a5b61cdf970803e2e4a4aabc9e15170299fc54f8af6b14");
+    expect(KNOWN_CLOSURES["commercial-payment-status"].required.sha256).toBe("89f1dda228d869fa7301e2e3ddaf2a8b615bcea9245226778f453954ba3d65de");
+    expect(classify("commercial-create-checkout", "961818245916e93cbe7810ecbd4acc58eceb0f91ec96d8890c051ac5fbdbec42").verdict).toBe("KNOWN_OLDER");
+    expect(classify("commercial-create-checkout", deployedClosure("commercial-create-checkout", ROOT)).verdict).toBe("REQUIRED");
+    expect(classify("commercial-payment-status", deployedClosure("commercial-payment-status", ROOT)).verdict).toBe("REQUIRED");
+  });
+});

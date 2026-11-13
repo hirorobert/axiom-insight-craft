@@ -37,7 +37,7 @@ const snippe = (f: ReturnType<typeof mockFetch>) => createSnippeAdapter({ enviro
 const params = (over: Partial<Parameters<ProviderAdapter["createCheckout"]>[0]> = {}) => ({
   saffReference: REF, intentId: "intent-1", billingCustomerId: BC, amountMinor: 49000n, currencyCode: "USD", currencyExponent: 2,
   planCode: "SOLO", planName: "Solo", customerEmail: "owner@example.test", customerName: "Asha Mushi", redirectUrl: `https://cfoclose.com/billing/payment/return?ref=${REF}`, cancelUrl: `https://cfoclose.com/plans?unfinished=${REF}`,
-  phoneNumber: null, ...over,
+  phoneNumber: null, termsVersion: null, ...over,
 });
 const paidOrder = (over: Record<string, unknown> = {}) => ({
   id: ORDER, status: "paid", paid: true, checkout_id: CHECKOUT, currency: "usd", subtotal_amount: 49000, discount_amount: 0, net_amount: 49000,
@@ -587,5 +587,20 @@ describe("polar describeCheckout (abandoned-checkout recovery, read-only)", () =
   it("provider outage: null (shown as unavailable), never a guessed state", async () => {
     const f = mockFetch(() => "network");
     expect(await polar(f).describeCheckout!(ref)).toBeNull();
+  });
+});
+
+describe("Polar checkout metadata carries the Terms version the server accepted (PR #266)", () => {
+  const session = () => mockFetch(() => ({ status: 201, body: { id: CHECKOUT, url: "https://sandbox.polar.sh/checkout/x" } }));
+  const sentMetadata = (f: ReturnType<typeof mockFetch>) => (JSON.parse(String(f.calls[0].init.body)) as { metadata: Record<string, string> }).metadata;
+  it("terms_version is sent beside saff_reference, intent_id, billing_customer_id and plan_code when the server supplied it", async () => {
+    const f = session();
+    await polar(f).createCheckout(params({ termsVersion: "2026-11-13.abcdef012345" }));
+    expect(sentMetadata(f)).toEqual({ saff_reference: REF, intent_id: "intent-1", billing_customer_id: BC, plan_code: "SOLO", terms_version: "2026-11-13.abcdef012345" });
+  });
+  it("no terms_version key is invented when none was accepted (a caller that records none)", async () => {
+    const f = session();
+    await polar(f).createCheckout(params({ termsVersion: null }));
+    expect(sentMetadata(f)).toEqual({ saff_reference: REF, intent_id: "intent-1", billing_customer_id: BC, plan_code: "SOLO" });
   });
 });

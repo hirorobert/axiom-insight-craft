@@ -1337,6 +1337,31 @@ jobs:
           createdb checkout_abandon_proof
           bun scripts/db-proof/checkoutAbandon.mjs
 
+      - name: Checkout Terms acceptance proof (20261229100000 - the server records the accepted Terms version on the intent once, immutably; old 14-argument callers unchanged; one function, no overload; service_role only)
+        if: ${{ !cancelled() }}
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/terms_acceptance_proof
+        run: |
+          createdb terms_acceptance_proof
+          bun scripts/db-proof/checkoutTermsAcceptance.mjs
+
+      - name: Checkout Terms acceptance regression run without 20261229100000 (it MUST fail - no acceptance can be recorded and nothing protects one)
+        if: ${{ !cancelled() }}
+        shell: bash
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/terms_acceptance_absent_proof
+          TERMS_ACCEPTANCE_ABSENT: "1"
+        run: |
+          createdb terms_acceptance_absent_proof
+          set +e
+          bun scripts/db-proof/checkoutTermsAcceptance.mjs > terms-absent.log 2>&1
+          code=$?
+          set -e
+          tail -40 terms-absent.log
+          test "$code" -ne 0
+
       - name: Sandbox licence isolation proof (20261031110000 superseding 20261031100000, DEFECT-SANDBOX-LICENCE-PRODUCTION-LEAK-001; the hosted scenario through the exact wrappers with a 53-row journal, the superseded wrapper failing atomically with CANCELLED_LICENCE_IMMUTABLE and an injected failure rolled back; cancelled sandbox licences stay cancelled; the defect reproduced first; provenance backfilled only from authoritative records; audited containment and term restoration; a sandbox payment grants nothing through any consumer in any platform state; production and manual terms intact; duplicates, refunds and renewals keep their environment; reporting stays behind the rollout)
         env:
           DB_PROOF_MODE: external

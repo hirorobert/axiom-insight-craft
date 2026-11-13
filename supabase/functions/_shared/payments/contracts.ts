@@ -42,6 +42,8 @@ export interface NormalizedTransaction {
 export interface CreateCheckoutParams {
   saffReference: string;
   intentId: string;
+  /** The Terms version the server accepted for this purchase (CURRENT_TERMS_VERSION); null for callers that record none. */
+  termsVersion: string | null;
   billingCustomerId: string;
   amountMinor: bigint;
   currencyCode: string;

@@ -93,7 +93,7 @@ async function main() {
   const TAIL = [PREVIOUS, "20261221100000_financial_table_member_write_revocation.sql", "20261222100000_fs_cash_transfers_and_post_closing.sql",
     "20261222200000_statement_compiler_transfers_post_closing.sql", FILE, "20261224100000_contra_account_designation.sql",
     "20261225100000_ready_for_reporting_pilot.sql", "20261226100000_issued_comparative_schedules.sql", "20261227100000_rfr_prior_pack_basis.sql",
-    "20261228100000_statement_compiler_casting_declaration.sql"];
+    "20261228100000_statement_compiler_casting_declaration.sql", "20261229100000_checkout_terms_acceptance.sql"];
   await kase("setup.chain-tail", `${FILE} sits in the reviewed pending tail after main's ${PREVIOUS} (${TAIL.length - 1} files, timestamp order; the Ready for Reporting stack follows it, #256's duplicate never present)`, async () =>
     JSON.stringify(chainFiles().slice(-TAIL.length)) === JSON.stringify(TAIL) && !chainFiles().some((f) => /20261217100000|20261216100000|20261220100000/.test(f)) ? true : chainFiles().slice(-TAIL.length));
 

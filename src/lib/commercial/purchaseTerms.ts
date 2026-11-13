@@ -31,3 +31,18 @@ export const REFUNDS_AND_CANCELLATION = {
     "A plan cancelled with a refund ends when the refund is made; work already prepared stays readable to the account holder. " +
     "A dispute raised with your card issuer is handled through Polar.",
 } as const;
+
+/**
+ * The Terms of Service version a checkout accepts. MIRROR of supabase/functions/_shared/commercial/termsVersion.ts
+ * CURRENT_TERMS_VERSION (the server's authority; a test pins the two to each other and to the SHA-256 of the rendered policy
+ * texts). The browser sends it with the checkout request; the server refuses any other value before writing anything and
+ * records ITS constant on the intent. Format: <publication date>.<first 12 hex of the policy-text SHA-256>.
+ */
+export const TERMS_VERSION = "2026-11-13.ff1cd08560f3";
+
+/** The acceptance control shown before "Continue to payment" (UI copy, not legal text; the Terms themselves are linked). */
+export const TERMS_ACCEPTANCE = {
+  label: `I have read and accept the Terms of Service (version ${TERMS_VERSION}), including the refund and cancellation terms above.`,
+  /** Shown when the server answers TERMS_VERSION_NOT_CURRENT or TERMS_VERSION_REQUIRED. */
+  outdated: "The Terms of Service were updated after this page was opened. Reload the page to review and accept the current version; nothing was charged.",
+} as const;

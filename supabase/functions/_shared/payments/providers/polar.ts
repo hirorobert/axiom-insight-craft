@@ -113,7 +113,7 @@ export function createPolarAdapter(cfg: PolarConfig, fetchImpl: FetchLike = fetc
         // Polar's "back" link: leaving without paying returns to the plans page (Resume / Choose another plan), never to
         // the payment status page, which can only wait for a payment that is not coming.
         return_url: p.cancelUrl ?? p.redirectUrl,
-        metadata: { saff_reference: p.saffReference, intent_id: p.intentId, billing_customer_id: p.billingCustomerId, plan_code: p.planCode },
+        metadata: { saff_reference: p.saffReference, intent_id: p.intentId, billing_customer_id: p.billingCustomerId, plan_code: p.planCode, ...(p.termsVersion ? { terms_version: p.termsVersion } : {}) },
       }),
     });
     if (!r.answered) return { success: false, outcome: 'UNCERTAIN', error: `POLAR_${r.error}` };
