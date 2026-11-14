@@ -5063,6 +5063,148 @@ export type Database = {
           },
         ]
       }
+      fs_first_period_claims: {
+        Row: {
+          actor_user_id: string
+          basis_text: string
+          company_id: string
+          created_at: string
+          evidence_ids: string[]
+          facts: Json
+          facts_sha256: string
+          firm_member_id: string | null
+          id: string
+          intent_sha256: string
+          period_year: number
+          request_id: string
+          seq: number
+          subject: string
+        }
+        Insert: {
+          actor_user_id: string
+          basis_text: string
+          company_id: string
+          created_at?: string
+          evidence_ids: string[]
+          facts: Json
+          facts_sha256: string
+          firm_member_id?: string | null
+          id?: string
+          intent_sha256: string
+          period_year: number
+          request_id: string
+          seq?: never
+          subject: string
+        }
+        Update: {
+          actor_user_id?: string
+          basis_text?: string
+          company_id?: string
+          created_at?: string
+          evidence_ids?: string[]
+          facts?: Json
+          facts_sha256?: string
+          firm_member_id?: string | null
+          id?: string
+          intent_sha256?: string
+          period_year?: number
+          request_id?: string
+          seq?: never
+          subject?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fs_first_period_claims_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fs_first_period_claims_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fs_first_period_decisions: {
+        Row: {
+          actor_user_id: string
+          bound_sha256: string | null
+          claim_id: string
+          company_id: string
+          created_at: string
+          firm_member_id: string | null
+          id: string
+          intent_sha256: string
+          outcome: string
+          period_year: number
+          reason: string
+          request_id: string
+          rule_version: string
+          seq: number
+          subject: string
+        }
+        Insert: {
+          actor_user_id: string
+          bound_sha256?: string | null
+          claim_id: string
+          company_id: string
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          intent_sha256: string
+          outcome: string
+          period_year: number
+          reason: string
+          request_id: string
+          rule_version: string
+          seq?: never
+          subject: string
+        }
+        Update: {
+          actor_user_id?: string
+          bound_sha256?: string | null
+          claim_id?: string
+          company_id?: string
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          intent_sha256?: string
+          outcome?: string
+          period_year?: number
+          reason?: string
+          request_id?: string
+          rule_version?: string
+          seq?: never
+          subject?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fs_first_period_decisions_claim_id_fkey"
+            columns: ["claim_id"]
+            isOneToOne: false
+            referencedRelation: "fs_first_period_claims"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fs_first_period_decisions_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fs_first_period_decisions_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       fs_first_period_declarations: {
         Row: {
           action: string
@@ -5116,6 +5258,81 @@ export type Database = {
           },
           {
             foreignKeyName: "fs_first_period_declarations_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fs_first_period_evidence: {
+        Row: {
+          actor_user_id: string
+          asserted_date: string | null
+          company_id: string
+          created_at: string
+          document_sha256: string
+          firm_member_id: string | null
+          id: string
+          intent_sha256: string
+          issued_on: string
+          kind: string
+          note: string | null
+          period_year: number
+          reference: string
+          request_id: string
+          retracted: boolean
+          revision: number
+          seq: number
+        }
+        Insert: {
+          actor_user_id: string
+          asserted_date?: string | null
+          company_id: string
+          created_at?: string
+          document_sha256: string
+          firm_member_id?: string | null
+          id?: string
+          intent_sha256: string
+          issued_on: string
+          kind: string
+          note?: string | null
+          period_year: number
+          reference: string
+          request_id: string
+          retracted?: boolean
+          revision: number
+          seq?: never
+        }
+        Update: {
+          actor_user_id?: string
+          asserted_date?: string | null
+          company_id?: string
+          created_at?: string
+          document_sha256?: string
+          firm_member_id?: string | null
+          id?: string
+          intent_sha256?: string
+          issued_on?: string
+          kind?: string
+          note?: string | null
+          period_year?: number
+          reference?: string
+          request_id?: string
+          retracted?: boolean
+          revision?: number
+          seq?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fs_first_period_evidence_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fs_first_period_evidence_firm_member_id_fkey"
             columns: ["firm_member_id"]
             isOneToOne: false
             referencedRelation: "firm_members"
@@ -12094,6 +12311,84 @@ export type Database = {
         Args: { p_finding: Json; p_report_id: string }
         Returns: boolean
       }
+      _fs_first_period_assess: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
+      }
+      _fs_first_period_pending: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: string[]
+      }
+      _fs_fp_binding: {
+        Args: {
+          p_claim: Database["public"]["Tables"]["fs_first_period_claims"]["Row"]
+          p_company_id: string
+          p_end: string
+          p_first_period_facts_sha: string
+          p_name: string
+          p_period_year: number
+          p_start: string
+          p_subject: string
+          p_tin: string
+        }
+        Returns: string
+      }
+      _fs_fp_current_evidence: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: {
+          actor_user_id: string
+          asserted_date: string | null
+          company_id: string
+          created_at: string
+          document_sha256: string
+          firm_member_id: string | null
+          id: string
+          intent_sha256: string
+          issued_on: string
+          kind: string
+          note: string | null
+          period_year: number
+          reference: string
+          request_id: string
+          retracted: boolean
+          revision: number
+          seq: number
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "fs_first_period_evidence"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      _fs_fp_evidence_set_sha: {
+        Args: { p_company_id: string; p_period_year: number; p_subject: string }
+        Returns: string
+      }
+      _fs_fp_is_date: { Args: { p_text: string }; Returns: boolean }
+      _fs_fp_next_action: { Args: { p_code: string }; Returns: string }
+      _fs_fp_norm: { Args: { p_text: string }; Returns: string }
+      _fs_fp_period: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: {
+          reporting_end: string
+          reporting_start: string
+        }[]
+      }
+      _fs_fp_review_view: {
+        Args: {
+          p_claim_id: string
+          p_company_id: string
+          p_decision_id: string
+          p_period_year: number
+          p_uid: string
+        }
+        Returns: Json
+      }
+      _fs_fp_validate_facts: {
+        Args: { p_facts: Json; p_subject: string }
+        Returns: string
+      }
       _fs_item_content: {
         Args: { p_doc: Json; p_id: string; p_kind: string }
         Returns: string
@@ -12115,6 +12410,14 @@ export type Database = {
       _fs_notes_refusal: {
         Args: { p_company_id: string; p_uid: string }
         Returns: string
+      }
+      _fs_opening_assess: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
+      }
+      _fs_opening_pending: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: string[]
       }
       _fs_period_meta: {
         Args: { p_certification_id: string; p_company_id: string }
@@ -13435,6 +13738,18 @@ export type Database = {
         }
         Returns: Json
       }
+      fs_decide_first_period: {
+        Args: {
+          p_company_id: string
+          p_expected_binding?: string
+          p_period_year: number
+          p_reason: string
+          p_request_id: string
+          p_subject: string
+          p_verify: boolean
+        }
+        Returns: Json
+      }
       fs_decide_requirement: {
         Args: {
           p_company_id: string
@@ -13502,6 +13817,10 @@ export type Database = {
       fs_first_period_declared: {
         Args: { p_company_id: string; p_period_year: number }
         Returns: boolean
+      }
+      fs_first_period_status: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
       }
       fs_ingest_evidence_internal: {
         Args: {
@@ -13588,6 +13907,21 @@ export type Database = {
           p_request_id: string
           p_requirement_id: string
           p_source_ref: string
+        }
+        Returns: Json
+      }
+      fs_record_first_period_evidence: {
+        Args: {
+          p_asserted_date: string
+          p_company_id: string
+          p_document_sha256: string
+          p_issued_on: string
+          p_kind: string
+          p_note: string
+          p_period_year: number
+          p_reference: string
+          p_request_id: string
+          p_retract: boolean
         }
         Returns: Json
       }
@@ -13960,6 +14294,18 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      fs_submit_first_period_claim: {
+        Args: {
+          p_basis: string
+          p_company_id: string
+          p_evidence_ids: string[]
+          p_facts: Json
+          p_period_year: number
+          p_request_id: string
+          p_subject: string
+        }
+        Returns: Json
+      }
       fs_try_jsonb: { Args: { p_text: string }; Returns: Json }
       fs_unmet_reconciliation_count: {
         Args: { p_report_id: string; p_version: number }
@@ -13968,6 +14314,16 @@ export type Database = {
       fs_unresolved_blocking_count: {
         Args: { p_report_id: string; p_version: number }
         Returns: number
+      }
+      fs_withdraw_first_period: {
+        Args: {
+          p_company_id: string
+          p_period_year: number
+          p_reason: string
+          p_request_id: string
+          p_subject: string
+        }
+        Returns: Json
       }
       fs_work_bounds: { Args: never; Returns: Json }
       generate_service_enquiry_reference: { Args: never; Returns: string }
