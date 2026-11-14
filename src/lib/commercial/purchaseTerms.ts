@@ -23,10 +23,10 @@ import { channel } from "@/lib/contact/contactChannels";
 const REFUND_PARAGRAPHS: readonly string[] = Object.freeze([
   "A plan is a one-time payment for a 12-month term and does not renew automatically, so nothing needs to be cancelled to stop a future charge. " +
     `Seven-day cancellation. You may cancel within seven days of buying a plan by writing to ${channel("billing").address} and receive a full refund, whether or not you have started using it. ` +
-    `You may cancel a plan before its term ends by writing to ${channel("billing").address} and asking for a refund of the unused part of the term.`,
-  "The refund is calculated on the price you paid, pro rata to the whole days remaining from the day we receive your request, together with the matching share of any tax charged. " +
+    `After those seven days, you may cancel a plan before its term ends by writing to ${channel("billing").address} and asking for a refund of the unused part of the term.`,
+  "A refund of the unused part is calculated on the price you paid, pro rata to the whole days remaining from the day we receive your request, together with the matching share of any sales tax or VAT charged. " +
     "Refunds are made through Polar, our merchant of record, to the original payment method. A person at CFOClose reviews every request; refunds are never made automatically.",
-  "When we refund the unused part of a plan, the plan ends on the day the refund is made, and work already prepared stays readable to the account holder. " +
+  "When we refund a plan on cancellation (the seven-day full refund or a refund of the unused part), the plan ends on the day the refund is made, and work already prepared stays readable to the account holder. " +
     "A refund made for another reason, such as a duplicate payment, does not end a plan unless we tell you so.",
   "Polar, as the seller, may also refund a purchase under its own buyer terms; if it does, we tell you how your plan is affected. A dispute raised with your card issuer is handled through Polar.",
   "Refunds we approve are issued through Polar within thirty days of cancellation. This policy does not limit any right you have under the law that applies to you.",
@@ -48,7 +48,7 @@ export const REFUNDS_AND_CANCELLATION = {
  * texts). The browser sends it with the checkout request; the server refuses any other value before writing anything and
  * records ITS constant on the intent. Format: <publication date>.<first 12 hex of the policy-text SHA-256>.
  */
-export const TERMS_VERSION = "2026-11-13.c6ad0a9491d5";
+export const TERMS_VERSION = "2026-11-13.e9570ed37c46";
 
 /**
  * The two acknowledgements required before "Continue to payment" (commercial package 12.7). Box 1 is the Terms acceptance (final,

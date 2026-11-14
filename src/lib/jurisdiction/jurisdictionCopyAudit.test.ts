@@ -33,10 +33,11 @@ const CURRENCY_LIST_FILES = ["components/workspace/FirstRunEngagement.tsx", "com
 /**
  * The provider's legal identity and the Privacy Policy's hosting disclosure (commercial handoff Update 4, S1 and S5): the seller's
  * country of registration ("registered in the United Republic of Tanzania", "Kati, Pangani, Tanzania", "outside Tanzania") is a
- * statutory disclosure about WHO provides the service, not jurisdiction-pack wording about the customer's tax regime. Only the
- * country name is exempt on exactly these files; TRA / TIN / EFDMS and statute names stay forbidden there too.
+ * statutory disclosure about WHO provides the service, not jurisdiction-pack wording about the customer's tax regime; the Terms'
+ * governing-law clause (dossier 28.2 A2) names the same country for the same reason. Only the country name is exempt on exactly
+ * these files; TRA / TIN / EFDMS and statute names stay forbidden there too.
  */
-const LEGAL_IDENTITY_FILES = ["lib/commercial/businessIdentity.ts", "pages/Privacy.tsx"];
+const LEGAL_IDENTITY_FILES = ["lib/commercial/businessIdentity.ts", "pages/Privacy.tsx", "pages/Terms.tsx"];
 const NON_COUNTRY = /\b(TRA|TIN|EFDMS|TAA|ITA|SDL|NSSF|WCF)\b|Finance Act|Cap\.\s?332/;
 /** Tested on the FULL string (findForbidden truncates for display): the country name alone, none of the statutory tokens. */
 const COUNTRY_ONLY = (full: string) => /Tanzania/.test(full) && !NON_COUNTRY.test(full);

@@ -57,7 +57,7 @@ export const KNOWN_CLOSURES = Object.freeze({
   // checkout metadata (providers/polar.ts, shared by both functions). Neither function was pinned before; main 9a919c0's closures
   // are recorded as the known predecessors (whether they are what production runs is NOT verified from this repository).
   "commercial-create-checkout": Object.freeze({
-    required: { sha256: "1bec4499830c4dc881e9145c7bd72aa33d87c44ba692aefb3586877b3aed3095", source: "PR #266: refuses a checkout without the current Terms version before any write; records the server's version on the intent and in Polar metadata; needs 20261229100000 applied first" },
+    required: { sha256: "c579825ca48870ac3d59433ad224d1169aae818ef69f61df02cbd82445c3a0e9", source: "PR #266: refuses a checkout without the current Terms version before any write; records the server's version on the intent and in Polar metadata; needs 20261229100000 applied first" },
     known: [{ sha256: "961818245916e93cbe7810ecbd4acc58eceb0f91ec96d8890c051ac5fbdbec42", source: "main 9a919c0 (consolidated release): no Terms version; 14-argument acquire_checkout_attempt call (still valid after 20261229100000)" }],
   }),
   "commercial-payment-status": Object.freeze({

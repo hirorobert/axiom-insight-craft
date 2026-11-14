@@ -49,7 +49,7 @@ describe("S2-C03 · Terms state the purchase terms", () => {
     expect(REFUNDS_AND_CANCELLATION.paragraphs).toHaveLength(5);
     expect(policy).toBe(REFUNDS_AND_CANCELLATION.paragraphs.join("\n\n"));
     expect(policy).toMatch(/does not renew automatically/);
-    expect(policy).toMatch(/calculated on the price you paid, pro rata to the whole days remaining from the day we receive your request, together with the matching share of any tax charged/);
+    expect(policy).toMatch(/calculated on the price you paid, pro rata to the whole days remaining from the day we receive your request, together with the matching share of any sales tax or VAT charged/);
     expect(policy).toContain("billing@cfoclose.com");
     expect(policy).toMatch(/through Polar, our merchant of record, to the original payment method/);
     expect(policy).toMatch(/A person at CFOClose reviews every request; refunds are never made automatically/);

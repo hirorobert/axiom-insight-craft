@@ -228,14 +228,14 @@ describe("UPDATE 4 · the settled commercial text is rendered from one identity 
     expect(BUSINESS_IDENTITY.checkoutNotice).toMatch(/^You are buying from Polar Software, Inc\., our reseller and merchant of record, under the Polar Checkout Buyer Terms\./);
   });
   it("S3 · scope, plans and term as in package 10.3 sections 3 and 5", () => {
-    for (const s of ["The service available to customers is trial balance review", "QuickBooks connections are not currently available", "AI features are disabled",
-      "Not available to customers: tax computation, bank reconciliation, analytics, filing packs", "does not provide an audit, an audit opinion, assurance, tax or legal advice",
+    for (const s of ["The service available to customers today is trial balance review", "QuickBooks connections are not currently available", "AI features are disabled",
+      "Other parts of the software are not available to customers.", "does not provide an audit, an audit opinion, assurance, or legal or other professional advice",
       "Solo (1 active entity), Practice (5) and Firm (25)", "USD 490, 990 and 2,990 a year", "a plan starts when Polar has confirmed the payment to us",
       "when a term ends, nothing is deleted"]) expect(terms, s).toContain(s);
   });
   it("S4 · the refund text is package 10.5 (five paragraphs), rendered identically on the Terms page and the checkout", () => {
     expect(REFUNDS_AND_CANCELLATION.paragraphs).toHaveLength(5);
-    expect(REFUNDS_AND_CANCELLATION.paragraphs[0]).toMatch(/stop a future charge\. Seven-day cancellation\. You may cancel within seven days of buying a plan by writing to billing@cfoclose\.com and receive a full refund, whether or not you have started using it\. You may cancel a plan before its term ends/);
+    expect(REFUNDS_AND_CANCELLATION.paragraphs[0]).toMatch(/stop a future charge\. Seven-day cancellation\. You may cancel within seven days of buying a plan by writing to billing@cfoclose\.com and receive a full refund, whether or not you have started using it\. After those seven days, you may cancel a plan before its term ends/);
     expect(REFUNDS_AND_CANCELLATION.paragraphs[4]).toBe("Refunds we approve are issued through Polar within thirty days of cancellation. This policy does not limit any right you have under the law that applies to you.");
     expect(terms).toContain(text(REFUNDS_AND_CANCELLATION.text));
     expect(read("src/pages/billing/Checkout.tsx")).toMatch(/whitespace-pre-line[^>]*>\{REFUNDS_AND_CANCELLATION\.text\}/);
@@ -249,12 +249,15 @@ describe("UPDATE 4 · the settled commercial text is rendered from one identity 
     expect(privacy).toMatch(/Backups held by our hosting provider expire on its backup schedule/);
     expect(privacy).not.toMatch(/within \d+ (days|months)|\d+ (years|months) after/);
   });
-  it("S6/S8 + Update 5 · box 1 final; box 2 is the conservative A3 candidate, still DRAFT, stating no loss of any statutory right; no Liability or Law section is rendered (A1, A2 await approval)", () => {
+  it("S6/S8 + Updates 5/6 · box 1 final; box 2 is the conservative A3 candidate, still DRAFT, stating no loss of any statutory right; A1/A2 rendered verbatim, archive still draft", () => {
     expect(TERMS_ACCEPTANCE.label).toContain(TERMS_VERSION);
     expect(TERMS_ACCEPTANCE.consentLabel).toBe("I ask for my plan to start as soon as Polar confirms my payment.");
     expect(read("src/lib/commercial/purchaseTerms.ts")).not.toMatch(/does not apply/);
     expect(read("src/lib/commercial/purchaseTerms.ts")).toMatch(/DRAFT until the owner approves A3/);
-    expect(terms).not.toMatch(/Liability|Law and disputes|governing law|Delaware|arbitration/);
+    // A1 and A2 approved in principle by the owner (2026-11-14): rendered verbatim (dossier 28.2); publication waits for final contractual approval.
+    expect(terms).toContain("9. Limitation of liability To the extent the law allows, our total liability to you for any claim arising from the service in any 12-month period is limited to the amount you paid for your plan for that period. We are not liable for indirect or consequential loss, or for decisions you make using information from the service; you remain responsible for your professional judgement and for what you sign. Nothing in these Terms limits liability that cannot be limited by law.");
+    expect(terms).toContain("10. Governing law and disputes These Terms are governed by the laws of the United Republic of Tanzania, and the courts of Tanzania have jurisdiction over disputes about the service. This does not affect your rights under mandatory consumer law, or the Polar Checkout Buyer Terms that govern your purchase contract with Polar.");
+    expect(terms).not.toMatch(/Delaware|arbitration/);
     expect(LEGAL_ARCHIVE[TERMS_VERSION].status).toBe("draft");
   });
 });
