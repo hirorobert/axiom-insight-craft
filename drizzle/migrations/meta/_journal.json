@@ -715,6 +715,13 @@
       "when": 1793687385445,
       "tag": "0101_qbo_readiness_controls",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1794645774290,
+      "tag": "0102_financial_table_member_write_revocation",
+      "breakpoints": true
     }
   ]
 }
