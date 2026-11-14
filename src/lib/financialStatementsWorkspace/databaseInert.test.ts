@@ -949,6 +949,11 @@ describe("database inertness — schema and functions", () => {
     allowed.add("scripts/release/sourceAccessStagedTransport.mjs");
     allowed.add("scripts/db-proof/sourceAccessTransport.mjs");
     allowed.add("scripts/db-proof/sourceAccessTransport.manifest.mjs");
+    // Ready-for-Reporting transport (consolidated release D7-D10): the four approved migrations through their own private schema,
+    // canonical journal, loopback proof on the actual hosted order; no hosted registration, no deploy behaviour.
+    allowed.add("scripts/release/rfrStagedTransport.mjs");
+    allowed.add("scripts/db-proof/rfrTransport.mjs");
+    allowed.add("scripts/db-proof/rfrTransport.manifest.mjs");
     allowed.add("scripts/db-proof/ipsasAuthorityOrdering.mjs"); allowed.add("scripts/db-proof/ipsasAuthorityOrdering.manifest.mjs"); // deterministic multi-session authority-ordering proof; disposable loopback database only
     allowed.add("scripts/db-proof/ipsasIndependentReview.mjs"); allowed.add("scripts/db-proof/ipsasIndependentReview.manifest.mjs"); // adjusted-authority and stale-source regression (both added); disposable loopback database only (reportingKit refuses non-loopback), no network or hosted access
     // Independent review of #229: deterministic multi-session race proof of the mutation ordering contract, the currency/denomination proof and the

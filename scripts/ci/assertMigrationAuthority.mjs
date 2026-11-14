@@ -76,6 +76,26 @@ export const PINNED = {
   },
 };
 
+// Reviewed order decisions of the consolidated release (2026-11-14, owner authorization "D12 AND STAGED TRANSPORT"). Both are verified,
+// never skipped: an out-of-order mirror must still equal its source byte for byte (rule 2), and a hosted-refused source keeps its registered
+// submission forms (rule 9) so no later entry can mirror it by normalised parity.
+//   OUT_OF_ORDER_MIRRORS  a plain Lovable mirror applied AHEAD of older authored sources by owner decision: covered, but excluded from
+//                         the in-order sequence, so the sources it jumped stay PENDING instead of being reported as skipped.
+//   HOSTED_REFUSED        a source the hosted migrator refused atomically (journal unchanged) and the owner parked: covered for rule 3
+//                         (it is neither applied nor pending), reported as PARKED; its quarantine is a separate, recorded step.
+export const OUT_OF_ORDER_MIRRORS = {
+  "0105_statement_compiler_casting_declaration": {
+    source: "20261228100000_statement_compiler_casting_declaration.sql",
+    reason: "D12 applied as hosted id 106 on 2026-11-14 before D7–D11 (20261223100000–20261227100000) to admit the third compiler identity; the four large sources follow through scripts/release/rfrStagedTransport.mjs, D11 directly",
+  },
+};
+export const HOSTED_REFUSED = {
+  "20261215100000_api_cache_control_headers.sql": {
+    code: "42501", on: "2026-11-14",
+    reason: "ALTER ROLE authenticator SET pgrst.db_pre_request is superuser-only on the hosted platform; the migrator's transaction rolled back (journal stayed at 102); parked by owner decision, pending a superuser path or quarantine",
+  },
+};
+
 // Service-only predicates: EXECUTE for service_role (and the owner) only. See 20260925150000.
 export const SERVICE_ONLY_FUNCTIONS = ["can_user_act_on_workspace", "workspace_authority_basis"];
 
@@ -129,7 +149,8 @@ export function checkMigrationAuthority(repo = REPO) {
   const mirrored = [];
   const knownDrift = [];
   const resolved = [];
-  const releaseApplied = [];   // rule 8: sources applied out of source order by a reviewed release wrapper
+  const releaseApplied = [];   // rule 8: sources applied out of source order by a reviewed release wrapper (or a registered out-of-order mirror)
+  const parked = [];           // sources the hosted migrator refused and the owner parked (HOSTED_REFUSED)
 
   // Rule 6: the service-only predicates are never granted to anyone else, and never re-created without the revoke.
   const dzFiles = fs.readdirSync(dzDir).filter((f) => f.endsWith(".sql")).sort();
@@ -169,6 +190,11 @@ export function checkMigrationAuthority(repo = REPO) {
     // Rule 9: a source with registered submission forms is never accepted by normalised parity.
     if (exact && SUBMISSION_FORMS[exact]) {
       errors.push(`drizzle: ${t} mirrors ${exact}, which is accepted only through a reviewed RELEASE_JOURNAL entry in a registered submission form (byte for byte, or with its single final LF removed)`);
+      continue;
+    }
+    if (exact && !pin && OUT_OF_ORDER_MIRRORS[t]) {
+      if (OUT_OF_ORDER_MIRRORS[t].source !== exact) errors.push(`drizzle: ${t} is registered as an out-of-order mirror of ${OUT_OF_ORDER_MIRRORS[t].source} but mirrors ${exact}`);
+      else releaseApplied.push({ tag: t, source: exact, how: "out_of_order_mirror" });
       continue;
     }
     if (exact && !pin) { mirrored.push({ tag: t, source: exact, how: "equal" }); continue; }
@@ -223,12 +249,19 @@ export function checkMigrationAuthority(repo = REPO) {
   if (mirrored.length > 0) {
     const first = Math.min(...order), last = Math.max(...order);
     const covered = new Set([...mirrored, ...releaseApplied].map((m) => m.source));
+    for (const [f, r] of Object.entries(HOSTED_REFUSED)) {
+      if (!srcText[f]) errors.push(`hosted-refused: ${f} is registered but missing`);
+      else if (!SUBMISSION_FORMS[f]) errors.push(`hosted-refused: ${f} has no registered submission forms (rule 9)`);
+      else if (covered.has(f)) errors.push(`hosted-refused: ${f} is registered as refused but a journal entry covers it (re-review)`);
+      else { covered.add(f); parked.push(`${f}: refused ${r.on} (${r.code}) — ${r.reason}`); }
+    }
+    for (const [t, r] of Object.entries(OUT_OF_ORDER_MIRRORS)) if (!tags.includes(t)) errors.push(`out-of-order: ${t} is registered but not in the journal (${r.source})`);
     for (let i = first; i <= last; i++) if (!covered.has(sources[i])) errors.push(`drizzle: source ${sources[i]} was skipped by the hosted apply journal`);
     // Authored and not yet applied: the sources after the last in-order mirror that no hosted entry covers (an entry applied
     // out of source order, e.g. 0063, is covered and therefore not pending; the earlier sources it jumped remain pending).
     for (let i = last + 1; i < sources.length; i++) if (!covered.has(sources[i])) pending.push(sources[i]);
   }
-  return { ok: errors.length === 0, errors, mirrored, pending, knownDrift, resolved, releaseApplied };
+  return { ok: errors.length === 0, errors, mirrored, pending, knownDrift, resolved, releaseApplied, parked };
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
@@ -236,6 +269,8 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   for (const e of r.errors) console.error(`  - ${e}`);
   for (const k of r.knownDrift) console.log(`  REGISTERED DRIFT (owner decision): ${k}`);
   for (const k of r.resolved) console.log(`  RESOLVED DRIFT: ${k}`);
+  for (const k of r.parked) console.log(`  PARKED (hosted refused, owner decision): ${k}`);
+  for (const k of r.releaseApplied) console.log(`  OUT OF SOURCE ORDER (reviewed): ${k.tag} covers ${k.source} (${k.how})`);
   console.log(r.ok
     ? `MIGRATION_AUTHORITY: OK (${r.mirrored.length} Drizzle entries mirror source migrations; PENDING_HOSTED_APPLY: ${r.pending.length ? r.pending.join(", ") : "none"})`
     : `MIGRATION_AUTHORITY: DRIFT (${r.errors.length} problem(s))`);

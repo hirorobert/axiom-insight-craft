@@ -17,7 +17,7 @@ const SRC = path.join(ROOT, "supabase/migrations");
 const read = (tag: string) => fs.readFileSync(path.join(DZ, `${tag}.sql`), "utf8");
 const srcBytes = (name: string) => (fs.existsSync(path.join(SRC, name)) ? fs.readFileSync(path.join(SRC, name)) : null);
 const sha = (b: Buffer | string) => createHash("sha256").update(b).digest("hex");
-type Result = { ok: boolean; errors: string[]; pending: string[]; mirrored: Array<{ tag: string; source: string; how: string }>; releaseApplied: Array<{ tag: string; source: string }> };
+type Result = { ok: boolean; errors: string[]; pending: string[]; mirrored: Array<{ tag: string; source: string; how: string }>; releaseApplied: Array<{ tag: string; source: string; how?: string }> };
 
 const T25 = "0025_apply_20261001120000_annual_commercial_term";
 const T29 = "0029_apply_20261007100000_treatment_authority_and_processing_control";
@@ -111,7 +111,7 @@ describe("the reviewed release journal", () => {
     // I1-A (20261010100000, layout templates and confirmations) is authored and pending hosted application.
     // I1-A A1/A2 are applied (hosted 0031/0032, identical form).
     // The milestone 20261011100000–20261017100000 is applied as 0033–0039 through its self-checking wrappers. Nothing pending.
-    expect(r.pending).toEqual(["20261215100000_api_cache_control_headers.sql", "20261221100000_financial_table_member_write_revocation.sql", "20261222100000_fs_cash_transfers_and_post_closing.sql", "20261222200000_statement_compiler_transfers_post_closing.sql", "20261223100000_first_period_governed_review_standalone.sql", "20261224100000_contra_account_designation.sql", "20261225100000_ready_for_reporting_pilot.sql", "20261226100000_issued_comparative_schedules.sql", "20261227100000_rfr_prior_pack_basis.sql", "20261228100000_statement_compiler_casting_declaration.sql"]); // intuit-security-r1: authored and registered, not installed. // Readiness installed as hosted id 102 in its registered identical form.
+    expect(r.pending).toEqual(["20261223100000_first_period_governed_review_standalone.sql", "20261224100000_contra_account_designation.sql", "20261225100000_ready_for_reporting_pilot.sql", "20261226100000_issued_comparative_schedules.sql", "20261227100000_rfr_prior_pack_basis.sql"]); // 2026-11-14: D4-D6 applied (hosted 103-105), D12 applied ahead (106, registered out of order), D3 parked (hosted-refused); the five D7-D11 sources pending
     // before this migration: tb-release-r1 (20261106100000–20261109100000) applied as hosted 59–62: nothing pending
     expect(r.mirrored.find((m) => m.tag === T29)).toEqual({ tag: T29, source: S29, how: "release_verbatim_final_lf_removed" });
     expect(r.mirrored.find((m) => m.tag === T30)).toEqual({ tag: T30, source: S2, how: "release_verbatim_final_lf_removed" });
@@ -121,7 +121,8 @@ describe("the reviewed release journal", () => {
     expect(r.mirrored.find((m) => m.tag === T25)).toEqual({ tag: T25, source: S25, how: "release_verbatim" });
     expect(r.releaseApplied).toEqual([{ tag: "0016_pr34_apply_prereq_20260915100000", source: "20260915100000_financial_statement_documents.sql" },
       { tag: "0063_period_currency_correction", source: "20261113100000_period_currency_correction.sql" },
-      { tag: "0070_customer_checkout_abandon", source: "20261119100000_customer_checkout_abandon.sql" }]); // explicitly reviewed out-of-order applications; TB workflow remains pending
+      { tag: "0070_customer_checkout_abandon", source: "20261119100000_customer_checkout_abandon.sql" },
+      { tag: "0105_statement_compiler_casting_declaration", source: "20261228100000_statement_compiler_casting_declaration.sql", how: "out_of_order_mirror" }]); // explicitly reviewed out-of-order applications; TB workflow remains pending; D12 (hosted 106) ahead of D7-D11 by owner decision 2026-11-14
     expect(r.mirrored.filter((m) => m.how === "release_wrapper").map((m) => m.source)).toEqual([
       "20260925100000_global_capabilities_entitlements_pricing.sql", "20260925110000_named_user_billing_suspension_and_invitation_lifecycle.sql",
       "20260925120000_reporting_pack_issuance_binding.sql", "20260925130000_solo_plan_no_free_plan_and_plan_feature_matrix.sql",
@@ -500,7 +501,7 @@ describe("I1-A A1/A2: both submission forms registered ahead of application (not
   it("applied as 0031/0032 in the IDENTICAL form, each through exactly one reviewed release entry; nothing of I1-A pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual(["20261215100000_api_cache_control_headers.sql", "20261221100000_financial_table_member_write_revocation.sql", "20261222100000_fs_cash_transfers_and_post_closing.sql", "20261222200000_statement_compiler_transfers_post_closing.sql", "20261223100000_first_period_governed_review_standalone.sql", "20261224100000_contra_account_designation.sql", "20261225100000_ready_for_reporting_pilot.sql", "20261226100000_issued_comparative_schedules.sql", "20261227100000_rfr_prior_pack_basis.sql", "20261228100000_statement_compiler_casting_declaration.sql"]); // intuit-security-r1: authored and registered, not installed. // Readiness installed as hosted id 102 in its registered identical form.
+    expect(r.pending).toEqual(["20261223100000_first_period_governed_review_standalone.sql", "20261224100000_contra_account_designation.sql", "20261225100000_ready_for_reporting_pilot.sql", "20261226100000_issued_comparative_schedules.sql", "20261227100000_rfr_prior_pack_basis.sql"]); // 2026-11-14: D4-D6 applied (hosted 103-105), D12 applied ahead (106, registered out of order), D3 parked (hosted-refused); the five D7-D11 sources pending
     // before this migration: tb-release-r1 (20261106100000–20261109100000) applied as hosted 59–62: nothing pending
     expect(r.mirrored.filter((m) => m.source === I1A_A1 || m.source === I1A_A2)).toEqual([
       { tag: "0031_currency_registry_and_reporting_periods", source: I1A_A1, how: "release_verbatim" },
@@ -623,7 +624,7 @@ describe("the milestone's seven migrations: both submission forms registered ahe
   it("applied as 0033–0039 through their registered self-checking wrappers, in order; nothing pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual(["20261215100000_api_cache_control_headers.sql", "20261221100000_financial_table_member_write_revocation.sql", "20261222100000_fs_cash_transfers_and_post_closing.sql", "20261222200000_statement_compiler_transfers_post_closing.sql", "20261223100000_first_period_governed_review_standalone.sql", "20261224100000_contra_account_designation.sql", "20261225100000_ready_for_reporting_pilot.sql", "20261226100000_issued_comparative_schedules.sql", "20261227100000_rfr_prior_pack_basis.sql", "20261228100000_statement_compiler_casting_declaration.sql"]); // intuit-security-r1: authored and registered, not installed. // Readiness installed as hosted id 102 in its registered identical form.
+    expect(r.pending).toEqual(["20261223100000_first_period_governed_review_standalone.sql", "20261224100000_contra_account_designation.sql", "20261225100000_ready_for_reporting_pilot.sql", "20261226100000_issued_comparative_schedules.sql", "20261227100000_rfr_prior_pack_basis.sql"]); // 2026-11-14: D4-D6 applied (hosted 103-105), D12 applied ahead (106, registered out of order), D3 parked (hosted-refused); the five D7-D11 sources pending
     // before this migration: tb-release-r1 (20261106100000–20261109100000) applied as hosted 59–62: nothing pending
     const tags = ["0033_i1b_w1_two_period_shared_source", "0034_i1b_w2_layout_assist_controls", "0035_i1b_w3_close_review_timeline",
       "0036_i1b_w4_close_review_findings", "0037_i1b_w5_close_review_adjustments", "0038_i1b_w6_fs_reporting_input",
@@ -664,7 +665,7 @@ describe("0070 checkout recovery applied before the pending Trial Balance workfl
     expect(checkReleaseEntry(tag, read(tag), srcBytes)).toEqual({ covers: source, how: "release_verbatim", outOfOrder: true, problems: [] });
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual(["20261215100000_api_cache_control_headers.sql", "20261221100000_financial_table_member_write_revocation.sql", "20261222100000_fs_cash_transfers_and_post_closing.sql", "20261222200000_statement_compiler_transfers_post_closing.sql", "20261223100000_first_period_governed_review_standalone.sql", "20261224100000_contra_account_designation.sql", "20261225100000_ready_for_reporting_pilot.sql", "20261226100000_issued_comparative_schedules.sql", "20261227100000_rfr_prior_pack_basis.sql", "20261228100000_statement_compiler_casting_declaration.sql"]); // intuit-security-r1: authored and registered, not installed. // Readiness installed as hosted id 102 in its registered identical form.
+    expect(r.pending).toEqual(["20261223100000_first_period_governed_review_standalone.sql", "20261224100000_contra_account_designation.sql", "20261225100000_ready_for_reporting_pilot.sql", "20261226100000_issued_comparative_schedules.sql", "20261227100000_rfr_prior_pack_basis.sql"]); // 2026-11-14: D4-D6 applied (hosted 103-105), D12 applied ahead (106, registered out of order), D3 parked (hosted-refused); the five D7-D11 sources pending
     expect(r.releaseApplied).toContainEqual({ tag, source });
   });
   it("still refuses either skipped TB source without the reviewed out-of-order declaration", () => {
