@@ -178,11 +178,12 @@ describe("Ready-for-Reporting exact-byte staged transport (D7–D10)", () => {
     }
   });
 
-  it("does not edit the source-access transport, and registers no hosted entry yet (hosted ids 107–111 are recorded only after canonical execution)", () => {
+  it("does not edit the source-access transport, and registers exactly its five hosted entries (ids 107–111, applied 2026-11-14) as rfr_staged_transport", () => {
     const dir = path.join(ROOT, "release/staged-transport-source-access");
     const hash = (f: string) => createHash("sha256").update(fs.readFileSync(path.join(dir, f))).digest("hex");
     expect(hash("00_source_access_staged_transport.sql")).toBe(SOURCE_ACCESS_FORMS.source_access_staged_transport);
     expect(hash("10_source_access_1_staged_apply.sql")).toBe(SOURCE_ACCESS_FORMS.source_access_1_staged_apply);
-    expect(Object.keys(RELEASE_JOURNAL).filter((k) => /rfr_/.test(k))).toEqual([]);
+    expect(Object.keys(RELEASE_JOURNAL).filter((k) => /rfr_/.test(k))).toEqual(["0106_rfr_staged_transport", "0107_rfr_1_staged_apply", "0108_rfr_2_staged_apply", "0109_rfr_3_staged_apply", "0110_rfr_4_staged_apply"]);
+    for (const [k, e] of Object.entries(RELEASE_JOURNAL).filter(([k]) => /rfr_/.test(k))) expect(e, k).toEqual({ kind: "rfr_staged_transport", sha256: (REGISTERED_TRANSPORT_FORMS as Record<string, string>)[k.slice(5)] });
   });
 });

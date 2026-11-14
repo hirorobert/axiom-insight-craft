@@ -88,7 +88,7 @@ describe("the reviewed release journal", () => {
     // 58: Trial Balance staged transport bootstrap and batches (0071–0073).
     // (0074, the catalogue read predicate, is a plain mirror recognised outside RELEASE_JOURNAL.)
     // 63: fs-integrity-r1 staged transport bootstrap and its four batches (0075–0079; hosted 76–80).
-    expect(Object.keys(RELEASE_JOURNAL)).toHaveLength(81); // source-access-r1: two actual transports (hosted 98/99) // ipsas-r1: six actual transports (hosted 92–97) // equipment-r1: three actual transports (hosted 89–91) // + internal-beta-r1 0083–0085 (hosted 84–86) + track-a-r1 0080–0082 (hosted 81–83)
+    expect(Object.keys(RELEASE_JOURNAL)).toHaveLength(86); // consolidated release 2026-11-14: five rfr_staged_transport entries 0106-0110 (hosted 107-111) // source-access-r1: two actual transports (hosted 98/99) // ipsas-r1: six actual transports (hosted 92–97) // equipment-r1: three actual transports (hosted 89–91) // + internal-beta-r1 0083–0085 (hosted 84–86) + track-a-r1 0080–0082 (hosted 81–83)
   });
   it("pins the prerequisite and 140000 digests exactly as authorised", () => {
     expect(RELEASE_JOURNAL["0016_pr34_apply_prereq_20260915100000"]).toMatchObject({ digest: "e996b26738bce27dea1a7154400ec8828a333e2e0ae99eac91632f93dd0a6712", bytes: 18569 });
@@ -111,7 +111,7 @@ describe("the reviewed release journal", () => {
     // I1-A (20261010100000, layout templates and confirmations) is authored and pending hosted application.
     // I1-A A1/A2 are applied (hosted 0031/0032, identical form).
     // The milestone 20261011100000–20261017100000 is applied as 0033–0039 through its self-checking wrappers. Nothing pending.
-    expect(r.pending).toEqual(["20261223100000_first_period_governed_review_standalone.sql", "20261224100000_contra_account_designation.sql", "20261225100000_ready_for_reporting_pilot.sql", "20261226100000_issued_comparative_schedules.sql", "20261227100000_rfr_prior_pack_basis.sql"]); // 2026-11-14: D4-D6 applied (hosted 103-105), D12 applied ahead (106, registered out of order), D3 parked (hosted-refused); the five D7-D11 sources pending
+    expect(r.pending).toEqual([]); // 2026-11-14 consolidated release: D7-D10 (20261223100000-20261226100000) applied through the rfr staged transport (hosted 108-111) and D11 (20261227100000) as the plain mirror 0111 (hosted 112); D3 (20261215100000) is parked (HOSTED_REFUSED), neither pending nor applied. Earlier the same day: D4-D6 applied (hosted 103-105), D12 applied ahead (106, registered out of order), D3 parked (hosted-refused); the five D7-D11 sources pending
     // before this migration: tb-release-r1 (20261106100000–20261109100000) applied as hosted 59–62: nothing pending
     expect(r.mirrored.find((m) => m.tag === T29)).toEqual({ tag: T29, source: S29, how: "release_verbatim_final_lf_removed" });
     expect(r.mirrored.find((m) => m.tag === T30)).toEqual({ tag: T30, source: S2, how: "release_verbatim_final_lf_removed" });
@@ -122,7 +122,12 @@ describe("the reviewed release journal", () => {
     expect(r.releaseApplied).toEqual([{ tag: "0016_pr34_apply_prereq_20260915100000", source: "20260915100000_financial_statement_documents.sql" },
       { tag: "0063_period_currency_correction", source: "20261113100000_period_currency_correction.sql" },
       { tag: "0070_customer_checkout_abandon", source: "20261119100000_customer_checkout_abandon.sql" },
-      { tag: "0105_statement_compiler_casting_declaration", source: "20261228100000_statement_compiler_casting_declaration.sql", how: "out_of_order_mirror" }]); // explicitly reviewed out-of-order applications; TB workflow remains pending; D12 (hosted 106) ahead of D7-D11 by owner decision 2026-11-14
+      { tag: "0105_statement_compiler_casting_declaration", source: "20261228100000_statement_compiler_casting_declaration.sql", how: "out_of_order_mirror" },
+      // the rfr staged transport applies (hosted 108-111, 2026-11-14), each covering its source out of source order; the bootstrap 0106 covers nothing
+      { tag: "0107_rfr_1_staged_apply", source: "20261223100000_first_period_governed_review_standalone.sql" },
+      { tag: "0108_rfr_2_staged_apply", source: "20261224100000_contra_account_designation.sql" },
+      { tag: "0109_rfr_3_staged_apply", source: "20261225100000_ready_for_reporting_pilot.sql" },
+      { tag: "0110_rfr_4_staged_apply", source: "20261226100000_issued_comparative_schedules.sql" }]); // explicitly reviewed out-of-order applications; TB workflow remains pending; D12 (hosted 106) ahead of D7-D11 by owner decision 2026-11-14
     expect(r.mirrored.filter((m) => m.how === "release_wrapper").map((m) => m.source)).toEqual([
       "20260925100000_global_capabilities_entitlements_pricing.sql", "20260925110000_named_user_billing_suspension_and_invitation_lifecycle.sql",
       "20260925120000_reporting_pack_issuance_binding.sql", "20260925130000_solo_plan_no_free_plan_and_plan_feature_matrix.sql",
@@ -501,7 +506,7 @@ describe("I1-A A1/A2: both submission forms registered ahead of application (not
   it("applied as 0031/0032 in the IDENTICAL form, each through exactly one reviewed release entry; nothing of I1-A pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual(["20261223100000_first_period_governed_review_standalone.sql", "20261224100000_contra_account_designation.sql", "20261225100000_ready_for_reporting_pilot.sql", "20261226100000_issued_comparative_schedules.sql", "20261227100000_rfr_prior_pack_basis.sql"]); // 2026-11-14: D4-D6 applied (hosted 103-105), D12 applied ahead (106, registered out of order), D3 parked (hosted-refused); the five D7-D11 sources pending
+    expect(r.pending).toEqual([]); // 2026-11-14 consolidated release: D7-D10 (20261223100000-20261226100000) applied through the rfr staged transport (hosted 108-111) and D11 (20261227100000) as the plain mirror 0111 (hosted 112); D3 (20261215100000) is parked (HOSTED_REFUSED), neither pending nor applied. Earlier the same day: D4-D6 applied (hosted 103-105), D12 applied ahead (106, registered out of order), D3 parked (hosted-refused); the five D7-D11 sources pending
     // before this migration: tb-release-r1 (20261106100000–20261109100000) applied as hosted 59–62: nothing pending
     expect(r.mirrored.filter((m) => m.source === I1A_A1 || m.source === I1A_A2)).toEqual([
       { tag: "0031_currency_registry_and_reporting_periods", source: I1A_A1, how: "release_verbatim" },
@@ -624,7 +629,7 @@ describe("the milestone's seven migrations: both submission forms registered ahe
   it("applied as 0033–0039 through their registered self-checking wrappers, in order; nothing pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual(["20261223100000_first_period_governed_review_standalone.sql", "20261224100000_contra_account_designation.sql", "20261225100000_ready_for_reporting_pilot.sql", "20261226100000_issued_comparative_schedules.sql", "20261227100000_rfr_prior_pack_basis.sql"]); // 2026-11-14: D4-D6 applied (hosted 103-105), D12 applied ahead (106, registered out of order), D3 parked (hosted-refused); the five D7-D11 sources pending
+    expect(r.pending).toEqual([]); // 2026-11-14 consolidated release: D7-D10 (20261223100000-20261226100000) applied through the rfr staged transport (hosted 108-111) and D11 (20261227100000) as the plain mirror 0111 (hosted 112); D3 (20261215100000) is parked (HOSTED_REFUSED), neither pending nor applied. Earlier the same day: D4-D6 applied (hosted 103-105), D12 applied ahead (106, registered out of order), D3 parked (hosted-refused); the five D7-D11 sources pending
     // before this migration: tb-release-r1 (20261106100000–20261109100000) applied as hosted 59–62: nothing pending
     const tags = ["0033_i1b_w1_two_period_shared_source", "0034_i1b_w2_layout_assist_controls", "0035_i1b_w3_close_review_timeline",
       "0036_i1b_w4_close_review_findings", "0037_i1b_w5_close_review_adjustments", "0038_i1b_w6_fs_reporting_input",
@@ -665,7 +670,7 @@ describe("0070 checkout recovery applied before the pending Trial Balance workfl
     expect(checkReleaseEntry(tag, read(tag), srcBytes)).toEqual({ covers: source, how: "release_verbatim", outOfOrder: true, problems: [] });
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual(["20261223100000_first_period_governed_review_standalone.sql", "20261224100000_contra_account_designation.sql", "20261225100000_ready_for_reporting_pilot.sql", "20261226100000_issued_comparative_schedules.sql", "20261227100000_rfr_prior_pack_basis.sql"]); // 2026-11-14: D4-D6 applied (hosted 103-105), D12 applied ahead (106, registered out of order), D3 parked (hosted-refused); the five D7-D11 sources pending
+    expect(r.pending).toEqual([]); // 2026-11-14 consolidated release: D7-D10 (20261223100000-20261226100000) applied through the rfr staged transport (hosted 108-111) and D11 (20261227100000) as the plain mirror 0111 (hosted 112); D3 (20261215100000) is parked (HOSTED_REFUSED), neither pending nor applied. Earlier the same day: D4-D6 applied (hosted 103-105), D12 applied ahead (106, registered out of order), D3 parked (hosted-refused); the five D7-D11 sources pending
     expect(r.releaseApplied).toContainEqual({ tag, source });
   });
   it("still refuses either skipped TB source without the reviewed out-of-order declaration", () => {
@@ -767,7 +772,7 @@ describe("fs-integrity-r1 staged transport applied as 0075–0079 (hosted 76–8
       fs.copyFileSync(path.join(dir, `drizzle/migrations/${FSI[1].tag}.sql`), path.join(dir, `drizzle/migrations/${tag}.sql`));
       fs.copyFileSync(path.join(dir, `drizzle/migrations/meta/${String(idx - 1).padStart(4, "0")}_snapshot.json`), path.join(dir, `drizzle/migrations/meta/${String(idx).padStart(4, "0")}_snapshot.json`));
     }).length).toBeGreaterThan(0);
-  });
+  }, 300_000);   // full-repository guard runs (several)
 });
 
 describe("track-a-r1 (20261127100000, 20261128100000): applied through its staged transport (hosted 81–83)", () => {

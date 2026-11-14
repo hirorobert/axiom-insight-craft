@@ -81,3 +81,23 @@ Hosted journal entries 107–111 are registered in `scripts/ci/releaseJournal.mj
 `rfr_staged_transport` entries covering their sources out of source order; `scripts/ci/assertMigrationAuthority.mjs` records D12's
 mirror as a reviewed out-of-order mirror and D3 as hosted-refused, so the five pending sources are reported as pending, never as
 skipped.
+
+## Execution record (2026-11-14, hosted)
+
+Executed through Lovable's journalled migrator from the signed-in project chat, each approval dialog's SQL hashed against the
+committed file before "Allow migration" (one reproduction with two swapped lines was declined and nothing ran); every journal
+hash below was read back from `drizzle.__drizzle_migrations` after the step.
+
+| Step | Hosted id | Journal hash | Applied (UTC) | Transport record |
+|---|---|---|---|---|
+| bootstrap `00_rfr_staged_transport.sql` | 107 | `10385cc6…` (generated text + the migrator's final LF; registered form `bcf562d1…`) | 17:10 | schema `cfoclose_rfr_release` created; four bodies staged by exact identity |
+| rfr-1 apply (D7, `20261223100000`) | 108 | `a2a4cca5…` | 17:51 | consumed 17:51:52; `applied` event, predecessor 107 |
+| rfr-2 apply (D8, `20261224100000`) | 109 | `8b8ba1fa…` | 17:55 | consumed 17:55:28; predecessor 108 |
+| rfr-3 apply (D9, `20261225100000`) | 110 | `7d7b3629…` | 17:59 | consumed 17:59:53; predecessor 109 |
+| rfr-4 apply (D10, `20261226100000`) | 111 | `a3b04e91…` | 18:04 | consumed 18:04:09; predecessor 110 |
+| D11 `20261227100000` directly | 112 | `81e7c568…` (= the file) | 18:07 | plain mirror `0111_rfr_prior_pack_basis` |
+
+The preserved-tables baseline digest recorded by every apply was identical (`99c19e08…`); receipts, reports and publications
+counts were unchanged throughout (1 / 12 / 2). The five hosted entries 107–111 are registered in `scripts/ci/releaseJournal.mjs`
+as `rfr_staged_transport` entries (0106–0110) and `scripts/ci/assertMigrationAuthority.mjs` reports PENDING_HOSTED_APPLY: none;
+`20261215100000` (D3) remains parked (HOSTED_REFUSED).
