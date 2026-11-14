@@ -8839,6 +8839,453 @@ export type Database = {
           },
         ]
       }
+      rfr_corrections: {
+        Row: {
+          actor_user_id: string
+          adjustment_id: string
+          anchor: string[]
+          bundle: string | null
+          company_id: string
+          correction_id: string
+          created_at: string
+          firm_member_id: string | null
+          id: string
+          period_year: number
+          scope: string
+          seq: number
+          supersedes: string | null
+        }
+        Insert: {
+          actor_user_id: string
+          adjustment_id: string
+          anchor?: string[]
+          bundle?: string | null
+          company_id: string
+          correction_id: string
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          period_year: number
+          scope: string
+          seq?: never
+          supersedes?: string | null
+        }
+        Update: {
+          actor_user_id?: string
+          adjustment_id?: string
+          anchor?: string[]
+          bundle?: string | null
+          company_id?: string
+          correction_id?: string
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          period_year?: number
+          scope?: string
+          seq?: never
+          supersedes?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rfr_corrections_adjustment_id_fkey"
+            columns: ["adjustment_id"]
+            isOneToOne: true
+            referencedRelation: "close_review_adjustments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rfr_corrections_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rfr_corrections_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rfr_finalization_manifests: {
+        Row: {
+          attestation_id: string | null
+          company_id: string
+          content_sha256: string
+          created_at: string
+          id: string
+          manifest: Json
+          manifest_sha256: string
+          period_year: number
+          publication_id: string
+          review_id: string | null
+          run_id: string
+        }
+        Insert: {
+          attestation_id?: string | null
+          company_id: string
+          content_sha256: string
+          created_at?: string
+          id?: string
+          manifest: Json
+          manifest_sha256: string
+          period_year: number
+          publication_id: string
+          review_id?: string | null
+          run_id: string
+        }
+        Update: {
+          attestation_id?: string | null
+          company_id?: string
+          content_sha256?: string
+          created_at?: string
+          id?: string
+          manifest?: Json
+          manifest_sha256?: string
+          period_year?: number
+          publication_id?: string
+          review_id?: string | null
+          run_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rfr_finalization_manifests_attestation_id_fkey"
+            columns: ["attestation_id"]
+            isOneToOne: false
+            referencedRelation: "rfr_source_attestations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rfr_finalization_manifests_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rfr_finalization_manifests_publication_id_fkey"
+            columns: ["publication_id"]
+            isOneToOne: true
+            referencedRelation: "financial_statement_publications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rfr_finalization_manifests_review_id_fkey"
+            columns: ["review_id"]
+            isOneToOne: false
+            referencedRelation: "rfr_reviews"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rfr_finalization_manifests_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "rfr_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rfr_inputs: {
+        Row: {
+          actor_user_id: string
+          company_id: string
+          created_at: string
+          family: string
+          file_sha256: string | null
+          firm_member_id: string | null
+          id: string
+          key: string
+          payload: Json
+          payload_sha256: string
+          period_year: number
+          reason: string | null
+          request_id: string
+          seq: number
+          source: string
+          withdrawn: boolean
+        }
+        Insert: {
+          actor_user_id: string
+          company_id: string
+          created_at?: string
+          family: string
+          file_sha256?: string | null
+          firm_member_id?: string | null
+          id?: string
+          key: string
+          payload: Json
+          payload_sha256: string
+          period_year: number
+          reason?: string | null
+          request_id: string
+          seq?: never
+          source: string
+          withdrawn?: boolean
+        }
+        Update: {
+          actor_user_id?: string
+          company_id?: string
+          created_at?: string
+          family?: string
+          file_sha256?: string | null
+          firm_member_id?: string | null
+          id?: string
+          key?: string
+          payload?: Json
+          payload_sha256?: string
+          period_year?: number
+          reason?: string | null
+          request_id?: string
+          seq?: never
+          source?: string
+          withdrawn?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rfr_inputs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rfr_inputs_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rfr_reviews: {
+        Row: {
+          company_id: string
+          content_sha256: string
+          created_at: string
+          id: string
+          period_year: number
+          publication_id: string
+          report_id: string
+          report_version: number
+          run_id: string
+          seq: number
+        }
+        Insert: {
+          company_id: string
+          content_sha256: string
+          created_at?: string
+          id?: string
+          period_year: number
+          publication_id: string
+          report_id: string
+          report_version: number
+          run_id: string
+          seq?: never
+        }
+        Update: {
+          company_id?: string
+          content_sha256?: string
+          created_at?: string
+          id?: string
+          period_year?: number
+          publication_id?: string
+          report_id?: string
+          report_version?: number
+          run_id?: string
+          seq?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rfr_reviews_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rfr_reviews_publication_id_fkey"
+            columns: ["publication_id"]
+            isOneToOne: true
+            referencedRelation: "financial_statement_publications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rfr_reviews_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "rfr_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rfr_runs: {
+        Row: {
+          balances_agree: boolean
+          company_id: string
+          content_sha256: string
+          created_at: string
+          finalization: Json
+          id: string
+          period_year: number
+          required_scopes: string[]
+          result: Json
+          rule_pack_id: string
+          rule_pack_version: string
+          scopes: Json
+          seq: number
+        }
+        Insert: {
+          balances_agree: boolean
+          company_id: string
+          content_sha256: string
+          created_at?: string
+          finalization: Json
+          id?: string
+          period_year: number
+          required_scopes: string[]
+          result: Json
+          rule_pack_id: string
+          rule_pack_version: string
+          scopes: Json
+          seq?: never
+        }
+        Update: {
+          balances_agree?: boolean
+          company_id?: string
+          content_sha256?: string
+          created_at?: string
+          finalization?: Json
+          id?: string
+          period_year?: number
+          required_scopes?: string[]
+          result?: Json
+          rule_pack_id?: string
+          rule_pack_version?: string
+          scopes?: Json
+          seq?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rfr_runs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rfr_scope_events: {
+        Row: {
+          actor_user_id: string
+          company_id: string
+          created_at: string
+          facts: Json
+          facts_sha256: string
+          firm_member_id: string | null
+          id: string
+          period_year: number
+          reason: string
+          rule_pack_id: string
+          rule_pack_version: string
+          seq: number
+        }
+        Insert: {
+          actor_user_id: string
+          company_id: string
+          created_at?: string
+          facts: Json
+          facts_sha256: string
+          firm_member_id?: string | null
+          id?: string
+          period_year: number
+          reason: string
+          rule_pack_id: string
+          rule_pack_version: string
+          seq?: never
+        }
+        Update: {
+          actor_user_id?: string
+          company_id?: string
+          created_at?: string
+          facts?: Json
+          facts_sha256?: string
+          firm_member_id?: string | null
+          id?: string
+          period_year?: number
+          reason?: string
+          rule_pack_id?: string
+          rule_pack_version?: string
+          seq?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rfr_scope_events_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rfr_scope_events_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rfr_source_attestations: {
+        Row: {
+          bound_content_sha256: string
+          company_id: string
+          created_at: string
+          expires_at: string
+          gl_fingerprint: string | null
+          id: string
+          outcome: string
+          period_year: number
+          pulled_at: string
+          seq: number
+          tb_fingerprint: string | null
+        }
+        Insert: {
+          bound_content_sha256: string
+          company_id: string
+          created_at?: string
+          expires_at: string
+          gl_fingerprint?: string | null
+          id?: string
+          outcome: string
+          period_year: number
+          pulled_at: string
+          seq?: never
+          tb_fingerprint?: string | null
+        }
+        Update: {
+          bound_content_sha256?: string
+          company_id?: string
+          created_at?: string
+          expires_at?: string
+          gl_fingerprint?: string | null
+          id?: string
+          outcome?: string
+          period_year?: number
+          pulled_at?: string
+          seq?: never
+          tb_fingerprint?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rfr_source_attestations_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       safisha_audit_log: {
         Row: {
           action: string
@@ -12730,6 +13177,95 @@ export type Database = {
         Args: { p_feature_code: string; p_owner_user_id: string }
         Returns: Json
       }
+      _rfr_applied_adjustments: {
+        Args: { p_cert: string; p_company_id: string; p_period_year: number }
+        Returns: {
+          adjustment_id: string
+          anchor: string[]
+          correction_id: string
+          lines_sha256: string
+          reverses_correction: string
+          scope: string
+        }[]
+      }
+      _rfr_blockers: {
+        Args: { p_company_id: string; p_report_id: string; p_version: number }
+        Returns: string[]
+      }
+      _rfr_bound_fingerprints: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: Record<string, unknown>
+      }
+      _rfr_current_inputs: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: {
+          actor_user_id: string
+          company_id: string
+          created_at: string
+          family: string
+          file_sha256: string | null
+          firm_member_id: string | null
+          id: string
+          key: string
+          payload: Json
+          payload_sha256: string
+          period_year: number
+          reason: string | null
+          request_id: string
+          seq: number
+          source: string
+          withdrawn: boolean
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "rfr_inputs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      _rfr_layer_balances: {
+        Args: { p_cert: string; p_company_id: string; p_period_year: number }
+        Returns: Json
+      }
+      _rfr_scope: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: {
+          actor_user_id: string
+          company_id: string
+          created_at: string
+          facts: Json
+          facts_sha256: string
+          firm_member_id: string | null
+          id: string
+          period_year: number
+          reason: string
+          rule_pack_id: string
+          rule_pack_version: string
+          seq: number
+        }
+        SetofOptions: {
+          from: "*"
+          to: "rfr_scope_events"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      _rfr_write_input: {
+        Args: {
+          p_company_id: string
+          p_family: string
+          p_file_sha256: string
+          p_key: string
+          p_payload: Json
+          p_period_year: number
+          p_reason: string
+          p_request_id: string
+          p_source: string
+          p_uid: string
+          p_withdrawn: boolean
+        }
+        Returns: Json
+      }
       _seat_capacity_for_account: { Args: { p_account: string }; Returns: Json }
       _tb_abandon_run: {
         Args: { p_code: string; p_run_id: string }
@@ -15386,6 +15922,102 @@ export type Database = {
           grant_id: string
           outcome: string
         }[]
+      }
+      rfr_content_digest: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: string
+      }
+      rfr_load_inputs: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
+      }
+      rfr_propose_correction: {
+        Args: {
+          p_anchor: string[]
+          p_bundle?: string
+          p_company_id: string
+          p_correction_id: string
+          p_evidence_ref: string
+          p_lines: Json
+          p_period_year: number
+          p_reason: string
+          p_request_id: string
+          p_reverses_correction?: string
+          p_scope: string
+          p_supersedes?: string
+        }
+        Returns: Json
+      }
+      rfr_record_run: {
+        Args: {
+          p_company_id: string
+          p_content_sha256: string
+          p_period_year: number
+          p_result: Json
+        }
+        Returns: Json
+      }
+      rfr_record_source_attestation: {
+        Args: {
+          p_company_id: string
+          p_gl_fingerprint: string
+          p_period_year: number
+          p_pulled_at: string
+          p_tb_fingerprint: string
+        }
+        Returns: Json
+      }
+      rfr_register_input: {
+        Args: {
+          p_company_id: string
+          p_family: string
+          p_file_sha256: string
+          p_key: string
+          p_payload: Json
+          p_period_year: number
+          p_request_id: string
+          p_source: string
+        }
+        Returns: Json
+      }
+      rfr_register_source_input: {
+        Args: {
+          p_actor_user_id: string
+          p_company_id: string
+          p_family: string
+          p_file_sha256: string
+          p_key: string
+          p_payload: Json
+          p_period_year: number
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      rfr_set_scope: {
+        Args: {
+          p_company_id: string
+          p_facts: Json
+          p_period_year: number
+          p_reason: string
+          p_rule_pack_id: string
+          p_rule_pack_version: string
+        }
+        Returns: Json
+      }
+      rfr_status: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
+      }
+      rfr_withdraw_input: {
+        Args: {
+          p_company_id: string
+          p_family: string
+          p_key: string
+          p_period_year: number
+          p_reason: string
+          p_request_id: string
+        }
+        Returns: Json
       }
       safisha_append_evidence_file: {
         Args: {
