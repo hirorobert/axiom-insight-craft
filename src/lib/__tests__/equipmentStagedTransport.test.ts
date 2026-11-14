@@ -74,7 +74,7 @@ describe("equipment exact-byte staged transport", () => {
       expect(fs.readFileSync(path.join(ROOT,"drizzle/migrations",`${tags[i]}.sql`),"utf8")).toBe(f.text);
       expect(RELEASE_JOURNAL[tags[i]]).toEqual({kind:"equipment_staged_transport",sha256:f.hashes[0]});
     }
-    expect(checkMigrationAuthority(ROOT).pending).toEqual(["20261215100000_api_cache_control_headers.sql", "20261221100000_financial_table_member_write_revocation.sql", "20261222100000_fs_cash_transfers_and_post_closing.sql", "20261222200000_statement_compiler_transfers_post_closing.sql", "20261223100000_first_period_governed_review_standalone.sql", "20261224100000_contra_account_designation.sql", "20261225100000_ready_for_reporting_pilot.sql", "20261226100000_issued_comparative_schedules.sql", "20261227100000_rfr_prior_pack_basis.sql", "20261228100000_statement_compiler_casting_declaration.sql"]); // intuit-security-r1: authored and registered, not installed. // Readiness installed as hosted id 102.
+    expect(checkMigrationAuthority(ROOT).pending).toEqual(["20261223100000_first_period_governed_review_standalone.sql", "20261224100000_contra_account_designation.sql", "20261225100000_ready_for_reporting_pilot.sql", "20261226100000_issued_comparative_schedules.sql", "20261227100000_rfr_prior_pack_basis.sql"]); // 2026-11-14: D4-D6 and D12 applied (hosted 103-106), D3 parked; D7-D11 pending
   });
   it("the canonical authority accepts future real mirrors only with reviewed registrations", () => {
     const dir=fs.mkdtempSync(path.join(os.tmpdir(),"equipment-transport-authority-"));

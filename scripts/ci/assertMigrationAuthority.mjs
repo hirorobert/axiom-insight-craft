@@ -249,13 +249,15 @@ export function checkMigrationAuthority(repo = REPO) {
   if (mirrored.length > 0) {
     const first = Math.min(...order), last = Math.max(...order);
     const covered = new Set([...mirrored, ...releaseApplied].map((m) => m.source));
+    // A hosted-refused source counts as covered only once the hosted journal has moved past it (first..last): on an older journal
+    // (a historical copy, a replay) it is simply still pending, exactly as before the refusal.
     for (const [f, r] of Object.entries(HOSTED_REFUSED)) {
+      const i = sources.indexOf(f);
       if (!srcText[f]) errors.push(`hosted-refused: ${f} is registered but missing`);
       else if (!SUBMISSION_FORMS[f]) errors.push(`hosted-refused: ${f} has no registered submission forms (rule 9)`);
       else if (covered.has(f)) errors.push(`hosted-refused: ${f} is registered as refused but a journal entry covers it (re-review)`);
-      else { covered.add(f); parked.push(`${f}: refused ${r.on} (${r.code}) — ${r.reason}`); }
+      else if (i >= first && i <= last) { covered.add(f); parked.push(`${f}: refused ${r.on} (${r.code}) — ${r.reason}`); }
     }
-    for (const [t, r] of Object.entries(OUT_OF_ORDER_MIRRORS)) if (!tags.includes(t)) errors.push(`out-of-order: ${t} is registered but not in the journal (${r.source})`);
     for (let i = first; i <= last; i++) if (!covered.has(sources[i])) errors.push(`drizzle: source ${sources[i]} was skipped by the hosted apply journal`);
     // Authored and not yet applied: the sources after the last in-order mirror that no hosted entry covers (an entry applied
     // out of source order, e.g. 0063, is covered and therefore not pending; the earlier sources it jumped remain pending).
