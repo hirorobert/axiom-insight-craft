@@ -135,7 +135,7 @@ describe("source-access exact-byte staged transport", () => {
     const journal = JSON.parse(fs.readFileSync(path.join(ROOT, "drizzle/migrations/meta/_journal.json"), "utf8")) as { entries: { tag: string }[] };
     const tags = ["0097_source_access_staged_transport", "0098_source_access_1_staged_apply"];
     expect(journal.entries.filter((e) => /source_access/i.test(e.tag)).map((e) => e.tag)).toEqual(tags);
-    expect(journal.entries.filter((e) => Number(e.tag.slice(0, 4)) > 98).map(e => e.tag)).toEqual(["0099_legacy_financial_write_revocation", "0100_qbo_connector_storage", "0101_qbo_readiness_controls"]);
+    expect(journal.entries.filter((e) => Number(e.tag.slice(0, 4)) > 98).map(e => e.tag)).toEqual(["0099_legacy_financial_write_revocation", "0100_qbo_connector_storage", "0101_qbo_readiness_controls", "0102_financial_table_member_write_revocation", "0103_fs_cash_transfers_and_post_closing", "0104_statement_compiler_transfers_post_closing", "0105_statement_compiler_casting_declaration"]); // + the consolidated release's D4-D6 and D12 (2026-11-14)
     expect(Object.keys(RELEASE_JOURNAL).filter((k) => /source_access/i.test(k))).toEqual(tags);
     for (const tag of tags) {
       expect(RELEASE_JOURNAL[tag]).toMatchObject({ kind: "source_access_staged_transport" });

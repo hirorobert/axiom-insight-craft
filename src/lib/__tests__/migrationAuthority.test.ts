@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error — plain ESM script without type declarations
 import { checkMigrationAuthority, PINNED } from "../../../scripts/ci/assertMigrationAuthority.mjs";
 
-type Result = { ok: boolean; errors: string[]; mirrored: { tag: string; source: string; how: string }[]; pending: string[]; knownDrift: string[]; resolved: string[] };
+type Result = { ok: boolean; errors: string[]; mirrored: { tag: string; source: string; how: string }[]; pending: string[]; knownDrift: string[]; resolved: string[]; releaseApplied: { tag: string; source: string; how?: string }[]; parked: string[] };
 const ROOT = path.join(__dirname, "../../..");
 
 function copyRepo(): string {
@@ -53,11 +53,17 @@ describe("migration authority parity", () => {
     // 60: 0062, unlimited team members (pricing-p1), the registered wrapper form (hosted 63).
     // 0063, period-currency correction (currency-c1, PR #179; the registered wrapper form minus its final LF; hosted 64), is
     // applied OUT OF SOURCE ORDER (ahead of the pending 20261111100000 / 20261112100000): releaseApplied, not mirrored.
-    expect(r.mirrored.length).toBe(87); // + CF-03/QBO native mirrors (hosted 100/101); source-access-r1: one covered source applied as hosted 99 (bootstrap 98 covers nothing) // ipsas-r1: three covered sources applied as hosted 93/95/97 (bootstraps 92/94/96 cover nothing) // equipment-r1: two covered sources applied as hosted 90/91 // + 0087 team bootstrap (hosted 88) // + 0086 admin activation (hosted 87) // + internal-beta-r1 0084/0085 (hosted 85/86) // + 0081/0082 track-a-r1 (hosted 82/83) // + 0072/0073 TB staged batches, 0074 catalogue read predicate, 0076–0079 fs-integrity-r1 batches (hosted 77–80); 0070 checkout abandon is releaseApplied
+    expect(r.mirrored.length).toBe(90); // + 0102-0104 (D4-D6 of the consolidated release, plain mirrors, 2026-11-14); 0105 (D12) is a registered OUT-OF-ORDER mirror, not counted here // + CF-03/QBO native mirrors (hosted 100/101); source-access-r1: one covered source applied as hosted 99 (bootstrap 98 covers nothing) // ipsas-r1: three covered sources applied as hosted 93/95/97 (bootstraps 92/94/96 cover nothing) // equipment-r1: two covered sources applied as hosted 90/91 // + 0087 team bootstrap (hosted 88) // + 0086 admin activation (hosted 87) // + internal-beta-r1 0084/0085 (hosted 85/86) // + 0081/0082 track-a-r1 (hosted 82/83) // + 0072/0073 TB staged batches, 0074 catalogue read predicate, 0076–0079 fs-integrity-r1 batches (hosted 77–80); 0070 checkout abandon is releaseApplied
     for (const [t, src] of [["0076_fsi_1_server_compilation_staged_apply", "20261123100000_fs_server_compilation.sql"], ["0077_fsi_2_integrity_gate_staged_apply", "20261124100000_fs_publication_integrity_gate.sql"], ["0078_fsi_3_final_authority_staged_apply", "20261125100000_fs_final_authority.sql"], ["0079_fsi_4_document_structure_staged_apply", "20261126100000_fs_document_structure.sql"]]) {
       expect(r.mirrored.find((m) => m.tag === t)).toMatchObject({ source: src, how: "fsi_staged_transport" });
     }
-    expect(r.releaseApplied.map((m) => m.tag)).toEqual(["0016_pr34_apply_prereq_20260915100000", "0063_period_currency_correction", "0070_customer_checkout_abandon"]);
+    // 0105 (D12, 20261228100000) was applied as hosted id 106 on 2026-11-14 AHEAD of 20261223100000-20261227100000 by owner decision
+    // (OUT_OF_ORDER_MIRRORS): covered, excluded from the in-order sequence, so the five it jumped stay pending - never "skipped".
+    expect(r.releaseApplied.map((m) => m.tag)).toEqual(["0016_pr34_apply_prereq_20260915100000", "0063_period_currency_correction", "0070_customer_checkout_abandon", "0105_statement_compiler_casting_declaration"]);
+    expect(r.releaseApplied.find((m) => m.tag === "0105_statement_compiler_casting_declaration")).toMatchObject({ source: "20261228100000_statement_compiler_casting_declaration.sql", how: "out_of_order_mirror" });
+    // 20261215100000 (D3) was refused atomically by the hosted migrator on 2026-11-14 (42501, journal unchanged) and parked by owner
+    // decision (HOSTED_REFUSED): neither applied nor pending, reported as parked; it keeps its registered submission forms.
+    expect(r.parked).toHaveLength(1); expect(r.parked[0]).toMatch(/^20261215100000_api_cache_control_headers\.sql: refused 2026-11-14 \(42501\)/);
     expect(r.mirrored.find((m) => m.tag === "0023_security_fix_probe_and_xbrl_concept_map")).toEqual({
       tag: "0023_security_fix_probe_and_xbrl_concept_map", source: "20260927041019_security_fix_probe_and_xbrl_concept_map.sql", how: "canonical_equivalent",
     });
@@ -80,11 +86,36 @@ describe("migration authority parity", () => {
     // 20261123100000–20261126100000 (fs-integrity-r1) are applied as 0076–0079 (hosted 77–80) through the staged transport.
     // track-a-r1 (20261127100000, 20261128100000) applied through its staged transport (hosted 81–83).
     // IPSAS, CF-03 and QBO now all have installed journal mirrors; no authored source remains pending.
-    expect(r.pending).toEqual(["20261215100000_api_cache_control_headers.sql", "20261221100000_financial_table_member_write_revocation.sql", "20261222100000_fs_cash_transfers_and_post_closing.sql", "20261222200000_statement_compiler_transfers_post_closing.sql", "20261223100000_first_period_governed_review_standalone.sql", "20261224100000_contra_account_designation.sql", "20261225100000_ready_for_reporting_pilot.sql", "20261226100000_issued_comparative_schedules.sql", "20261227100000_rfr_prior_pack_basis.sql", "20261228100000_statement_compiler_casting_declaration.sql"]); // intuit-security-r1: authored and registered, not installed. // Readiness installed as hosted id 102 in its registered identical form.
+    // D4-D6 (20261221100000, 20261222100000, 20261222200000) are applied as hosted 103-105 and D12 as 106; D3 is parked; the four large
+    // sources travel through scripts/release/rfrStagedTransport.mjs and D11 follows directly - all five pending until then.
+    expect(r.pending).toEqual(["20261223100000_first_period_governed_review_standalone.sql", "20261224100000_contra_account_designation.sql", "20261225100000_ready_for_reporting_pilot.sql", "20261226100000_issued_comparative_schedules.sql", "20261227100000_rfr_prior_pack_basis.sql"]);
     for (const t of ["0065_fs_controls_r1_staged_apply", "0066_fs_journey_r1_staged_apply", "0067_fs_bounds_r1_staged_apply", "0068_fs_capacity_r1_staged_apply", "0069_fs_memo_r1_staged_apply"]) expect(r.mirrored.find((m) => m.tag === t)?.how).toBe("staged_transport");
     // before this migration: the commercial launch, p3, p4 and p5 are applied (0046–0055, hosted 47–56)
     expect(r.mirrored.find((m) => m.tag === "0025_apply_20261001120000_annual_commercial_term")?.how).toBe("release_verbatim");
   });
+  it("the reviewed order decisions are verified, never skipped: an out-of-order mirror must equal its registered source, and a hosted-refused source must stay unmirrored", () => {
+    const run = (mutate: (dir: string) => void) => {
+      const dir = copyRepo();
+      try { mutate(dir); return checkMigrationAuthority(dir) as Result; } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+    };
+    // 0105 re-pointed at another source's bytes: the registration no longer matches what it mirrors.
+    const wrongSource = run((d) => fs.copyFileSync(path.join(d, "supabase/migrations/20261227100000_rfr_prior_pack_basis.sql"), path.join(d, "drizzle/migrations/0105_statement_compiler_casting_declaration.sql")));
+    expect(wrongSource.errors.join("\n")).toMatch(/0105_statement_compiler_casting_declaration is registered as an out-of-order mirror of 20261228100000_statement_compiler_casting_declaration\.sql but mirrors 20261227100000_rfr_prior_pack_basis\.sql/);
+    // A journal entry that mirrors the parked 20261215100000 is refused: rule 9 forbids a normalised-parity mirror of a source with registered submission forms.
+    const parkedMirrored = run((d) => {
+      fs.copyFileSync(path.join(d, "supabase/migrations/20261215100000_api_cache_control_headers.sql"), path.join(d, "drizzle/migrations/0106_api_cache_control_headers.sql"));
+      const j = JSON.parse(fs.readFileSync(path.join(d, "drizzle/migrations/meta/_journal.json"), "utf8"));
+      j.entries.push({ idx: j.entries.length, version: "7", when: 1, tag: "0106_api_cache_control_headers", breakpoints: true });
+      fs.writeFileSync(path.join(d, "drizzle/migrations/meta/_journal.json"), JSON.stringify(j));
+      fs.writeFileSync(path.join(d, "drizzle/migrations/meta/0106_snapshot.json"), "{}");
+    });
+    expect(parkedMirrored.errors.join("\n")).toMatch(/0106_api_cache_control_headers mirrors 20261215100000_api_cache_control_headers\.sql, which is accepted only through a reviewed RELEASE_JOURNAL entry/);
+    const r = checkMigrationAuthority(ROOT) as Result;
+    expect(r.errors).toEqual([]);
+    expect(r.pending).not.toContain("20261228100000_statement_compiler_casting_declaration.sql");
+    expect(r.pending).not.toContain("20261215100000_api_cache_control_headers.sql");
+  }, 60_000);
+
   it("0023 is mapped to its canonical source only by exact SHA-256 of both files and a structural check — any mutation fails closed", () => {
     const H = "drizzle/migrations/0023_security_fix_probe_and_xbrl_concept_map.sql";
     const S = "supabase/migrations/20260927041019_security_fix_probe_and_xbrl_concept_map.sql";
