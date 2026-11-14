@@ -683,6 +683,13 @@ describe("database inertness — schema and functions", () => {
     // close_review_refresh_findings with only the A01 expected-side test changed (proof: scripts/db-proof/closeReviewAuthority.mjs,
     // "Contra designation"). No financial-statements schema, no Edge Function, no composition or presentation change.
     added.add("supabase/migrations/20261224100000_contra_account_designation.sql");
+    // PR #266 (commercial handoff 10.8): the Terms version a purchase accepted is recorded on the checkout intent by the SERVER, once,
+    // immutably - one additive migration (acquire_checkout_attempt + optional p_terms_version from the live text; the 14-argument
+    // overload dropped in the same transaction; a BEFORE UPDATE guard on the acceptance keys), the server-side version authority,
+    // the version check in commercial-create-checkout, the same version in Polar's checkout metadata. AUTHORED, NOT APPLIED.
+    added.add("supabase/migrations/20261229100000_checkout_terms_acceptance.sql");
+    added.add("supabase/functions/_shared/commercial/termsVersion.ts");
+    for (const f of ["supabase/functions/commercial-create-checkout/index.ts", "supabase/functions/_shared/payments/contracts.ts", "supabase/functions/_shared/payments/providers/polar.ts"]) modified.add(f);
     expect(unreviewedChanges(changed, { added, modified, removed })).toEqual([]);
   });
 
@@ -996,6 +1003,11 @@ describe("database inertness — schema and functions", () => {
     for (const f of ["readinessFinalization.manifest", "readinessFinalization"]) allowed.add(`scripts/db-proof/${f}.mjs`);
     // First-period governed review: its loopback-only real-PostgreSQL proof, the shared helper, the old-rule bypass reproduction and the two earlier proofs whose first-period
     // expectations changed (a declaration is a claim; only a verified review is the exception). No deploy behaviour.
+    allowed.add("scripts/db-proof/checkoutTermsAcceptance.mjs");
+    // 20261229100000 (PR #266): every proof and harness that acquires a checkout intent now passes the acknowledgement the RPC requires.
+    for (const f of ["scripts/db-contract-tests/10_static_contract_assertions.sql", "scripts/db-contract-tests/20_concurrency_tests.sh", "scripts/db-proof/checkoutAbandon.mjs",
+      "scripts/db-proof/checkoutOpenSessionConflict.sh", "scripts/db-proof/paidTermPreservation.mjs", "scripts/db-proof/paymentProviders.mjs", "scripts/db-proof/paymentReversalAuthority.mjs",
+      "scripts/db-proof/sandboxLicenceIsolation.mjs", "scripts/db-proof/snippeLedger.mjs", "scripts/db-proof/verifiedChargeOutcomes.mjs", "scripts/e2e/paymentJourney.mjs"]) allowed.add(f);
     for (const f of ["firstPeriodGovernedReview", "firstPeriodBypassReproduction", "lib/firstPeriodKit", "comparatives", "closeReviewAuthority", "returningClientJourney", "lib/returningClientKit", "lib/returningClientWorld", "lib/pgQuery"]) allowed.add(`scripts/db-proof/${f}.mjs`);
     allowed.add("scripts/readiness/writePilotFixtures.mjs");
     // Client-data containment (2026-11-11): a local, read-only scan of tracked files with a hash-only denylist, and the

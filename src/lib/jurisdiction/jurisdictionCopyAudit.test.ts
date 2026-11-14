@@ -30,6 +30,20 @@ export const JURISDICTION_MODULES = (files: readonly string[]): string[] => [...
 /** Currency pickers: ISO-4217 reference data. */
 const CURRENCY_LIST_FILES = ["components/workspace/FirstRunEngagement.tsx", "components/CompanyManager.tsx"];
 
+/**
+ * The provider's legal identity and the Privacy Policy's hosting disclosure (commercial handoff Update 4, S1 and S5): the seller's
+ * country of registration ("registered in the United Republic of Tanzania", "Kati, Pangani, Tanzania", "outside Tanzania") is a
+ * statutory disclosure about WHO provides the service, not jurisdiction-pack wording about the customer's tax regime; the Terms'
+ * governing-law clause (dossier 28.2 A2) names the same country for the same reason. Only the country name is exempt on exactly
+ * these files; TRA / TIN / EFDMS and statute names stay forbidden there too.
+ */
+const LEGAL_IDENTITY_FILES = ["lib/commercial/businessIdentity.ts", "pages/Privacy.tsx", "pages/Terms.tsx"];
+const NON_COUNTRY = /\b(TRA|TIN|EFDMS|TAA|ITA|SDL|NSSF|WCF)\b|Finance Act|Cap\.\s?332/;
+/** Tested on the FULL string (findForbidden truncates for display): the country name alone, none of the statutory tokens. */
+const COUNTRY_ONLY = (full: string) => /Tanzania/.test(full) && !NON_COUNTRY.test(full);
+/** The untruncated forbidden strings of a file. */
+const forbiddenFull = (code: string): string[] => visibleStrings(code).filter((s) => FORBIDDEN.test(s));
+
 const FORBIDDEN = /\b(TRA|TIN|EFDMS|TAA|ITA|SDL|NSSF|WCF)\b|Tanzania|Finance Act|Cap\.\s?332/;
 
 function walk(dir: string): string[] {
@@ -95,7 +109,10 @@ describe("jurisdiction-neutral copy", () => {
     const offenders: string[] = [];
     for (const rel of files) {
       if (inTzPack(rel) || OTHER_JURISDICTION_MODULES.includes(rel)) continue;
-      const hits = findForbidden(fs.readFileSync(path.join(SRC, rel), "utf8")).filter((h) => !(CURRENCY_LIST_FILES.includes(rel) && /^[A-Z]{3} — /.test(h)));
+      const hits = forbiddenFull(fs.readFileSync(path.join(SRC, rel), "utf8"))
+        .filter((h) => !(CURRENCY_LIST_FILES.includes(rel) && /^[A-Z]{3} — /.test(h)))
+        .filter((h) => !(LEGAL_IDENTITY_FILES.includes(rel) && COUNTRY_ONLY(h)))
+        .map((h) => h.trim().slice(0, 90));
       for (const h of hits) offenders.push(`${rel}: ${h}`);
     }
     expect(offenders).toEqual([]);
@@ -107,6 +124,15 @@ describe("jurisdiction-neutral copy", () => {
       expect(findForbidden(fs.readFileSync(path.join(SRC, rel), "utf8")).length, `${rel} no longer needs an exemption`).toBeGreaterThan(0);
     }
     expect(files.filter(inTzPack).length, "the TZ pack directory exists and is non-empty").toBeGreaterThan(0);
+    for (const rel of LEGAL_IDENTITY_FILES) {
+      expect(files, rel).toContain(rel);
+      const hits = forbiddenFull(fs.readFileSync(path.join(SRC, rel), "utf8"));
+      expect(hits.length, `${rel} no longer needs the country exemption`).toBeGreaterThan(0);
+      expect(hits.every(COUNTRY_ONLY), `${rel}: only the country name is exempt`).toBe(true);
+    }
+    expect(COUNTRY_ONLY("registered in the United Republic of Tanzania")).toBe(true);
+    expect(COUNTRY_ONLY("Tanzania TIN 123")).toBe(false);
+    expect(COUNTRY_ONLY("Filed with TRA")).toBe(false);
   });
 
   it("no statutory-engine module is rendered by a first-run, overview, upload, settings or layout surface", () => {

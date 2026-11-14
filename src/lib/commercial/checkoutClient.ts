@@ -15,14 +15,24 @@ async function session() {
 }
 const fnUrl = (name: string) => `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${name}`;
 
-/** Public prices and whether online payment is open (anonymous read). null until read, or when unavailable. */
+/** Read and found nothing purchasable, or not readable: no approved price and online payment closed (fails closed). */
+export const NO_PUBLIC_PRICES: PublicPrices = Object.freeze({ onlinePayment: false, offers: Object.freeze([]) });
+
+/**
+ * Public prices and whether online payment is open (anonymous read). null ONLY while the read is in flight, so a plan
+ * card can show a neutral placeholder instead of a commercial state (S2-C10); a failed or malformed read resolves to
+ * NO_PUBLIC_PRICES (the same cards as before: the catalogue figure marked "Proposed" and Contact support).
+ */
 export function usePublicPlanPrices(): PublicPrices | null {
   const [prices, setPrices] = useState<PublicPrices | null>(null);
   useEffect(() => {
     let live = true;
     import("@/integrations/supabase/client").then(({ supabase }) =>
       (supabase.rpc as unknown as (fn: string) => Promise<{ data: unknown; error: unknown }>)("get_public_plan_prices"),
-    ).then(({ data, error }) => { if (live && !error) setPrices(parsePublicPrices(data)); }, () => undefined);
+    ).then(
+      ({ data, error }) => { if (live) setPrices(error ? NO_PUBLIC_PRICES : parsePublicPrices(data) ?? NO_PUBLIC_PRICES); },
+      () => { if (live) setPrices(NO_PUBLIC_PRICES); },
+    );
     return () => { live = false; };
   }, []);
   return prices;
@@ -70,14 +80,14 @@ export type StartCheckoutResult =
   | { ok: true; saffReference: string; checkoutUrl: string; provider: string; paymentRoute: PaymentRoute; reused: boolean }
   | { ok: false; error: string; saffReference: string | null; previousPlanName?: string | null };
 
-export async function startCheckout(plan: PlanCode, paymentRoute: PaymentRoute, phoneNumber: string | null): Promise<StartCheckoutResult> {
+export async function startCheckout(plan: PlanCode, paymentRoute: PaymentRoute, phoneNumber: string | null, termsVersion: string, immediateServiceConsent: true): Promise<StartCheckoutResult> {
   const { token } = await session();
   if (!token) return { ok: false, error: "NOT_SIGNED_IN", saffReference: null };
   try {
     const res = await fetch(fnUrl("commercial-create-checkout"), {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ planCode: plan, billingInterval: "ANNUAL", paymentRoute, ...(paymentRoute === "MOBILE_MONEY" ? { phoneNumber } : {}) }),
+      body: JSON.stringify({ planCode: plan, billingInterval: "ANNUAL", paymentRoute, termsVersion, immediateServiceConsent, ...(paymentRoute === "MOBILE_MONEY" ? { phoneNumber } : {}) }),
     });
     const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     if (!res.ok) return { ok: false, error: String(json.error ?? "CHECKOUT_FAILED"), saffReference: (json.saffReference ?? json.previousSaffReference ?? null) as string | null, previousPlanName: (json.previousPlanName ?? null) as string | null };

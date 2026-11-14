@@ -53,6 +53,17 @@ export const KNOWN_CLOSURES = Object.freeze({
     required: { sha256: "8419ff178ea7469ffb8ca373a71e65c1a69ce28f770bbd2ff8ae2704d82bfc9f", source: "consolidated release (compiler 85a0f362…, rule pack 2.5.0 = 2.4.0 + subtotal-casting 1.1.0; S2-A01/S2-A02 transfers and post-closing, ledger evidence schema 1.1.0, restated-comparative and one-period casting): needs 20261222100000, 20261222200000 AND 20261228100000 applied first; the intermediate 2.4.0-only bundle (closure ed84408e…) is never deployed" },
     known: [{ sha256: "745c8170099329911db55ee2ee20f5a989c0ae2a10003be0860c8cb679e4db59", source: "merged 27f48f7 (PR #191 + PR #192 combined candidate): server compilation with the compiler 49fc0852…; still accepted by the database after 20261222200000, but presents transfers between cash accounts as cash flows and has no post-closing finding" }],
   }),
+  // PR #266: the Terms version check (termsVersion.ts), p_terms_version to acquire_checkout_attempt and terms_version in Polar's
+  // checkout metadata (providers/polar.ts, shared by both functions). Neither function was pinned before; main 9a919c0's closures
+  // are recorded as the known predecessors (whether they are what production runs is NOT verified from this repository).
+  "commercial-create-checkout": Object.freeze({
+    required: { sha256: "c579825ca48870ac3d59433ad224d1169aae818ef69f61df02cbd82445c3a0e9", source: "PR #266: refuses a checkout without the current Terms version before any write; records the server's version on the intent and in Polar metadata; needs 20261229100000 applied first" },
+    known: [{ sha256: "961818245916e93cbe7810ecbd4acc58eceb0f91ec96d8890c051ac5fbdbec42", source: "main 9a919c0 (consolidated release): no Terms version; 14-argument acquire_checkout_attempt call (still valid after 20261229100000)" }],
+  }),
+  "commercial-payment-status": Object.freeze({
+    required: { sha256: "9f9c8cf770739cd8d485f474394cae149bbf5bc15e8bbfa1eea150091c3614ce", source: "PR #266: shares providers/polar.ts (terms_version metadata); no behavioural change of its own" },
+    known: [{ sha256: "0cb83e259c7516c02f5ca86abb2f7f033a66dde73f24d93485e59d27fdea3941", source: "main 9a919c0 (consolidated release)" }],
+  }),
   "trial-balance-storage-cleanup": Object.freeze({
     required: { sha256: "04ebf148992f85b0b224215bfacb36bcd6a1342f822346c0e018594bfc410b7f", source: "main since 80384d1 (PR #76): knows source_shared" },
     known: [{ sha256: "e47b381850dc13a4101613a799233313b3400df4308a6f28f91650b23ca0d7df", source: "main before 80384d1 (PR #32 upload lifecycle): source_shared unknown — answers 500 and deletes nothing" }],

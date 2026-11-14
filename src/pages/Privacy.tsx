@@ -1,25 +1,40 @@
 import { channel, mailtoHref } from "@/lib/contact/contactChannels";
+import { BUSINESS_IDENTITY } from "@/lib/commercial/businessIdentity";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
+import { ArchivedPolicy, PolicyVersionLine, usePolicyVersion } from "@/components/legal/PolicyVersion";
 
 export default function Privacy() {
+  const version = usePolicyVersion();
+  if (version.requested && (version.archived || version.unknown)) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <ArchivedPolicy page="privacy" requested={version.requested} text={version.archived?.privacy ?? null} unknown={version.unknown} />
+        <Footer />
+      </div>
+    );
+  }
   return (
     <div className="min-h-screen bg-background">
       <Header />
       <main className="max-w-3xl mx-auto px-6 pt-32 pb-20">
         <h1 className="text-3xl font-bold text-foreground mb-2">Privacy Policy</h1>
-        <p className="text-sm text-muted-foreground mb-10">Last updated: 3 November 2026</p>
+        <PolicyVersionLine page="privacy" />
 
         <section className="space-y-8 text-sm leading-relaxed text-muted-foreground">
+          <p data-testid="privacy-controller">{BUSINESS_IDENTITY.privacyController}</p>
+
           <div>
             <h2 className="text-lg font-semibold text-foreground mb-2">1. What we collect</h2>
             <p>
               Account information you provide (name, email, firm and company
               names), the trial balances and supporting documents you upload, the
-              reconciliation, statement and other engagement records your firm
+              review decisions, reports and other engagement records your firm
               produces while using the service (including records created with
-              services that are no longer offered), and basic technical logs needed to
-              operate and secure the service.
+              services that are no longer offered), commercial records needed to
+              operate your plan (see section 4), and basic technical logs needed
+              to operate and secure the service.
             </p>
           </div>
 
@@ -40,10 +55,12 @@ export default function Privacy() {
           <div>
             <h2 className="text-lg font-semibold text-foreground mb-2">3. How it's used</h2>
             <p>
-              To provide the service you signed up for: running the accounting,
-              reconciliation and monitoring engines you invoke, maintaining
-              your workspace state, and keeping an audit trail of professional
-              decisions and administrative actions for your own firm's record. We
+              To provide the service you signed up for: checking and reviewing
+              the trial balances you upload and recording your review decisions
+              (and, for a company invited to the financial reporting pilot,
+              preparing its reports), maintaining your workspace state, and
+              keeping an audit trail of professional decisions and administrative
+              actions for your own firm's record. We
               do not sell your data, and we do not use your accounting data to
               train models for other customers.
             </p>
@@ -54,7 +71,8 @@ export default function Privacy() {
             <p>
               Separately from your accounting data, we maintain minimal commercial
               records (plan, licence status and, where applicable, payment
-              history) needed to operate accounts and support. This commercial
+              history and provider payment references — never card numbers)
+              needed to operate accounts and support. This commercial
               record is kept administratively separate from, and is never used to
               alter, your accounting data or the results your firm has produced.
             </p>
@@ -62,27 +80,48 @@ export default function Privacy() {
 
           <div>
             <h2 className="text-lg font-semibold text-foreground mb-2">5. Retention and deletion</h2>
-            <p>
-              We retain your data for as long as your account is active, or as
-              needed to meet legal, regulatory, or audit-trail obligations relevant
-              to accounting records. Contact us to request deletion of an account
-              you control, subject to any retention we're legally required to keep.
+            <p data-testid="privacy-retention">
+              We keep your account and workspace data while your account is active. You can ask us to delete or export
+              your data by writing to <a href={mailtoHref("support")} className="underline hover:text-foreground">{channel("support").address}</a>;
+              we first confirm your authority over the account. After a verified deletion request we delete or anonymise
+              your personal data, except records the law requires us to keep (such as payment and billing records) and
+              records of signed work where the law or a professional body requires them. Backups held by our hosting
+              provider expire on its backup schedule.
             </p>
           </div>
 
           <div>
             <h2 className="text-lg font-semibold text-foreground mb-2">6. Third parties</h2>
             <p>
-              Lovable Cloud and Supabase provide hosting, database, file
-              storage, authentication and server-function infrastructure.
               Authorized workspace members can access the company records their
               permissions allow. Operational staff access is limited to service,
-              security, support and legal needs. Intuit processes authorization
-              and source requests for QuickBooks connections. Payment integrations
-              in the product include Polar and Snippe; their availability depends
-              on the configured checkout. Any payment provider and applicable
-              terms must be shown before you confirm a payment.
+              security, support and legal needs. These external parties receive
+              personal or financial data when you use the parts of the service
+              named:
             </p>
+            <ul className="mt-3 list-disc space-y-2 pl-5" data-testid="privacy-third-parties">
+              <li><strong className="text-foreground">Supabase</strong> - database, sign-in, file storage and
+                server functions: all the data described in section 1.</li>
+              <li><strong className="text-foreground">Lovable</strong> - site hosting, and the service's
+                transactional e-mail (sign-up confirmation, password reset, invitations and enquiry
+                acknowledgements), delivered through Mailgun: the recipient's e-mail address and the message.</li>
+              <li><strong className="text-foreground">Google</strong> - only if you choose
+                &ldquo;Continue with Google&rdquo;: you sign in at Google, and your name and e-mail address are passed
+                to CFOClose; and the fonts the site loads from Google, which receives your browser's IP address and
+                browser details when a page loads.</li>
+              <li><strong className="text-foreground">Cloudflare Turnstile</strong> - a bot check on the
+                public contact form: signals from your browser needed for the check.</li>
+              <li><strong className="text-foreground">Namecheap Private Email</strong> - hosts the cfoclose.com
+                mailboxes (support, billing and general enquiries): the messages you send us.</li>
+              <li data-testid="privacy-polar"><strong className="text-foreground">Polar</strong> - for purchases, Polar Software, Inc. acts
+                as merchant of record and processes your payment and billing details as an independent controller
+                under its own privacy terms. We receive your name, e-mail, account reference and the payment outcome,
+                never card numbers.</li>
+              <li><strong className="text-foreground">Intuit</strong> - authorization and source requests for
+                QuickBooks connections. Customer QuickBooks connections are not
+                currently available (section 8).</li>
+            </ul>
+            <p className="mt-3">Optional AI providers are described in section 9.</p>
           </div>
 
           <div>
@@ -142,15 +181,11 @@ export default function Privacy() {
 
           <div>
             <h2 className="text-lg font-semibold text-foreground mb-2">10. Hosting and international processing</h2>
-            <p>
-              The production database is configured in AWS eu-west-1, Ireland.
-              Supabase states that project database, authentication, storage
-              objects and backups are hosted in the selected project region.
-              Edge Functions use distributed execution; content delivery,
-              support and operational processing can involve other locations.
-              We do not promise that all processing is confined to Ireland,
-              the European Union or your country. Any future external AI
-              processing requires the review described above.
+            <p data-testid="privacy-hosting">
+              Personal data is stored and processed outside Tanzania by the service providers listed in section 6,
+              which include providers based in the United States. Content delivery, support and operational processing
+              can involve other locations. We do not promise that all processing is confined to your country. Any
+              future external AI processing requires the review described above.
             </p>
             <p className="mt-3">
               <a href="https://supabase.com/legal/privacy-resources/data-residency-and-transfers-faq" className="underline hover:text-foreground">Supabase data residency and transfers</a>

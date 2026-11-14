@@ -298,7 +298,10 @@ describe("migration directory integrity", () => {
     //   20261217100000 is NOT in the chain: 20261223100000 (merged) is the first-period governed review. Authored and not applied.
     // 219 -> 220: 20261228100000 the THIRD compiler identity (restated-comparative and one-period casting declaration, rule pack 2.5.0 = 2.4.0 +
     //   subtotal-casting 1.1.0), re-authored over the merged 20261222200000; authored and not applied.
-    expect(files.length).toBe(220);
+    // 220 -> 221: 20261229100000 checkout Terms acceptance (PR #266: acquire_checkout_attempt gains an optional trailing
+    //   p_terms_version from the live text; the 14-argument overload is dropped in the same transaction; an immutability trigger on
+    //   payment_checkout_intents' acceptance keys). Authored and not applied.
+    expect(files.length).toBe(221);
   });
 });
 

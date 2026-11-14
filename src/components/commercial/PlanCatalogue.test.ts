@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 /**
  * The plans page (owner decision 2026-10-20): two tabs ("Small practices", "Firms"), two cards each, Practice marked
- * "Most popular"; a signed-in NEW card purchase goes straight to the provider in one tap, every other case opens the
- * checkout page, and an open earlier checkout lands on /plans with its banner — never a dead end.
+ * "Most popular"; every purchase opens the CFOClose checkout page, which states the term, the merchant of record and the
+ * refund terms before anything leaves for the payment page (S2-C02); before the prices are read, no card states a price.
  */
+import fs from "node:fs";
+import path from "node:path";
 import { act, createElement as h } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -63,44 +65,50 @@ describe("plan groups", () => {
   });
 });
 
-describe("one tap to the provider", () => {
-  it("signed in, one production card route, a NEW purchase: straight to the provider's https page", async () => {
-    client.getCheckoutOptions.mockResolvedValue({ data: { planCode: "SOLO", placement: { kind: "NEW" }, options: [CARD] }, error: null });
-    client.startCheckout.mockResolvedValue({ ok: true, saffReference: "SAFF-1", checkoutUrl: "https://polar.sh/checkout/x", provider: "POLAR", paymentRoute: "CARD", reused: false });
-    m = mount(at("/plans", { prices: OPEN, signedIn: true }));
-    click(byTestId(m, "choose-plan-SOLO")!);
-    await flush();
-    expect(client.startCheckout).toHaveBeenCalledWith("SOLO", "CARD", null);
-    expect(assign).toHaveBeenCalledWith("https://polar.sh/checkout/x");
-  });
-  for (const [label, data] of [
-    ["a renewal", { planCode: "SOLO", placement: { kind: "AT_RENEWAL" }, options: [CARD] }],
-    ["a sandbox route", { planCode: "SOLO", placement: { kind: "NEW" }, options: [{ ...CARD, environment: "sandbox" }] }],
-    ["two routes", { planCode: "SOLO", placement: { kind: "NEW" }, options: [CARD, { ...CARD, paymentRoute: "MOBILE_MONEY" }] }],
-  ] as const) {
-    it(`${label}: the checkout page explains it; nothing is started`, async () => {
-      client.getCheckoutOptions.mockResolvedValue({ data, error: null });
-      m = mount(at("/plans", { prices: OPEN, signedIn: true }));
-      click(byTestId(m, "choose-plan-SOLO")!);
-      await flush();
-      expect(client.startCheckout).not.toHaveBeenCalled();
-      expect(where).toBe("/billing/checkout?plan=SOLO");
-    });
-  }
-  it("an open earlier checkout: lands on /plans with that order named (its banner offers Resume or Choose another plan)", async () => {
-    client.getCheckoutOptions.mockResolvedValue({ data: { planCode: "SOLO", placement: { kind: "NEW" }, options: [CARD] }, error: null });
-    client.startCheckout.mockResolvedValue({ ok: false, error: "OPEN_CHECKOUT_OTHER_PLAN", saffReference: "SAFF-OLD" });
-    m = mount(at("/plans", { prices: OPEN, signedIn: true }));
-    click(byTestId(m, "choose-plan-SOLO")!);
-    await flush();
-    expect(where).toBe("/plans?unfinished=SAFF-OLD");
-    expect(assign).not.toHaveBeenCalled();
-  });
-  it("signed out: the link opens the checkout page (sign-in first); nothing is read or started", async () => {
+describe("every purchase opens the CFOClose checkout page (S2-C02)", () => {
+  // Formerly a signed-in NEW card purchase went straight to the provider in one tap, skipping the checkout page and its
+  // term, merchant-of-record and refund disclosures. Now every "Get <plan>" is a plain link to the checkout page: nothing
+  // is read or started from the card, and the checkout page (or the plans page's banner) handles an unfinished checkout.
+  it("'Get <plan>' opens the checkout page; nothing is read, started or sent to another origin from the card", async () => {
     m = mount(at("/plans", { prices: OPEN }));
+    expect(byTestId(m, "choose-plan-SOLO")!.getAttribute("href")).toBe("/billing/checkout?plan=SOLO");
     click(byTestId(m, "choose-plan-SOLO")!);
     await flush();
     expect(client.getCheckoutOptions).not.toHaveBeenCalled();
+    expect(client.startCheckout).not.toHaveBeenCalled();
+    expect(assign).not.toHaveBeenCalled();
     expect(where).toBe("/billing/checkout?plan=SOLO");
+  });
+  it("the card holds no path to the provider: no checkout client, no window.location", () => {
+    const src = fs.readFileSync(path.join(__dirname, "PlanCatalogue.tsx"), "utf8");
+    expect(src).not.toMatch(/checkoutClient|startCheckout|window\.location/);
+  });
+});
+
+describe("S2-C10 · before the server's prices are read, a card states no commercial position", () => {
+  it("prices not yet read: a neutral placeholder for each self-serve plan — no 'Proposed' figure, no Contact support, no payment action", () => {
+    m = mount(at("/plans", { prices: null }));
+    const t = m.container.textContent ?? "";
+    expect(t).not.toMatch(/Proposed/);
+    // Nor does it claim payment is open or closed before the server has said which.
+    expect(t).not.toMatch(/temporarily unavailable|Contact support/);
+    for (const plan of ["SOLO", "PRACTICE", "FIRM"]) {
+      expect(byTestId(m, `contact-support-${plan}`), plan).toBeNull();
+      expect(byTestId(m, `choose-plan-${plan}`), plan).toBeNull();
+      expect(byTestId(m, `price-pending-${plan}`), plan).not.toBeNull();
+    }
+    // Enterprise does not depend on the price read: its terms are always agreed with the team.
+    expect(byTestId(m, "contact-support-ENTERPRISE")!.textContent).toBe("Talk to us");
+  });
+  it("once read, the cards are as before: nothing purchasable → 'Proposed' and Contact support; open → the price and 'Get <plan>'", () => {
+    m = mount(at("/plans", { prices: parsePublicPrices({ online_payment: false, offers: [] }) }));
+    expect(byTestId(m, "price-SOLO")!.textContent).toContain("Proposed: USD 490");
+    expect(byTestId(m, "contact-support-SOLO")!.textContent).toBe("Contact support");
+    expect(byTestId(m, "price-pending-SOLO")).toBeNull();
+    m.unmount();
+    m = mount(at("/plans", { prices: OPEN }));
+    expect(byTestId(m, "price-SOLO")!.querySelector("p")!.textContent).toBe("USD 490");
+    expect(byTestId(m, "choose-plan-SOLO")!.textContent).toBe("Get Solo");
+    expect(byTestId(m, "price-pending-SOLO")).toBeNull();
   });
 });

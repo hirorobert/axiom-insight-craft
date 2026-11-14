@@ -26,6 +26,7 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { validateAuth } from '../_shared/auth.ts';
+import { checkCheckoutAcknowledgement } from '../_shared/commercial/termsVersion.ts';
 import { generateCorrelationId } from '../_shared/correlationId.ts';
 import { selectPaymentProvider, getConfiguredProviders, getAdapterForProvider, returnUrlFrom, cancelUrlFrom, ROUTE_MARKET, type PaymentRoute } from '../_shared/payments/routing.ts';
 import { SETTLEMENT_INTENT_COLUMNS, serviceDbFrom, settleIntent } from '../_shared/payments/settle.ts';
@@ -132,8 +133,14 @@ Deno.serve(async (req: Request) => {
   let billingInterval: string;
   let paymentRoute: PaymentRoute;
   let phoneNumber: string | null = null;
+  let termsVersion: string;
   try {
     const body = await req.json();
+    // The acknowledgement (the Terms version THIS server publishes, and the consent to an immediate start) is refused before any
+    // database access; the server's own constant is what gets recorded, never the client's string.
+    const terms = checkCheckoutAcknowledgement(body);
+    if (!terms.ok) return jsonResponse({ error: terms.error, currentTermsVersion: terms.currentTermsVersion, correlationId }, terms.status);
+    termsVersion = terms.termsVersion;
     planCode = body.planCode;
     billingInterval = body.billingInterval;
     if (!planCode || typeof planCode !== 'string') throw new Error('planCode required');
@@ -281,6 +288,10 @@ Deno.serve(async (req: Request) => {
     p_provider_environment: providerEnvironment,
     p_created_by_user_id: user.id,
     p_saff_reference: saffReference,
+    // [20261229100000] the server's own current version and the verified consent flag, never the client's strings; frozen on the
+    // intent once written (the RPC itself refuses to create an intent without them).
+    p_terms_version: termsVersion,
+    p_immediate_service_consent: true,
   });
   let { data: acquireData, error: acquireErr } = await acquire();
   // An older checkout blocks a new one — an ordinary PENDING one, or a MANUAL_REVIEW one with no recorded payment (the
@@ -375,6 +386,8 @@ Deno.serve(async (req: Request) => {
     checkoutResult = await adapter.createCheckout({
       saffReference,
       intentId,
+      termsVersion,
+      immediateServiceConsent: true,
       billingCustomerId: billingCustomer.id,
       amountMinor:      BigInt(offer.amount_minor!),
       currencyCode:     offer.currency_code!,

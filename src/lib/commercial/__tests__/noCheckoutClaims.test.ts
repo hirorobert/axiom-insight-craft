@@ -74,13 +74,15 @@ describe("payment is offered only where the server says it is open", () => {
   const OPEN = parsePublicPrices({ online_payment: true, offers: [{ plan_code: "SOLO", market_code: "GLOBAL", currency_code: "USD", currency_exponent: 2, amount_minor: 49000, billing_interval: "ANNUAL" }] });
   const CLOSED = parsePublicPrices({ online_payment: false, offers: [{ plan_code: "SOLO", market_code: "GLOBAL", currency_code: "USD", currency_exponent: 2, amount_minor: 49000, billing_interval: "ANNUAL" }] });
 
-  it("the rendered pricing and plans pages (no server answer yet) offer only activation requests and the proposed figures", () => {
+  it("the rendered pricing and plans pages (no server answer yet) offer no payment, no price position and no activation", () => {
     for (const page of [Pricing, Plans]) {
       const html = render(createElement(page));
       expect(text(html)).not.toMatch(TRANSACTIONAL);
       expect(html).not.toContain("/billing/checkout");
-      expect(text(html)).toMatch(/Proposed: USD 490\s+per year/);
-      // Not yet read: nothing claims payment is open or closed, and no manual activation is offered.
+      // Not yet read (S2-C10): a neutral placeholder, never the catalogue figure marked "Proposed" (which the server may not
+      // hold); nothing claims payment is open or closed, and no manual activation is offered.
+      expect(text(html)).not.toMatch(/Proposed/);
+      expect(html).toContain('data-testid="price-pending-SOLO"');
       expect(text(html)).not.toMatch(/temporarily unavailable|Request activation|activated by our team/);
       expect(html).not.toMatch(/<button[^>]*>[^<]*(Upgrade|Buy|Subscribe|Checkout)/i);
     }

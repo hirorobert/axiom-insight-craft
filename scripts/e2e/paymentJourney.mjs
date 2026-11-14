@@ -48,6 +48,7 @@ import { Browser } from "../browser-acceptance/cdp.mjs";
 import { layoutProblems } from "../browser-acceptance/checks.mjs";
 import { assertLocalStack, verifyLocalBundle } from "./localStackFixtures.mjs";
 import { startMockProviders } from "./mockPaymentProviders.mjs";
+import * as __fs from "node:fs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const OUT = path.resolve(process.argv[2] ?? path.join(REPO, "payment-evidence"));
@@ -175,7 +176,7 @@ const serverRefusesCheckout = async (u, plan) => {
   const get = await fetch(`${apiUrl}/functions/v1/commercial-create-checkout?planCode=${plan}`, { headers });
   const options = (await get.json().catch(() => null))?.options ?? null;
   const post = await fetch(`${apiUrl}/functions/v1/commercial-create-checkout`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" },
-    body: JSON.stringify({ planCode: plan, billingInterval: "ANNUAL", paymentRoute: "CARD" }) });
+    body: JSON.stringify({ planCode: plan, billingInterval: "ANNUAL", paymentRoute: "CARD", ...ACK }) });
   const postBody = await post.json().catch(() => null);
   const [intentsAfter, licencesAfter] = [(await intentsOf(u)).length, (await licencesOf(u)).length];
   const ok = get.ok && Array.isArray(options) && options.length > 0 && options.every((o) => o.available === false)
@@ -211,6 +212,22 @@ const setByLabel = (label, value) => page.evaluate((lab, val) => {
   el.dispatchEvent(new Event("change", { bubbles: true }));
   return true;
 }, label, value);
+/** PR #266: the Terms acceptance control gates "Continue to payment"; tick it (once) as the customer would. */
+const acceptTerms = async () => {
+  for (const id of ["checkout-accept-terms", "checkout-accept-service-consent"]) {
+    const state = await page.evaluate((sel) => { const b = document.querySelector(sel); return b ? { present: true, checked: b.checked } : { present: false }; }, `[data-testid="${id}"]`);
+    if (state.present && !state.checked) await page.click(`[data-testid="${id}"]`);
+  }
+};
+
+/** PR #266: the acknowledgement commercial-create-checkout requires; the version is the SERVER's constant, read from its source. */
+const ACK = (() => {
+  const src = __fs.readFileSync(new URL("../../supabase/functions/_shared/commercial/termsVersion.ts", import.meta.url), "utf8");
+  const m = /CURRENT_TERMS_VERSION = "([^"]+)"/.exec(src);
+  if (!m) throw new Error("CURRENT_TERMS_VERSION not found in termsVersion.ts");
+  return { termsVersion: m[1], immediateServiceConsent: true };
+})();
+
 const setInput = (selector, value) => page.evaluate((sel, val) => {
   const el = document.querySelector(sel);
   if (!el) return false;
@@ -522,7 +539,7 @@ async function main() {
   await check("card → the provider's hosted page; nothing is recorded as paid before the provider confirms", async () => {
     await page.click('[data-testid="route-CARD"] input');
     await page.waitForText("Sales tax may apply");
-    await page.click('[data-testid="checkout-continue"]');
+    await acceptTerms(); await page.click('[data-testid="checkout-continue"]');
     await page.waitForUrl(/127\.0\.0\.1:9911\/pay\//, { timeout: 30000 });
     const [i] = await intentsOf(U.card);
     cardRef = i?.saff_reference; cardCheckout = i?.provider_checkout_ref;
@@ -595,7 +612,7 @@ async function main() {
     await page.click('[data-testid="route-MOBILE_MONEY"] input');
     await page.waitForSelector('[data-testid="checkout-phone"]');
     await setInput('[data-testid="checkout-phone"]', "0712 345 678");
-    await page.click('[data-testid="checkout-continue"]');
+    await acceptTerms(); await page.click('[data-testid="checkout-continue"]');
     await page.waitForUrl(/\/billing\/payment\/return\?ref=/, { timeout: 30000 });
     await page.waitForText("Approve the payment on your phone");
     const [i] = await intentsOf(U.mobile);
@@ -654,7 +671,7 @@ async function main() {
   await check("a card checkout left unpaid, then expired at the provider: the status page says no payment was taken", async () => {
     await go("/billing/checkout?plan=SOLO", "Card · USD 490");
     await page.click('[data-testid="route-CARD"] input');
-    await page.click('[data-testid="checkout-continue"]');
+    await acceptTerms(); await page.click('[data-testid="checkout-continue"]');
     await page.waitForUrl(/127\.0\.0\.1:9911\/pay\//, { timeout: 30000 });
     const [i] = await intentsOf(U.other);
     otherRef = i.saff_reference;
@@ -667,7 +684,7 @@ async function main() {
     await page.click('[data-testid="next-try-again"]');
     await page.waitForText("Card · USD 490");
     await page.click('[data-testid="route-CARD"] input');
-    await page.click('[data-testid="checkout-continue"]');
+    await acceptTerms(); await page.click('[data-testid="checkout-continue"]');
     await page.waitForUrl(/127\.0\.0\.1:9911\/pay\//, { timeout: 30000 });
     const all = await intentsOf(U.other);
     return all.length === 2 && all[1].status === "PENDING" ? true : all;
@@ -719,8 +736,8 @@ async function main() {
   });
   await check("Back: card → the provider's page → its Back link lands on /plans naming the unfinished checkout (recorded state only: 'No payment has been recorded'), Resume and Choose another plan — never a spinner", async () => {
     await go("/billing/checkout?plan=PRACTICE", "Card, on Polar\'s secure page");
-    await page.waitForSelector('[data-testid="checkout-continue"]:not([disabled])');
-    await page.click('[data-testid="checkout-continue"]');
+    await acceptTerms(); await page.waitForSelector('[data-testid="checkout-continue"]:not([disabled])');
+    await acceptTerms(); await page.click('[data-testid="checkout-continue"]');
     await page.waitForUrl(/127\.0\.0\.1:9911\/pay\//, { timeout: 30000 });
     const [i] = await intentsOf(U.leaver);
     leftRef = i?.saff_reference; leftSession = i?.provider_checkout_ref;
@@ -779,7 +796,7 @@ async function main() {
   await check("…then another plan's payment starts at once (no waiting for the old session to expire)", async () => {
     await go("/billing/checkout?plan=SOLO", "Card · USD 490");
     await page.click('[data-testid="route-CARD"] input');
-    await page.click('[data-testid="checkout-continue"]');
+    await acceptTerms(); await page.click('[data-testid="checkout-continue"]');
     await page.waitForUrl(/127\.0\.0\.1:9911\/pay\//, { timeout: 30000 });
     const all = await intentsOf(U.leaver);
     return all.length === 2 && all[0].status === "CANCELLED" && all[1].status === "PENDING" ? true : all.map((x) => x.status);
@@ -828,8 +845,8 @@ async function main() {
     mock.checkouts.get(pending.provider_checkout_ref).status = "expired";
     await sleep(61_000); // the review page's own read may hold the verification claim
     await go("/billing/checkout?plan=PRACTICE", "Card, on Polar\'s secure page");
-    await page.waitForSelector('[data-testid="checkout-continue"]:not([disabled])');
-    await page.click('[data-testid="checkout-continue"]');
+    await acceptTerms(); await page.waitForSelector('[data-testid="checkout-continue"]:not([disabled])');
+    await acceptTerms(); await page.click('[data-testid="checkout-continue"]');
     await page.waitForUrl(/127\.0\.0\.1:9911\/pay\//, { timeout: 30000 });
     const all = await intentsOf(U.leaver);
     return !offered && all.length === 3 && all[1].status === "EXPIRED" && all[2].status === "PENDING" ? true : { offered, all: all.map((x) => x.status) };
@@ -850,13 +867,23 @@ async function main() {
   // mock session stays payable — exactly as at Polar. Before 20261102100000 its payment was answered DUPLICATE and recorded
   // nowhere. Now: the money is recorded once, with an OPEN recovery case; the replacement grants the one term.
   const lateApi = await apiAs(U.late);
-  const createCheckout = async () => {
+  const createCheckout = async (extra = {}) => {
     const { data: { session } } = await lateApi.auth.getSession();
     const res = await fetch(`${apiUrl}/functions/v1/commercial-create-checkout`, { method: "POST", headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json", apikey: anonKey },
-      body: JSON.stringify({ planCode: "SOLO", billingInterval: "ANNUAL", paymentRoute: "CARD" }) });
+      body: JSON.stringify({ planCode: "SOLO", billingInterval: "ANNUAL", paymentRoute: "CARD", ...ACK, ...extra }) });
     return { status: res.status, body: await res.json().catch(() => null) };
   };
   let oldIntent = null, replacement = null;
+  await check("PR #266 at the real boundary: a request without the Terms version is 400 TERMS_VERSION_REQUIRED, with a stale version 409 TERMS_VERSION_NOT_CURRENT, without the consent 400 SERVICE_CONSENT_REQUIRED - and none writes an intent", async () => {
+    const r1 = await createCheckout({ termsVersion: undefined });
+    const r2 = await createCheckout({ termsVersion: "2020-01-01.000000000000" });
+    const r3 = await createCheckout({ immediateServiceConsent: false });
+    const intents = await intentsOf(U.late);
+    return r1.status === 400 && r1.body?.error === "TERMS_VERSION_REQUIRED" && r1.body?.currentTermsVersion === ACK.termsVersion
+      && r2.status === 409 && r2.body?.error === "TERMS_VERSION_NOT_CURRENT"
+      && r3.status === 400 && r3.body?.error === "SERVICE_CONSENT_REQUIRED"
+      && intents.length === 0 ? true : { r1, r2, r3, intents: intents.length };
+  });
   await check("a card checkout is created (the mock Polar session is open), then passes CFOClose's local expiry; a new attempt is refused (409 OPEN_CHECKOUT_UNFINISHED, 20261105100000) and writes nothing: the old intent stays PENDING with its session", async () => {
     const first = await createCheckout();
     [oldIntent] = await intentsOf(U.late);
