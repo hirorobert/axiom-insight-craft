@@ -244,6 +244,7 @@ export type Database = {
           created_at: string
           id: string
           is_cash_account: boolean | null
+          is_contra_account: boolean | null
           is_payroll_account: boolean | null
           is_retained_earnings: boolean | null
           line_item: string
@@ -265,6 +266,7 @@ export type Database = {
           created_at?: string
           id?: string
           is_cash_account?: boolean | null
+          is_contra_account?: boolean | null
           is_payroll_account?: boolean | null
           is_retained_earnings?: boolean | null
           line_item: string
@@ -286,6 +288,7 @@ export type Database = {
           created_at?: string
           id?: string
           is_cash_account?: boolean | null
+          is_contra_account?: boolean | null
           is_payroll_account?: boolean | null
           is_retained_earnings?: boolean | null
           line_item?: string
@@ -12767,18 +12770,32 @@ export type Database = {
         Returns: Json
       }
       accept_workspace_invitations: { Args: never; Returns: Json }
-      account_mapping_content: {
-        Args: {
-          p_classification: Database["public"]["Enums"]["account_classification"]
-          p_is_cash: boolean
-          p_is_payroll: boolean
-          p_is_retained: boolean
-          p_line_item: string
-          p_normal_balance: string
-          p_statement: Database["public"]["Enums"]["financial_statement"]
-        }
-        Returns: Json
-      }
+      account_mapping_content:
+        | {
+            Args: {
+              p_classification: Database["public"]["Enums"]["account_classification"]
+              p_is_cash: boolean
+              p_is_payroll: boolean
+              p_is_retained: boolean
+              p_line_item: string
+              p_normal_balance: string
+              p_statement: Database["public"]["Enums"]["financial_statement"]
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_classification: Database["public"]["Enums"]["account_classification"]
+              p_is_cash: boolean
+              p_is_contra: boolean
+              p_is_payroll: boolean
+              p_is_retained: boolean
+              p_line_item: string
+              p_normal_balance: string
+              p_statement: Database["public"]["Enums"]["financial_statement"]
+            }
+            Returns: Json
+          }
       account_review_decision_content: {
         Args: { p_new_value: Json }
         Returns: Json
