@@ -12074,6 +12074,14 @@ export type Database = {
         }
         Returns: Json
       }
+      _fs_ev_transfer_blockers: {
+        Args: { p_doc: Json; p_role: string; p_scale: number }
+        Returns: string[]
+      }
+      _fs_ev_transfer_rows_unreadable: {
+        Args: { p_doc: Json; p_scale: number }
+        Returns: boolean
+      }
       _fs_evidence_present: {
         Args: { p_company_id: string; p_period_year: number; p_type: string }
         Returns: boolean
@@ -12081,6 +12089,10 @@ export type Database = {
       _fs_final_superseded_by: {
         Args: { p_report_id: string; p_report_version: number }
         Returns: number
+      }
+      _fs_finding_accepted_by_reviewer: {
+        Args: { p_finding: Json; p_report_id: string }
+        Returns: boolean
       }
       _fs_item_content: {
         Args: { p_doc: Json; p_id: string; p_kind: string }

@@ -722,6 +722,13 @@
       "when": 1794645774290,
       "tag": "0102_financial_table_member_write_revocation",
       "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1794646006523,
+      "tag": "0103_fs_cash_transfers_and_post_closing",
+      "breakpoints": true
     }
   ]
 }
