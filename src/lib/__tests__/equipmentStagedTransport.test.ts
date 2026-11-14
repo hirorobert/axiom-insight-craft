@@ -74,14 +74,14 @@ describe("equipment exact-byte staged transport", () => {
       expect(fs.readFileSync(path.join(ROOT,"drizzle/migrations",`${tags[i]}.sql`),"utf8")).toBe(f.text);
       expect(RELEASE_JOURNAL[tags[i]]).toEqual({kind:"equipment_staged_transport",sha256:f.hashes[0]});
     }
-    expect(checkMigrationAuthority(ROOT).pending).toEqual(["20261223100000_first_period_governed_review_standalone.sql", "20261224100000_contra_account_designation.sql", "20261225100000_ready_for_reporting_pilot.sql", "20261226100000_issued_comparative_schedules.sql", "20261227100000_rfr_prior_pack_basis.sql"]); // 2026-11-14: D4-D6 and D12 applied (hosted 103-106), D3 parked; D7-D11 pending
+    expect(checkMigrationAuthority(ROOT).pending).toEqual([]); // 2026-11-14: D4-D6 and D12 applied (hosted 103-106), D3 parked; D7-D10 applied through the rfr staged transport (hosted 108-111) and D11 directly (hosted 112): nothing pending
   });
   it("the canonical authority accepts future real mirrors only with reviewed registrations", () => {
     const dir=fs.mkdtempSync(path.join(os.tmpdir(),"equipment-transport-authority-"));
     const registry=RELEASE_JOURNAL as Record<string,unknown>;const added:string[]=[];
     // This fixture rebuilds the journal as it was before equipment (and so before the IPSAS and source-access installs, hosted 92–99); the IPSAS reviewed
     // entries are hidden for its duration and restored below.
-    const hiddenIpsas=Object.entries(registry).filter(([k])=>/ipsas|source_access/i.test(k) || k === "0101_qbo_readiness_controls");for(const [k] of hiddenIpsas) delete registry[k];
+    const hiddenIpsas=Object.entries(registry).filter(([k])=>/ipsas|source_access|rfr_/i.test(k) || k === "0101_qbo_readiness_controls");for(const [k] of hiddenIpsas) delete registry[k]; // also hides the rfr staged transport entries (hosted 107-111, 2026-11-14), later than this fixture's journal
     try {
       fs.cpSync(path.join(ROOT,"supabase/migrations"),path.join(dir,"supabase/migrations"),{recursive:true});
       fs.cpSync(path.join(ROOT,"drizzle"),path.join(dir,"drizzle"),{recursive:true});
