@@ -16133,6 +16133,14 @@ export type Database = {
         Args: { p_company_id: string; p_period_year: number }
         Returns: string
       }
+      rfr_import_prior_pack: {
+        Args: {
+          p_company_id: string
+          p_period_year: number
+          p_request_id: string
+        }
+        Returns: Json
+      }
       rfr_load_inputs: {
         Args: { p_company_id: string; p_period_year: number }
         Returns: Json
