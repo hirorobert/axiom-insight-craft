@@ -729,6 +729,13 @@
       "when": 1794646006523,
       "tag": "0103_fs_cash_transfers_and_post_closing",
       "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1794646202551,
+      "tag": "0104_statement_compiler_transfers_post_closing",
+      "breakpoints": true
     }
   ]
 }
