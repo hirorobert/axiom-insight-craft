@@ -736,6 +736,13 @@
       "when": 1794646202551,
       "tag": "0104_statement_compiler_transfers_post_closing",
       "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1794648909840,
+      "tag": "0105_statement_compiler_casting_declaration",
+      "breakpoints": true
     }
   ]
 }
