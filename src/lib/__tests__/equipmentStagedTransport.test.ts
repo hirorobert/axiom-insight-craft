@@ -81,7 +81,7 @@ describe("equipment exact-byte staged transport", () => {
     const registry=RELEASE_JOURNAL as Record<string,unknown>;const added:string[]=[];
     // This fixture rebuilds the journal as it was before equipment (and so before the IPSAS and source-access installs, hosted 92–99); the IPSAS reviewed
     // entries are hidden for its duration and restored below.
-    const hiddenIpsas=Object.entries(registry).filter(([k])=>/ipsas|source_access|rfr_/i.test(k) || k === "0101_qbo_readiness_controls"); // + the rfr staged transport entries (hosted 107-111, 2026-11-14), later than this fixture's journalfor(const [k] of hiddenIpsas) delete registry[k];
+    const hiddenIpsas=Object.entries(registry).filter(([k])=>/ipsas|source_access|rfr_/i.test(k) || k === "0101_qbo_readiness_controls");for(const [k] of hiddenIpsas) delete registry[k]; // also hides the rfr staged transport entries (hosted 107-111, 2026-11-14), later than this fixture's journal
     try {
       fs.cpSync(path.join(ROOT,"supabase/migrations"),path.join(dir,"supabase/migrations"),{recursive:true});
       fs.cpSync(path.join(ROOT,"drizzle"),path.join(dir,"drizzle"),{recursive:true});
