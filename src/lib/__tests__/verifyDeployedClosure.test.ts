@@ -19,6 +19,7 @@ const LAYOUT_FILES = [
   "supabase/functions/_shared/paidAction.ts",
   "supabase/functions/_shared/printedReportMetadata.ts",
   "supabase/functions/_shared/processingActor.ts",
+  "supabase/functions/_shared/tallyXmlExport.ts",
   "supabase/functions/_shared/tbIngestion.ts",
   "supabase/functions/_shared/tbInvestigation.ts",
   "supabase/functions/_shared/tbSource.ts",

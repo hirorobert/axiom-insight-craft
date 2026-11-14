@@ -13,7 +13,7 @@ describe("deployment manifests cover the whole function closure", () => {
     const m = functionManifest("trial-balance-layout") as Manifest;
     expect(m.files.map((f) => f.path.replace("supabase/functions/", ""))).toEqual([
       "_shared/auth.ts", "_shared/currencyRegistry.ts", "_shared/hash.ts", "_shared/layoutConfirmationRead.ts", "_shared/layoutProfile.ts",
-      "_shared/namedUserAccess.ts", "_shared/paidAction.ts", "_shared/printedReportMetadata.ts", "_shared/processingActor.ts", "_shared/tbIngestion.ts",
+      "_shared/namedUserAccess.ts", "_shared/paidAction.ts", "_shared/printedReportMetadata.ts", "_shared/processingActor.ts", "_shared/tallyXmlExport.ts", "_shared/tbIngestion.ts",
       "_shared/tbInvestigation.ts", "_shared/tbSource.ts", "_shared/trialBalanceLayout.ts", "_shared/uploadLifecycle.ts", "_shared/uploadPolicy.ts",
       // SheetJS 0.20.3, vendored (vendor/sheetjs/PROVENANCE.md): shipped with the function, not fetched from a remote host.
       "_shared/vendor/sheetjs-0.20.3/xlsx.mjs", "trial-balance-layout/index.ts",

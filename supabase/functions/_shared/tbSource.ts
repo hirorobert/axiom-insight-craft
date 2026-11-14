@@ -8,6 +8,8 @@
  *   · Workbook: every sheet keeps its own spreadsheet row numbers (blank rows included). The trial-balance sheet is
  *     the ONE sheet with a recognisable trial-balance header; several such sheets are refused rather than picking
  *     the largest, and a workbook with none is refused with the missing columns named.
+ *   · XML: only TallyPrime's Trial Balance export (tallyXmlExport.ts), strict UTF-8, under the same byte and table
+ *     limits; any other XML is refused. Row numbers are text lines.
  */
 
 import {
@@ -15,16 +17,21 @@ import {
   type Cell, type IngestIssue, type IngestResult, type SourceRow,
 } from "./tbIngestion.ts";
 import { ingestWithLayout, type LayoutProfile, type ResolvedLayout } from "./layoutProfile.ts";
+import { readTallyTrialBalanceXml } from "./tallyXmlExport.ts";
 import { TB_UPLOAD_POLICY, checkSourceBytes, checkSourceTables } from "./uploadPolicy.ts";
 
-export type SourceFormat = "xlsx" | "csv" | "unknown";
+export type SourceFormat = "xlsx" | "csv" | "xml" | "unknown";
 
 export function detectSourceFormat(fileName: string): SourceFormat {
   const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
   if (["xlsx", "xls", "xlsm"].includes(ext)) return "xlsx";
   if (["csv", "tsv", "txt"].includes(ext)) return "csv";
+  if (ext === "xml") return "xml";
   return "unknown";
 }
+
+// Unchanged wording (pinned by the characterization corpus): the uploader's own file picker names the Tally .xml case.
+const UNSUPPORTED_FORMAT_MESSAGE = "Upload the trial balance as .xlsx, .xls or .csv.";
 
 /** The subset of the SheetJS API this module uses. */
 export interface XlsxLike {
@@ -182,11 +189,21 @@ function unreadable(ctx: ReadContext, sheetName: string | null, issue: IngestIss
 export function readTrialBalanceSource(bytes: Uint8Array, ctx: ReadContext, xlsx: XlsxLike): IngestResult {
   const format = detectSourceFormat(ctx.fileName);
   if (format === "unknown") {
-    return unreadable(ctx, null, { code: "UNSUPPORTED_FORMAT", severity: "blocking", message: "Upload the trial balance as .xlsx, .xls or .csv." });
+    return unreadable(ctx, null, { code: "UNSUPPORTED_FORMAT", severity: "blocking", message: UNSUPPORTED_FORMAT_MESSAGE });
   }
   // The upload policy, before anything parses the bytes.
   const tooBig = checkSourceBytes(bytes, ctx.fileName);
   if (tooBig) return unreadable(ctx, null, tooBig);
+  if (format === "xml") {
+    // Tally's Trial Balance XML export, and nothing else: same encoding rule and table limits as a CSV.
+    const decoded = decodeCsvBytes(bytes, "XML");
+    if (!decoded.ok) return unreadable(ctx, null, decoded.issue);
+    const read = readTallyTrialBalanceXml(decoded.text, SHEET_ROWS);
+    if (!read.ok) return unreadable(ctx, null, read.issue);
+    const tooMany = checkSourceTables([{ rows: read.rows.map((r) => r.cells) }]);
+    if (tooMany) return unreadable(ctx, null, tooMany);
+    return ingestTrialBalance({ rows: read.rows, sheetName: null, periodYear: ctx.periodYear, currency: ctx.currency, workspaceEntityName: ctx.workspaceEntityName, source: "tally_xml" });
+  }
   if (format === "csv") {
     const decoded = decodeCsvBytes(bytes);
     if (!decoded.ok) return unreadable(ctx, null, decoded.issue);
@@ -221,7 +238,9 @@ export type SourceTables = { ok: true; kind: "csv" | "workbook"; sheets: Workboo
 
 export function readSourceTables(bytes: Uint8Array, fileName: string, xlsx: XlsxLike): SourceTables {
   const format = detectSourceFormat(fileName);
-  if (format === "unknown") return { ok: false, issue: { code: "UNSUPPORTED_FORMAT", severity: "blocking", message: "Upload the trial balance as .xlsx, .xls or .csv." } };
+  if (format === "unknown") return { ok: false, issue: { code: "UNSUPPORTED_FORMAT", severity: "blocking", message: UNSUPPORTED_FORMAT_MESSAGE } };
+  // A Tally XML export has no grid to lay out: it is read as it is (readTrialBalanceSource), never under a layout.
+  if (format === "xml") return { ok: false, issue: { code: "UNSUPPORTED_FORMAT", severity: "blocking", message: "A confirmed layout applies to CSV and workbook files. A Tally XML export is read as it is and takes no layout." } };
   // The upload policy, before anything parses the bytes, and on the read tables before anything uses them.
   const tooBig = checkSourceBytes(bytes, fileName);
   if (tooBig) return { ok: false, issue: tooBig };
