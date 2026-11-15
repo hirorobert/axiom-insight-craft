@@ -109,12 +109,16 @@ export async function applyChain(db) {
   return null;
 }
 export const chainFiles = () => currentChain(REPO);
-/** Applies the chain BEFORE `file` (main's schema before a release). Returns null on success, or the first failure. */
-export async function applyChainBefore(db, file) {
+/** Applies the chain BEFORE `file` (main's schema before a release). Returns null on success, or the first failure.
+ *  `skip`: source files the HOSTED journal did not run (a submission that failed atomically and was parked by owner decision, e.g.
+ *  20261215100000 on 2026-11-14); a proof that must reproduce the hosted state names them explicitly, never silently. */
+export async function applyChainBefore(db, file, { skip = [] } = {}) {
   const chain = currentChain(REPO);
   const stop = chain.indexOf(file);
   if (stop < 0) return `${file} is not in the chain`;
+  for (const s of skip) if (!chain.includes(s)) return `${s} (skip) is not in the chain`;
   for (const f of chain.slice(0, stop)) {
+    if (skip.includes(f)) continue;
     let t = migrationSql(REPO, f);
     if (f === PG_CRON_FILE) t = t.split("\n").slice(0, t.split("\n").findIndex((l) => l.includes("CREATE EXTENSION IF NOT EXISTS pg_cron"))).join("\n");
     try { await db.admin.query(t); } catch (e) { return `${f}: ${String(e.message).split("\n")[0]}`; }

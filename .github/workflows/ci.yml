@@ -629,6 +629,21 @@ jobs:
           cat proof-results/sourceAccessTransport.present.log
           node scripts/ci/validateProofResult.mjs proof-results/sourceAccessTransport.present.json --manifest scripts/db-proof/sourceAccessTransport.manifest.mjs --mode present --exit-code "$code"
 
+      - name: Ready-for-Reporting staged transport (exact-byte carriage of 20261223100000-20261226100000 on the actual hosted order - refusals, atomicity, exactly-once, equals a direct run, D11 after)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/rfr_transport_proof
+          PROOF_RESULT_FILE: proof-results/rfrTransport.present.json
+        run: |
+          createdb rfr_transport_proof
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/rfrTransport.mjs > proof-results/rfrTransport.present.log 2>&1
+          code=$?
+          set -e
+          cat proof-results/rfrTransport.present.log
+          node scripts/ci/validateProofResult.mjs proof-results/rfrTransport.present.json --manifest scripts/db-proof/rfrTransport.manifest.mjs --mode present --exit-code "$code"
+
       - name: IPSAS mutation authority ordering (deterministic multi-session proof on the full chain - with the protected lock held a request waits, its authority is revoked / membership withdrawn / rollout closed / framework changed and committed, then the lock is released and the mutation is refused with no row written for all four save and confirm functions and an idempotent replay; revocation and an in-flight mutation are serialised by one lock; plan changes wait for in-flight mutations; contention terminates without deadlock; stricter isolation fails closed; disposable database only)
         env:
           DB_PROOF_MODE: external
