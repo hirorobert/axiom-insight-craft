@@ -417,6 +417,16 @@ export const RELEASE_JOURNAL = {
   // one final LF (its journal hash is the reviewed text plus that LF, which the strict mirror check accepts); hosted 99 is byte-exact.
   "0097_source_access_staged_transport": { kind: "source_access_staged_transport", sha256: "9d95500fbcf35c6dc7c1c15238afc06e81ec847816b7ede703e3f40c54f6e415" },
   "0098_source_access_1_staged_apply": { kind: "source_access_staged_transport", sha256: "d31be75cbcd95962dda56aaea235521668780a8b7cd5a24643bf640c21f4f287" },
+  // Consolidated release, 2026-11-14 (docs/release/consolidated-20261112/TRANSPORT.md): the Ready-for-Reporting staged transport. The
+  // bootstrap went in as hosted id 107 (journal hash = the generated text plus the migrator's final LF, 10385cc6…) and the four applies as
+  // hosted ids 108–111, each journal hash = the generated text exactly, carrying 20261223100000–20261226100000 byte for byte AFTER D12
+  // (hosted 106, out of source order by owner decision); D11 (20261227100000) followed as the plain mirror 0111 (hosted 112). Each SHA-256
+  // below is scripts/release/rfrStagedTransport.mjs REGISTERED_TRANSPORT_FORMS (the generated text without the final LF).
+  "0106_rfr_staged_transport": { kind: "rfr_staged_transport", sha256: "bcf562d1a5d3ac13fb32967f96d3d463e827bbf1911abff5e69e548b28a4f3cf" },
+  "0107_rfr_1_staged_apply": { kind: "rfr_staged_transport", sha256: "a2a4cca5bc06a333aa9265d9ad2f24efc36952c6165c8273600c8577a22d82b7" },
+  "0108_rfr_2_staged_apply": { kind: "rfr_staged_transport", sha256: "8b8ba1fad2787d0cca6a138905f51a286e45b16e7f66fb04ced2d032ebd28d7a" },
+  "0109_rfr_3_staged_apply": { kind: "rfr_staged_transport", sha256: "7d7b3629bba1eaeed7375cd59b213cbdbb56f5788fff64896fd104b1b9e1c2a5" },
+  "0110_rfr_4_staged_apply": { kind: "rfr_staged_transport", sha256: "a3b04e91bdfeaffe01efa506f02eb687d13148ff70b8f9278924d4116923290d" },
 };
 
 /**
