@@ -21,8 +21,9 @@ export interface ArchivedPolicies {
 export const LEGAL_ARCHIVE: Readonly<Record<string, ArchivedPolicies>> = Object.freeze({
   "2026-11-13.c6ad0a9491d5": Object.freeze({ terms: terms_2026_11_13_c6ad0a9491d5.trimEnd(), privacy: privacy_2026_11_13_c6ad0a9491d5.trimEnd(), refunds: refunds_2026_11_13_c6ad0a9491d5.trimEnd(), status: "draft" }),
   "2026-11-13.e9570ed37c46": Object.freeze({ terms: terms_2026_11_13_e9570ed37c46.trimEnd(), privacy: privacy_2026_11_13_e9570ed37c46.trimEnd(), refunds: refunds_2026_11_13_e9570ed37c46.trimEnd(), status: "draft" }),
-  // 2026-11-16: the owner's official business telephone added to Terms section 1 (the only text change); draft until the owner's final contractual approval.
-  "2026-11-16.8c10d10a9deb": Object.freeze({ terms: terms_2026_11_16_8c10d10a9deb.trimEnd(), privacy: privacy_2026_11_16_8c10d10a9deb.trimEnd(), refunds: refunds_2026_11_16_8c10d10a9deb.trimEnd(), status: "draft" }),
+  // 2026-11-16: the owner's official business telephone added to Terms section 1 (the only text change). PUBLISHED by the owner's final
+  // contractual approval of exactly this version on 2026-11-16 ("Approve wording"); the two 2026-11-13 drafts stay archived, never served.
+  "2026-11-16.8c10d10a9deb": Object.freeze({ terms: terms_2026_11_16_8c10d10a9deb.trimEnd(), privacy: privacy_2026_11_16_8c10d10a9deb.trimEnd(), refunds: refunds_2026_11_16_8c10d10a9deb.trimEnd(), status: "published" }),
 });
 
 export const archivedVersions = (): readonly string[] => Object.keys(LEGAL_ARCHIVE).sort();

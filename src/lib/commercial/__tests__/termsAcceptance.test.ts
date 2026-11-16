@@ -192,11 +192,12 @@ describe("ARCHIVE · every published version is kept as rendered text and served
     expect(text(h)).toContain(`Read the current version (${TERMS_VERSION})`);
     expect(h).not.toContain("terms-archived-text");
   });
-  it("a DRAFT version is archived for its hash but never served by link: an old draft answers as unknown; only published versions are reachable", () => {
+  it("the current version is PUBLISHED (owner's final contractual approval, 2026-11-16) and is the only published one; the two 2026-11-13 drafts stay archived for their hashes and never served", () => {
     expect(Object.keys(LEGAL_ARCHIVE).every((v) => /^\d{4}-\d{2}-\d{2}\.[0-9a-f]{12}$/.test(v))).toBe(true);
-    expect(LEGAL_ARCHIVE[TERMS_VERSION].status).toBe("draft"); // flipped to "published" by the owner's publication, never before
-    expect(publishedVersions()).not.toContain(TERMS_VERSION);
-    // The current text is reachable only as the live page (it IS the current text); nothing pre-approval is served as "a published version".
+    expect(LEGAL_ARCHIVE[TERMS_VERSION].status).toBe("published"); // flipped by the owner's approval of exactly 2026-11-16.8c10d10a9deb, never before
+    expect(publishedVersions()).toEqual([TERMS_VERSION]);
+    for (const v of ["2026-11-13.c6ad0a9491d5", "2026-11-13.e9570ed37c46"]) { expect(LEGAL_ARCHIVE[v].status).toBe("draft"); expect(renderToStaticMarkup(createElement(MemoryRouter, { initialEntries: [`/terms?v=${v}`] }, createElement(Terms)))).toContain('data-testid="terms-version-unknown"'); }
+    // The current text renders as the live page at ?v=<current> (it IS the current text) rather than as an archived copy.
     const h = renderToStaticMarkup(createElement(MemoryRouter, { initialEntries: [`/privacy?v=${TERMS_VERSION}`] }, createElement(Privacy)));
     expect(text(h)).toContain(`Version ${TERMS_VERSION}`);
     expect(h).not.toContain("privacy-archived-text");
@@ -252,15 +253,16 @@ describe("UPDATE 4 · the settled commercial text is rendered from one identity 
     expect(privacy).toMatch(/Backups held by our hosting provider expire on its backup schedule/);
     expect(privacy).not.toMatch(/within \d+ (days|months)|\d+ (years|months) after/);
   });
-  it("S6/S8 + Updates 5/6 · box 1 final; box 2 is the conservative A3 candidate, still DRAFT, stating no loss of any statutory right; A1/A2 rendered verbatim, archive still draft", () => {
+  it("S6/S8 + Updates 5/6 · box 1 final; box 2 (the conservative A3 wording, stating no loss of any statutory right) APPROVED and published 2026-11-16; A1/A2 rendered verbatim; archive published", () => {
     expect(TERMS_ACCEPTANCE.label).toContain(TERMS_VERSION);
     expect(TERMS_ACCEPTANCE.consentLabel).toBe("I ask for my plan to start as soon as Polar confirms my payment.");
     expect(read("src/lib/commercial/purchaseTerms.ts")).not.toMatch(/does not apply/);
-    expect(read("src/lib/commercial/purchaseTerms.ts")).toMatch(/DRAFT until the owner approves A3/);
+    expect(read("src/lib/commercial/purchaseTerms.ts")).toMatch(/Approved by the owner on 2026-11-16/);
+    expect(read("src/lib/commercial/purchaseTerms.ts")).not.toMatch(/DRAFT until/);
     // A1 and A2 approved in principle by the owner (2026-11-14): rendered verbatim (dossier 28.2); publication waits for final contractual approval.
     expect(terms).toContain("9. Limitation of liability To the extent the law allows, our total liability to you for any claim arising from the service in any 12-month period is limited to the amount you paid for your plan for that period. We are not liable for indirect or consequential loss, or for decisions you make using information from the service; you remain responsible for your professional judgement and for what you sign. Nothing in these Terms limits liability that cannot be limited by law.");
     expect(terms).toContain("10. Governing law and disputes These Terms are governed by the laws of the United Republic of Tanzania, and the courts of Tanzania have jurisdiction over disputes about the service. This does not affect your rights under mandatory consumer law, or the Polar Checkout Buyer Terms that govern your purchase contract with Polar.");
     expect(terms).not.toMatch(/Delaware|arbitration/);
-    expect(LEGAL_ARCHIVE[TERMS_VERSION].status).toBe("draft");
+    expect(LEGAL_ARCHIVE[TERMS_VERSION].status).toBe("published");
   });
 });

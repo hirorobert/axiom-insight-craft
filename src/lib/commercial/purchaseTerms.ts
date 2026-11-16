@@ -4,8 +4,8 @@
  *
  * APPROVAL STATUS: commercial package section 10.5 (COMMERCIAL_LEGAL_REVIEW_PACKAGE_2026-11-12.md) inserted verbatim on the owner's
  * directive of 2026-11-13 (handoff "Update 4", S4), plus the two sentences of handoff "Update 5" (the seven-day full refund after the
- * first sentence; the thirty-day refund timing before the last) - that addition (A3) is implemented behind the draft flag and is
- * approved together with A1/A2 by the owner before publication. One rule ends the plan (a refund of the unused term); any other refund
+ * first sentence; the thirty-day refund timing before the last) - that addition (A3) was approved together with A1/A2 by the owner's
+ * final contractual approval of version 2026-11-16.8c10d10a9deb on 2026-11-16 ("Approve wording"). One rule ends the plan (a refund of the unused term); any other refund
  * keeps it unless we say so - the earlier contradiction is removed.
  *
  * Every sentence matches what the system does today (docs/release/REFUNDS_DISPUTES_AND_RECOVERY.md):
@@ -54,12 +54,13 @@ export const TERMS_VERSION = "2026-11-16.8c10d10a9deb";
  * The two acknowledgements required before "Continue to payment" (commercial package 12.7). Box 1 is the Terms acceptance (final,
  * handoff Update 4 S6); box 2 is the customer's request for the plan to start as soon as the payment is confirmed (ETA s.30(5)(d)).
  * APPROVAL STATUS of box 2's WORDING: the conservative candidate of handoff Update 5 (A3) - it states no consequence for any statutory
- * right - DRAFT until the owner approves A1-A3 together; the flag it records is technically determinate. Neither is legal text of its
+ * right - APPROVED by the owner on 2026-11-16 together with A1/A2 (final contractual approval of version 2026-11-16.8c10d10a9deb); the flag it
+ * records is technically determinate. Neither is legal text of its
  * own: the Terms are linked.
  */
 export const TERMS_ACCEPTANCE = {
   label: `I accept the CFOClose Terms of Service (version ${TERMS_VERSION}) and Privacy Policy, including the refund terms above.`,
-  /** DRAFT until the owner approves A3 (handoff Update 5; package 12.7, C6). */
+  /** Approved by the owner on 2026-11-16 (A3 with A1/A2; handoff Update 5; package 12.7, C6): published wording. */
   consentLabel: "I ask for my plan to start as soon as Polar confirms my payment.",
   /** Shown when the server answers TERMS_VERSION_NOT_CURRENT or TERMS_VERSION_REQUIRED. */
   outdated: "The Terms of Service were updated after this page was opened. Reload the page to review and accept the current version; nothing was charged.",
