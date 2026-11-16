@@ -3,8 +3,8 @@
  * (commercial handoff "Update 4", S1 and S2). ONE source: Terms section 1, the footer, the checkout notice and the Privacy
  * controller line all read from here. No corporate suffix or structure is added. Pure: no I/O, no React.
  *
- * The telephone is the only field without a value. Its line is rendered only once a value exists - never as an empty or
- * placeholder value (S1).
+ * The telephone line is rendered only while a value exists - never as an empty or placeholder value (S1); the owner supplied
+ * the official business number on 2026-11-16.
  */
 import { channel } from "@/lib/contact/contactChannels";
 
@@ -15,8 +15,8 @@ export const BUSINESS_IDENTITY = {
   businessName: "SAFF ERP",
   registrationNumber: "705538",
   address: "Kati, Pangani, Tanzania",
-  /** null until the owner supplies a value; see telephoneLine(). */
-  telephone: null as string | null,
+  /** The official business telephone number, supplied by the owner on 2026-11-16 (international format); see telephoneLine(). */
+  telephone: "+44 20 4577 2480" as string | null,
   /** Terms section 1, first sentences. */
   termsIdentity:
     'CFOClose is provided by CFOCLOSE, the registered proprietor of the business name SAFF ERP, registered in the United Republic of Tanzania under the Business Names Act (Cap. 213), registration number 705538 ("we", "us"). Place of business and address: Kati, Pangani, Tanzania.',

@@ -8,6 +8,9 @@ import refunds_2026_11_13_c6ad0a9491d5 from "../../../docs/legal/refunds/2026-11
 import terms_2026_11_13_e9570ed37c46 from "../../../docs/legal/terms/2026-11-13.e9570ed37c46.md?raw";
 import privacy_2026_11_13_e9570ed37c46 from "../../../docs/legal/privacy/2026-11-13.e9570ed37c46.md?raw";
 import refunds_2026_11_13_e9570ed37c46 from "../../../docs/legal/refunds/2026-11-13.e9570ed37c46.md?raw";
+import terms_2026_11_16_8c10d10a9deb from "../../../docs/legal/terms/2026-11-16.8c10d10a9deb.md?raw";
+import privacy_2026_11_16_8c10d10a9deb from "../../../docs/legal/privacy/2026-11-16.8c10d10a9deb.md?raw";
+import refunds_2026_11_16_8c10d10a9deb from "../../../docs/legal/refunds/2026-11-16.8c10d10a9deb.md?raw";
 
 export interface ArchivedPolicies {
   readonly terms: string; readonly privacy: string; readonly refunds: string;
@@ -18,6 +21,8 @@ export interface ArchivedPolicies {
 export const LEGAL_ARCHIVE: Readonly<Record<string, ArchivedPolicies>> = Object.freeze({
   "2026-11-13.c6ad0a9491d5": Object.freeze({ terms: terms_2026_11_13_c6ad0a9491d5.trimEnd(), privacy: privacy_2026_11_13_c6ad0a9491d5.trimEnd(), refunds: refunds_2026_11_13_c6ad0a9491d5.trimEnd(), status: "draft" }),
   "2026-11-13.e9570ed37c46": Object.freeze({ terms: terms_2026_11_13_e9570ed37c46.trimEnd(), privacy: privacy_2026_11_13_e9570ed37c46.trimEnd(), refunds: refunds_2026_11_13_e9570ed37c46.trimEnd(), status: "draft" }),
+  // 2026-11-16: the owner's official business telephone added to Terms section 1 (the only text change); draft until the owner's final contractual approval.
+  "2026-11-16.8c10d10a9deb": Object.freeze({ terms: terms_2026_11_16_8c10d10a9deb.trimEnd(), privacy: privacy_2026_11_16_8c10d10a9deb.trimEnd(), refunds: refunds_2026_11_16_8c10d10a9deb.trimEnd(), status: "draft" }),
 });
 
 export const archivedVersions = (): readonly string[] => Object.keys(LEGAL_ARCHIVE).sort();

@@ -212,10 +212,13 @@ describe("UPDATE 4 · the settled commercial text is rendered from one identity 
     expect(BUSINESS_IDENTITY.termsIdentity).not.toMatch(/\b(Ltd|Limited|Inc\.?|LLC|Plc|Company)\b/);
     expect(terms).not.toMatch(/\{BUSINESS_TELEPHONE\}|\[COUNSEL|\[OWNER|TODO|placeholder/i);
   });
-  it("S1 · the telephone line is rendered only once a value exists: null renders nothing, never an empty label", () => {
-    expect(BUSINESS_IDENTITY.telephone).toBeNull();
-    expect(telephoneLine()).toBeNull();
-    expect(terms).not.toContain("Telephone");
+  it("S1 · the telephone line renders the owner's official number (supplied 2026-11-16) exactly once, in Terms section 1 only; never an empty label", () => {
+    expect(BUSINESS_IDENTITY.telephone).toBe("+44 20 4577 2480");
+    expect(telephoneLine()).toBe("Telephone: +44 20 4577 2480.");
+    expect(terms.split("Telephone: +44 20 4577 2480.").length - 1).toBe(1);
+    expect(terms).toContain(BUSINESS_IDENTITY.termsIdentity + " Telephone: +44 20 4577 2480. E-mail: support@cfoclose.com");
+    expect(privacy).not.toContain("Telephone");
+    expect(text(html(Footer))).not.toContain("Telephone");
   });
   it("S1 · the footer carries the identity line exactly once, from the same source", () => {
     const f = text(html(Footer));
