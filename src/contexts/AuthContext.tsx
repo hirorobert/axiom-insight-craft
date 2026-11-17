@@ -1,7 +1,11 @@
-import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
+import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef } from "react";
 import { User, Session } from "@supabase/supabase-js";
+import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuthAudit } from "@/hooks/useAuthAudit";
+import { clearSensitiveClientState, decideAuthTransition, installBfcacheGuard } from "@/lib/security/sensitiveDataControls";
+
+const sessionStore = () => { try { return typeof window === "undefined" ? null : window.sessionStorage; } catch { return null; } };
 
 interface AuthContextType {
   user: User | null;
@@ -43,10 +47,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return isVerified;
   }, [session]);
 
+  // D3 compensating controls: the user the page's data belongs to, and what to do when that changes.
+  const queryClient = useQueryClient();
+  const heldUserId = useRef<string | null>(null);
+  const applyTransition = useCallback((event: string, nextUserId: string | null) => {
+    const action = decideAuthTransition(heldUserId.current, event, nextUserId);
+    if (action === "reload") {
+      // Another account is now signed in (for example from another tab): nothing of the previous user's may stay rendered.
+      clearSensitiveClientState({ queryClient, keyStore: sessionStore() });
+      window.location.reload();
+      return;
+    }
+    if (action === "clear") clearSensitiveClientState({ queryClient, keyStore: sessionStore() });
+    heldUserId.current = nextUserId;
+  }, [queryClient]);
+
   useEffect(() => {
     // Set up auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, newSession) => {
+        applyTransition(event, newSession?.user?.id ?? null);
         setSession(newSession);
         setUser(newSession?.user ?? null);
         setEmailVerified(!!newSession?.user?.email_confirmed_at);
@@ -56,14 +76,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // THEN check for existing session
     supabase.auth.getSession().then(({ data: { session: existingSession } }) => {
+      applyTransition("INITIAL_SESSION", existingSession?.user?.id ?? null);
       setSession(existingSession);
       setUser(existingSession?.user ?? null);
       setEmailVerified(!!existingSession?.user?.email_confirmed_at);
       setLoading(false);
     });
 
-    return () => subscription.unsubscribe();
-  }, []);
+    // A page restored with Back/Forward after the user changed (signed out, or another account) is reloaded, not re-shown.
+    const removeGuard = typeof window === "undefined" ? () => {} : installBfcacheGuard(
+      window,
+      () => heldUserId.current,
+      async () => (await supabase.auth.getSession()).data.session?.user?.id ?? null,
+      () => window.location.reload(),
+    );
+
+    return () => { subscription.unsubscribe(); removeGuard(); };
+  }, [applyTransition]);
 
   const signUp = async (email: string, password: string, displayName?: string, serviceIntent?: { service: string; plan: string | null } | null) => {
     // The confirmation link always returns to the site root (the redirect production already accepts); the chosen
@@ -94,6 +123,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = async () => {
     await supabase.auth.signOut();
+    // The SIGNED_OUT event clears too; clearing here as well covers a sign-out whose event is not delivered (network failure).
+    clearSensitiveClientState({ queryClient, keyStore: sessionStore() });
+    heldUserId.current = null;
   };
 
   return (
