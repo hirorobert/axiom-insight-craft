@@ -427,6 +427,15 @@ export const RELEASE_JOURNAL = {
   "0108_rfr_2_staged_apply": { kind: "rfr_staged_transport", sha256: "8b8ba1fad2787d0cca6a138905f51a286e45b16e7f66fb04ced2d032ebd28d7a" },
   "0109_rfr_3_staged_apply": { kind: "rfr_staged_transport", sha256: "7d7b3629bba1eaeed7375cd59b213cbdbb56f5788fff64896fd104b1b9e1c2a5" },
   "0110_rfr_4_staged_apply": { kind: "rfr_staged_transport", sha256: "a3b04e91bdfeaffe01efa506f02eb687d13148ff70b8f9278924d4116923290d" },
+  // PR #266 checkout terms acceptance (merged in main ff417a2), applied 2026-11-17 by Lovable's native migrator as hosted
+  // id 113 (mirror commits 0493466/7797385) in its pre-registered final-LF-removed form (SUBMISSION_FORMS, registered in
+  // PR #266 before application); journal hash read independently in the hosted SQL editor = a8be47af…, the file minus its
+  // single final LF byte.
+  "0112_checkout_terms_acceptance": { kind: "release_verbatim_final_lf_removed",
+    source: "20261229100000_checkout_terms_acceptance.sql", bytes: 11995,
+    digest: "f541d4d18bac1c4103e57e3e2dc5c36b47ba411793f8555cacfdbb96e693b027",
+    submittedBytes: 11994,
+    sha256: "a8be47afa5d8b28363b66ee1f932dff84e7038ac1f063549f4b10d2d7d203256" },
 };
 
 /**
