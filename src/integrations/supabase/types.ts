@@ -13515,12 +13515,14 @@ export type Database = {
           p_created_by_user_id: string
           p_currency_code: string
           p_currency_exponent: number
+          p_immediate_service_consent?: boolean
           p_market_code: string
           p_plan_id: string
           p_product_id: string
           p_provider: string
           p_provider_environment: string
           p_saff_reference: string
+          p_terms_version?: string
         }
         Returns: Json
       }
