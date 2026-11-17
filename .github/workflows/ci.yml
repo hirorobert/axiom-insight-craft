@@ -398,7 +398,8 @@ jobs:
       - name: Setup the Supabase CLI
         uses: supabase/setup-cli@v1
         with:
-          version: latest
+          # Pinned release avoids the rate-limited latest-version discovery endpoint.
+          version: 2.67.1
 
       - name: Start the local Supabase stack (Docker on loopback; the CLI applies supabase/migrations to a throwaway database)
         id: stack_start
