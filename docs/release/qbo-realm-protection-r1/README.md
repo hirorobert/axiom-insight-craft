@@ -51,8 +51,9 @@ Lovable Cloud does not disclose the service-role credential to anyone (Supabase:
 Cloud–managed projects"), and Lovable's own direct function calls use the signed-in user's session. So `qbo-realm-protect` does not ask for
 that credential. It admits **only a signed-in, active platform owner**:
 
-* the gateway requires a valid session (`verify_jwt = true`), and the function re-verifies it with the auth server
-  (`_shared/auth.ts` `validateAuth`); a token with no user (the service-role or anon key), an expired or forged session, or no session is
+* the gateway requires a valid session (`verify_jwt = true`), and the function checks it again (`_shared/auth.ts` `validateAuth`:
+  signature, expiry and a user subject; with asymmetric signing keys this is a local check, so a signed-out session stays usable until it
+  expires, about an hour); a token with no user (the service-role or anon key), an expired or forged session, or no session is
   refused `401` before the database is asked;
 * the database decides authority with its own `public.is_platform_owner(user)` (an active `commercial_admins` row at the `platform_owner`
   tier, hosted since 20261104100000); a workspace owner, member, commercial-tier administrator or inactive owner is refused `403`; an
@@ -80,7 +81,8 @@ actor's user id, the outcome and the counts; never a realm, envelope, index, key
 5. Run the backfill as the platform owner (see "Who may run the backfill"): sign in, open `/internal/tester/quickbooks`, press
    **Encrypt stored company IDs**, then **Check encryption**. Both show counts only. Done only when the check reads "Check complete" with
    every connection and every disconnect record checked (the function's `200 complete`). Anything else: run it again; if the count of
-   records needing attention does not fall, stop.
+   records needing attention does not fall, stop. If the very first press says the session expired although you are signed in, the old
+   `qbo-realm-protect` is still deployed (a merge does not redeploy functions): deploy it, then press again. Nothing was changed.
 
 Rollback of PR 1: stop at any step; the plaintext is intact. To remove the schema, drop the functions, guards' added rule, index,
 constraints and columns of Phase A (they hold only derived data).
