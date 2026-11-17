@@ -54,11 +54,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const action = decideAuthTransition(heldUserId.current, event, nextUserId);
     if (action === "reload") {
       // Another account is now signed in (for example from another tab): nothing of the previous user's may stay rendered.
-      clearSensitiveClientState({ queryClient, storage: sessionStore() });
+      clearSensitiveClientState({ queryClient, keyStore: sessionStore() });
       window.location.reload();
       return;
     }
-    if (action === "clear") clearSensitiveClientState({ queryClient, storage: sessionStore() });
+    if (action === "clear") clearSensitiveClientState({ queryClient, keyStore: sessionStore() });
     heldUserId.current = nextUserId;
   }, [queryClient]);
 
@@ -124,7 +124,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = async () => {
     await supabase.auth.signOut();
     // The SIGNED_OUT event clears too; clearing here as well covers a sign-out whose event is not delivered (network failure).
-    clearSensitiveClientState({ queryClient, storage: sessionStore() });
+    clearSensitiveClientState({ queryClient, keyStore: sessionStore() });
     heldUserId.current = null;
   };
 

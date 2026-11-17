@@ -124,7 +124,7 @@ describe("auth transitions", () => {
     sessionStorage.setItem("cfoclose:enquiry-receipt:v1:contact", "{}");
     sessionStorage.setItem("cfoclose:enquiry-attempt:v1:contact", "{}");
     sessionStorage.setItem("other-library", "x");
-    clearSensitiveClientState({ queryClient: qc, storage: sessionStorage });
+    clearSensitiveClientState({ queryClient: qc, keyStore: sessionStorage });
     expect(qc.getQueryData(["statements", "company-a", 2025])).toBeUndefined();
     expect(Object.keys(sessionStorage).sort()).toEqual([
       "cfoclose:enquiry-attempt:v1:contact", "cfoclose:enquiry-receipt:v1:contact", "cfoclose:selected-outcome:v1", "cfoclose:service-intent:v1", "other-library",
@@ -134,7 +134,7 @@ describe("auth transitions", () => {
 
   it("never throws when storage is unavailable", () => {
     const broken = { get length(): number { throw new Error("blocked"); }, key: () => null, removeItem: () => {} };
-    expect(() => clearSensitiveClientState({ queryClient: null, storage: broken })).not.toThrow();
+    expect(() => clearSensitiveClientState({ queryClient: null, keyStore: broken })).not.toThrow();
   });
 });
 

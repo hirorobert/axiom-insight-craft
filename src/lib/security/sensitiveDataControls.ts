@@ -86,11 +86,11 @@ export const isSensitiveSessionKey = (key: string): boolean => APP_KEY.test(key)
 /** Clears client-held copies of signed-in data: the whole query cache, and the user-scoped application keys of sessionStorage. */
 export function clearSensitiveClientState(deps: {
   queryClient?: { clear: () => void } | null;
-  storage?: Pick<Storage, "length" | "key" | "removeItem"> | null;
+  keyStore?: Pick<Storage, "length" | "key" | "removeItem"> | null;
 }): void {
   try { deps.queryClient?.clear(); } catch { /* nothing cached */ }
   try {
-    const s = deps.storage;
+    const s = deps.keyStore;
     if (!s) return;
     const keys: string[] = [];
     for (let i = 0; i < s.length; i++) { const k = s.key(i); if (k !== null && isSensitiveSessionKey(k)) keys.push(k); }
