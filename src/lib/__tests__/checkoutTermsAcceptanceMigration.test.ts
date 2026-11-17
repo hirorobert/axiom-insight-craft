@@ -1,8 +1,9 @@
 /**
- * PR #266 (commercial accuracy and refunds) carries ONE migration, 20261229100000_checkout_terms_acceptance.sql, which is authored
- * and NOT applied: the hosted journal stays at 112 (the consolidated release, 2026-11-15) until the commercial migration is separately
- * authorized and applied. These tests pin its approved submission identity and prove the guard tells an AUTHORIZED PENDING migration
- * (registered forms, exact bytes, reported pending, never mirrored by normalised parity) apart from an UNKNOWN or UNREGISTERED one.
+ * PR #266 (commercial accuracy and refunds) carries ONE migration, 20261229100000_checkout_terms_acceptance.sql. It was applied on
+ * 2026-11-17 by Lovable's native migrator as hosted journal id 113 in its pre-registered FINAL-LF-REMOVED form (11,994 B,
+ * a8be47af…), mirrored as drizzle 0112_checkout_terms_acceptance and accepted through exactly one reviewed RELEASE_JOURNAL entry.
+ * These tests pin that identity and prove the guard still refuses a mirror whose bytes differ from a registered form, and still
+ * tells an UNKNOWN or UNREGISTERED source apart from the registered one.
  */
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -14,11 +15,13 @@ import { checkMigrationAuthority } from "../../../scripts/ci/assertMigrationAuth
 // @ts-expect-error — plain ESM script without type declarations
 import { RELEASE_JOURNAL, SUBMISSION_FORMS, submittedForm } from "../../../scripts/ci/releaseJournal.mjs";
 
-type Result = { ok: boolean; errors: string[]; pending: string[]; mirrored: { tag: string; source: string }[] };
+type Result = { ok: boolean; errors: string[]; pending: string[]; mirrored: { tag: string; source: string; how?: string }[] };
 const ROOT = path.join(__dirname, "../../..");
 const NAME = "20261229100000_checkout_terms_acceptance.sql";
+const TAG = "0112_checkout_terms_acceptance";
 const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 const src = () => fs.readFileSync(path.join(ROOT, "supabase/migrations", NAME));
+const mirror = () => fs.readFileSync(path.join(ROOT, "drizzle/migrations", `${TAG}.sql`));
 
 function copyRepo(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "checkout-terms-migration-"));
@@ -35,18 +38,9 @@ const run = (mutate: (dir: string) => void): Result => {
   const dir = copyRepo();
   try { mutate(dir); return checkMigrationAuthority(dir) as Result; } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 };
-const addMirror = (dir: string, tag: string, body: Buffer) => {
-  const jp = path.join(dir, "drizzle/migrations/meta/_journal.json");
-  const j = JSON.parse(fs.readFileSync(jp, "utf8")) as { entries: { idx: number; when: number }[] };
-  const idx = j.entries.length;
-  fs.writeFileSync(path.join(dir, "drizzle/migrations", `${tag}.sql`), body);
-  fs.writeFileSync(path.join(dir, "drizzle/migrations/meta", `${String(idx).padStart(4, "0")}_snapshot.json`), "{}");
-  j.entries.push({ ...j.entries[idx - 1], idx, when: j.entries[idx - 1].when + 1000, tag } as never);
-  fs.writeFileSync(jp, JSON.stringify(j));
-};
 
-describe("checkout terms acceptance migration (PR #266): authorized, pending, not applied", () => {
-  it("registers exactly the committed bytes as its two submission forms (LF blob; no wrapper), and nothing of it is a reviewed release entry", () => {
+describe("checkout terms acceptance migration (PR #266): applied as hosted 113 through one reviewed entry", () => {
+  it("the source, its two registered forms, the mirror and the reviewed entry agree byte for byte", () => {
     const s = src();
     expect(s[s.length - 1]).toBe(0x0a);
     expect(s.includes("\r\n")).toBe(false);
@@ -55,37 +49,40 @@ describe("checkout terms acceptance migration (PR #266): authorized, pending, no
       finalLfRemoved: { bytes: s.length - 1, sha256: sha(s.subarray(0, s.length - 1)) },
     });
     expect(SUBMISSION_FORMS[NAME].identical).toEqual({ bytes: 11995, sha256: "f541d4d18bac1c4103e57e3e2dc5c36b47ba411793f8555cacfdbb96e693b027" });
-    expect(submittedForm(NAME, s, s)).toBe("identical");
-    expect(submittedForm(NAME, s, s.subarray(0, s.length - 1))).toBe("final_lf_removed");
-    expect(submittedForm(NAME, s, Buffer.concat([s, Buffer.from("\n")]))).toBeNull();
-    expect(Object.keys(RELEASE_JOURNAL).filter((k) => /checkout_terms/.test(k))).toEqual([]); // no applied mirror, no receipt — nothing is fabricated
+    const m = mirror();
+    expect([m.length, sha(m)]).toEqual([11994, "a8be47afa5d8b28363b66ee1f932dff84e7038ac1f063549f4b10d2d7d203256"]); // = the hosted journal hash of id 113
+    expect(submittedForm(NAME, s, m)).toBe("final_lf_removed");
+    expect(Object.keys(RELEASE_JOURNAL).filter((k) => /checkout_terms/.test(k))).toEqual([TAG]);
+    expect(RELEASE_JOURNAL[TAG]).toEqual({
+      kind: "release_verbatim_final_lf_removed", source: NAME, bytes: 11995,
+      digest: "f541d4d18bac1c4103e57e3e2dc5c36b47ba411793f8555cacfdbb96e693b027",
+      submittedBytes: 11994, sha256: "a8be47afa5d8b28363b66ee1f932dff84e7038ac1f063549f4b10d2d7d203256",
+    });
   });
 
-  it("the repository reports it as the ONLY pending migration: the hosted journal (112) is complete and unchanged, no error", () => {
+  it("the repository is in parity with nothing pending: 0112 mirrors the source through its reviewed entry", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual([NAME]);
-    expect(r.mirrored.some((m) => m.source === NAME)).toBe(false);
+    expect(r.pending).toEqual([]);
+    expect(r.mirrored.find((x) => x.tag === TAG)).toMatchObject({ source: NAME, how: "release_verbatim_final_lf_removed" });
   }, 120_000);
 
-  it("a Lovable mirror of the registered migration WITHOUT a reviewed release entry is refused (rule 9), byte for byte or final-LF-removed", () => {
-    const s = src();
-    for (const [tag, body] of [["0112_checkout_terms_acceptance", s], ["0112_checkout_terms_acceptance", s.subarray(0, s.length - 1)]] as const) {
-      const r = run((d) => addMirror(d, tag, body));
-      expect(r.errors.join("\n")).toMatch(/0112_checkout_terms_acceptance mirrors 20261229100000_checkout_terms_acceptance\.sql, which is accepted only through a reviewed RELEASE_JOURNAL entry/);
+  it("a mirror whose bytes differ from both registered forms is refused, even under the reviewed tag", () => {
+    for (const body of [Buffer.concat([mirror(), Buffer.from("\n-- altered\n")]), mirror().subarray(0, mirror().length - 1)]) {
+      const r = run((d) => fs.writeFileSync(path.join(d, "drizzle/migrations", `${TAG}.sql`), body));
+      expect(r.errors.length).toBeGreaterThan(0);
     }
   }, 240_000);
 
-  it("an unknown source is pending but UNREGISTERED: it has no submission forms, and the pinned digest refuses any byte change to the authorized one", () => {
+  it("an unknown source is pending but UNREGISTERED: it has no submission forms, and the pinned digest refuses any byte change", () => {
     const s = src();
     const altered = Buffer.concat([s, Buffer.from("-- altered\n")]);
     expect(SUBMISSION_FORMS["20261230100000_unregistered_commercial_change.sql"]).toBeUndefined();
     expect(submittedForm("20261230100000_unregistered_commercial_change.sql", altered, altered)).toBeNull();
-    expect(submittedForm(NAME, altered, altered)).toBeNull(); // the registered digest does not match altered source bytes
+    expect(submittedForm(NAME, altered, altered)).toBeNull();
     const r = run((d) => fs.writeFileSync(path.join(d, "supabase/migrations/20261230100000_unregistered_commercial_change.sql"), altered));
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual([NAME, "20261230100000_unregistered_commercial_change.sql"]);
-    expect(Object.keys(SUBMISSION_FORMS)).toContain(NAME);
+    expect(r.pending).toEqual(["20261230100000_unregistered_commercial_change.sql"]);
     expect(Object.keys(SUBMISSION_FORMS)).not.toContain("20261230100000_unregistered_commercial_change.sql");
   }, 120_000);
 });

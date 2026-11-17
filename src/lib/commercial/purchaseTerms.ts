@@ -5,8 +5,8 @@
  * APPROVAL STATUS: commercial package section 10.5 (COMMERCIAL_LEGAL_REVIEW_PACKAGE_2026-11-12.md) inserted verbatim on the owner's
  * directive of 2026-11-13 (handoff "Update 4", S4), plus the two sentences of handoff "Update 5" (the seven-day full refund after the
  * first sentence; the thirty-day refund timing before the last) - that addition (A3) was approved together with A1/A2 by the owner's
- * final contractual approval of version 2026-11-16.8c10d10a9deb on 2026-11-16 ("Approve wording"). One rule ends the plan (a refund of the unused term); any other refund
- * keeps it unless we say so - the earlier contradiction is removed.
+ * final contractual approval of version 2026-11-16.8c10d10a9deb on 2026-11-16 ("Approve wording"). A refund on cancellation ends the plan - the seven-day full refund
+ * or a refund of the unused part (Update 6, T8); any other refund keeps it unless we say so - the earlier contradiction is removed.
  *
  * Every sentence matches what the system does today (docs/release/REFUNDS_DISPUTES_AND_RECOVERY.md):
  *   - one 12-month term per one-time payment, no provider subscription, so nothing renews or needs cancelling to stop a

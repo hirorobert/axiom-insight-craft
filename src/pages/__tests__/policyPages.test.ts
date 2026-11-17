@@ -53,7 +53,8 @@ describe("S2-C03 · Terms state the purchase terms", () => {
     expect(policy).toContain("billing@cfoclose.com");
     expect(policy).toMatch(/through Polar, our merchant of record, to the original payment method/);
     expect(policy).toMatch(/A person at CFOClose reviews every request; refunds are never made automatically/);
-    // One rule ends the plan (a refund of the unused term); any other refund keeps it unless we say so (package 10.5).
+    // A refund on cancellation ends the plan (the seven-day full refund or a refund of the unused part; Update 6, T8); any other
+    // refund keeps it unless we say so (package 10.5).
     expect(policy).toMatch(/the plan ends on the day the refund is made/);
     expect(policy).toMatch(/does not end a plan unless we tell you so/);
     expect(policy).toMatch(/does not limit any right you have under the law/);
