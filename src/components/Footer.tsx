@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
 import { FOOTER, BRAND } from "@/constants/copy";
+import { BUSINESS_IDENTITY } from "@/lib/commercial/businessIdentity";
 import { COMMERCIAL_NOTICE, LANDING_FOOTER_NOTE } from "@/content/landing/landingContent";
 import { contactHref } from "@/lib/serviceEnquiry/entryPoints";
 import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGate";
@@ -104,9 +105,12 @@ export function Footer() {
       {/* ── Legal bar ─────────────────────────────────────────────────── */}
       <div className="border-t border-border">
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-3 px-6 py-4 sm:flex-row lg:px-10">
-          <p className="text-[11px] text-muted-foreground">
-            © {new Date().getFullYear()} {BRAND.name}. All rights reserved.
-          </p>
+          <div className="text-center sm:text-left">
+            <p className="text-[11px] text-muted-foreground" data-testid="footer-identity">{BUSINESS_IDENTITY.footerLine}</p>
+            <p className="text-[11px] text-muted-foreground">
+              © {new Date().getFullYear()} {BRAND.name}. All rights reserved.
+            </p>
+          </div>
           <div className="flex items-center gap-6">
             {SERVICE_ENQUIRY_SURFACES.footerContactLink && (
               <Link

@@ -62,6 +62,8 @@ import { SPECIALIST_LABEL, SPECIALIST_PUBLIC_STRINGS } from "@/lib/commercial/of
 import { SpecialistServices } from "@/components/landing/SpecialistServices";
 import { TrustStrip } from "@/components/landing/TrustStrip";
 import { PlanCatalogue } from "@/components/commercial/PlanCatalogue";
+import Terms from "@/pages/Terms";
+import Privacy from "@/pages/Privacy";
 
 const ROOT = path.resolve(__dirname, "../../..");
 const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), "utf8");
@@ -85,6 +87,17 @@ const HIDDEN_STAGES: WorkspaceMission[] = ["statements", "tax", "compliance", "f
 const SPECIALIST_FAQ = LANDING_FAQ.find((f) => f.id === "specialist-services")!;
 const withoutSpecialist = (t: string) => [...SPECIALIST_PUBLIC_STRINGS, SPECIALIST_FAQ.question, SPECIALIST_FAQ.answer].reduce((acc, s) => acc.split(s).join(" "), t);
 const WITHHELD_CLAIMS = /financial statements?\b|statement set|statement of financial position|certif|reporting pack|close insights|variance|forecast|tax computation|compute tax|\btax (workpapers?|service|module|engine)\b|assess tax|compliance (review|filing)|filing (pack|package)|complete (financial )?close|cash outlook|performance and risk/i;
+/**
+ * The policy pages (Terms, Privacy) may describe only what a customer can use. Wider than WITHHELD_CLAIMS for the words a
+ * service description reaches for (reconciliation, monitoring, analytics, drafting, notes, letters, mobile money), and
+ * without its "certif" (the Privacy Policy rightly says CFOClose holds no certification). "sales tax" is the
+ * merchant-of-record payment disclosure, not a tax module.
+ */
+const POLICY_WITHHELD = /reconcil|monitoring|analytic|drafting|financial statements?\b|statement set|reporting pack|close (insights|certification)|variance|forecast|(?<!sales )\btax\b|compliance (review|filing)|filing (pack|package)|management letter|disclosure notes|mobile money/i;
+
+/** S2-C01, the landing side: the service descriptions a withheld capability hides behind (the landing page may still say a
+ * reviewed trial balance is NOT reconciled to evidence, so bare "reconcil" is not banned here). */
+const LANDING_WITHHELD_EXTRA = /bank reconciliation|reconciliation (engines?|evidence)|analytical monitoring|monitoring engines?|statement drafting|management letters?|disclosure notes|mobile money/i;
 
 const missions = (status: MissionState["status"] = "passed"): Record<WorkspaceMission, MissionState> =>
   Object.fromEntries(STAGE_SEQUENCE.map((s) => [s, { status, label: s, summary: "", href: `/x/${s}` }])) as Record<WorkspaceMission, MissionState>;
@@ -414,6 +427,7 @@ describe("9/10. no public claim — in source or rendered — promises a withhel
     expect(page).toContain("Trial balance review");
     expect(page).toContain("Upload, check and review the accounts in your trial balance.");
     expect(withoutSpecialist(page).match(WITHHELD_CLAIMS)?.[0]).toBeUndefined();
+    expect(withoutSpecialist(page).match(LANDING_WITHHELD_EXTRA)?.[0]).toBeUndefined();
     for (const f of LANDING_FAQ) if (f.id !== "specialist-services") expect(`${f.question} ${f.answer}`, f.id).not.toMatch(WITHHELD_CLAIMS);
     // Where specialist services are named, they are labelled as enquiries — never as features of the software.
     expect(page).toContain(SPECIALIST_LABEL);
@@ -424,13 +438,38 @@ describe("9/10. no public claim — in source or rendered — promises a withhel
     const html = read("index.html").replace(/<!--[\s\S]*?-->/g, "");
     expect(html).toMatch(/<title>CFOClose — Trial balance review software<\/title>/);
     expect(withoutSpecialist(html).match(WITHHELD_CLAIMS)?.[0]).toBeUndefined();
+    expect(withoutSpecialist(html).match(LANDING_WITHHELD_EXTRA)?.[0]).toBeUndefined();
   });
 
   it("the legal pages describe the service as offered today; the ownership clause covers historical records", () => {
     const terms = flat("src/pages/Terms.tsx");
-    expect(terms).not.toMatch(/\btax\b|compliance review|filing pack/i);
+    // "sales tax" is the merchant-of-record payment disclosure in Terms §3 (S2-C03), not a tax module.
+    expect(terms).not.toMatch(/(?<!sales )\btax\b|compliance review|filing pack/i);
     expect(terms).toMatch(/including records created with services that are no longer offered — belong to you and your firm/);
     expect(flat("src/pages/Privacy.tsx")).not.toMatch(/\btax\b|compliance, and filing/i);
+  });
+
+  it("S2-C01: the rendered policy pages name no capability a customer cannot use", () => {
+    const page = (c: () => JSX.Element) => text(renderToStaticMarkup(createElement(MemoryRouter, null, createElement(c))));
+    const terms = page(Terms);
+    const privacy = page(Privacy);
+    for (const [name, rendered] of [["Terms", terms], ["Privacy", privacy]] as const) {
+      expect(rendered.match(POLICY_WITHHELD)?.[0], name).toBeUndefined();
+    }
+    // What a customer can use, named: Trial balance review and its workflow, the jurisdiction pack's panel (named
+    // neutrally: global code carries no statutory jurisdiction wording, scripts/ci/assertPackIsolation.mjs), the pilot.
+    expect(terms).toContain(`The service available to customers today is ${TRIAL_BALANCE_REVIEW.title.toLowerCase()}`);
+    expect(terms).toContain("review and confirm its account classifications, and reach a reviewed trial balance ready for statement preparation");
+    expect(terms).toContain("A workspace whose filing jurisdiction has a jurisdiction pack may also show that jurisdiction");
+    expect(terms).toContain("Financial reporting is a pilot by invitation: it is offered only to companies we have invited, it is not generally available");
+    expect(terms).toContain("Other parts of the software are not available to customers.");
+    expect(privacy).toContain("checking and reviewing the trial balances you upload");
+    expect(privacy).toContain("for a company invited to the financial reporting pilot");
+    // The guard bites: the service descriptions these pages carried before S2-C01 fail it.
+    for (const before of [
+      "trial balance preparation, bank reconciliation, financial statement drafting and analytical monitoring",
+      "running the accounting, reconciliation and monitoring engines you invoke",
+    ]) expect(before).toMatch(POLICY_WITHHELD);
   });
 
   it("customer-reachable authenticated sources carry no withheld-module wording", () => {

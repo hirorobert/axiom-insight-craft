@@ -8,6 +8,7 @@ import { CurrentPlanPanel } from "./CurrentPlanPanel";
 import { PlanCatalogue } from "./PlanCatalogue";
 import type { BillingSummary } from "@/hooks/useBillingSummary";
 const base: BillingSummary = { hasBillingCustomer: true, planCode: "SOLO", licenceStatus: "ACTIVE", effectiveStart: "2026-01-01", effectiveEnd: null, entitlements: [], billingInterval: null, billingIntervalCount: null, scheduledEffectiveEnd: null, nextEffectiveStart: null, nextEffectiveEnd: null, nextBillingInterval: null, nextBillingIntervalCount: null };
+const NONE_PURCHASABLE = { onlinePayment: false, offers: [] };
 const render = (node: ReactNode) => renderToStaticMarkup(createElement(MemoryRouter, null, node));
 describe("plan presentation is read-only", () => {
   it("shows effective dates only when provided, never renewal", () => {
@@ -38,7 +39,9 @@ describe("plan presentation is read-only", () => {
     expect(html).toContain("Active");
   });
   it("catalogue states the common services once, annual pricing only, proposed, and never claims saved selection or activation", () => {
-    const html = render(createElement(PlanCatalogue));
+    // The server has answered with nothing purchasable (no approved price, online payment closed). Before it answers, the
+    // self-serve cards show a neutral placeholder instead (S2-C10, PlanCatalogue.test.ts), so this is the first commercial state.
+    const html = render(createElement(PlanCatalogue, { prices: NONE_PURCHASABLE }));
     const common = html.slice(html.indexOf('data-testid="common-services"'), html.indexOf('data-testid="plan-groups"'));
     // Only the customer-visible service is listed (moduleAvailability.ts); withheld services never appear.
     for (const withheld of ["Close Certification", "Reporting Pack", "Close Insights", "Multi-entity reporting"]) expect(html).not.toContain(withheld);
@@ -48,11 +51,11 @@ describe("plan presentation is read-only", () => {
     }
     expect(html).not.toMatch(/per month|\/ month|monthly|instalment/i);   // no monthly pricing until the server represents instalments
     // Every action requests activation (manual, by agreement), stated beside each; nothing is chosen, saved or bought here.
-    // No customer manual activation: until the server answers, plans show proposed figures and a support link only.
+    // No customer manual activation: with nothing purchasable, plans show proposed figures and a support link only.
     expect(html).not.toContain("Request activation");
     expect(html.split(">Contact support<").length - 1).toBe(3);
     expect(html).toContain("Talk to us");
-    expect(html).not.toContain("temporarily unavailable");
+    expect(html).not.toContain("Online payment is temporarily unavailable. Please try again later.");
     expect(html).not.toMatch(/Choose (Solo|Practice|Firm)/);
     expect(html).not.toMatch(/Talk to sales|XBRL|filing pack|Management letters|Regional packs/i);   // no unreachable output is advertised
     expect(html).toContain("12-month term · no automatic renewal");
@@ -70,11 +73,11 @@ describe("plan presentation is read-only", () => {
   it('the catalogue links to the activation request only when the contact route exists (service-enquiry gate), otherwise states how plans are activated', () => {
     const src = fs.readFileSync(path.join(__dirname, 'PlanCatalogue.tsx'), 'utf8');
     expect(src).toMatch(/contactAvailable = SERVICE_ENQUIRY_SURFACES\.contactRoute/);
-    const off = render(createElement(PlanCatalogue, { contactAvailable: false }));
+    const off = render(createElement(PlanCatalogue, { contactAvailable: false, prices: NONE_PURCHASABLE }));
     expect(off).not.toMatch(/\/contact|Request activation|Discuss Enterprise/);
     expect(off).toContain("Online payment is temporarily unavailable. Please try again later.");
     expect(off).toContain("Enterprise terms are agreed directly with our team.");
-    const wall = render(createElement(PlanCatalogue, { source: "plan_wall" }));
+    const wall = render(createElement(PlanCatalogue, { source: "plan_wall", prices: NONE_PURCHASABLE }));
     expect(wall).toContain('href="/contact?from=plan_wall"');
     expect(wall).toContain('href="/contact?service=plan_activation&amp;plan=ENTERPRISE&amp;from=plan_wall"');
   });

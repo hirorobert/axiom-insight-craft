@@ -448,6 +448,13 @@ export const SUBMISSION_FORMS = Object.freeze({
     identical: Object.freeze({ bytes: 4955, sha256: "6c7707d7f232fdec26bacc45e43dfe8e82cac92e8b057b580fd27a331c49301b" }),
     finalLfRemoved: Object.freeze({ bytes: 4954, sha256: "eed74db49178e83c0a163312820d5bc1da75f25e7b94a036b06215180d9c4a02" }),
   }),
+  // Checkout terms acceptance (PR #266, commercial accuracy and refunds): authored, NOT applied — the hosted journal stays at 112 (the
+  // consolidated release, 2026-11-15) until this migration is separately authorized and applied; it is reported PENDING, never mirrored
+  // by normalised parity. Digests computed from the committed LF blob (git show), not the working tree.
+  "20261229100000_checkout_terms_acceptance.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 11995, sha256: "f541d4d18bac1c4103e57e3e2dc5c36b47ba411793f8555cacfdbb96e693b027" }),
+    finalLfRemoved: Object.freeze({ bytes: 11994, sha256: "a8be47afa5d8b28363b66ee1f932dff84e7038ac1f063549f4b10d2d7d203256" }),
+  }),
   // QBO readiness r2: promoted atomic envelope, NOT applied; exact registered bytes only.
   "20261214100000_qbo_readiness_controls.sql": Object.freeze({
     identical: Object.freeze({ bytes: 20040, sha256: "6ac1c74c46171138915d936191beff45d26ca92abb6f7a820d0d73aadf0ddcd8" }),

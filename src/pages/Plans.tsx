@@ -66,7 +66,7 @@ export default function Plans() {
           <p className="mt-1 text-muted-foreground">{serviceAvailabilityLabel(service)}. Choose the capacity you need; once the plan is active you go straight to it.</p>
         </div>
       )}
-      <PlanCatalogue source="plan_wall" prices={prices} signedIn={!!user} />
+      <PlanCatalogue source="plan_wall" prices={prices} />
       <BillingHelpLine className="mt-10 justify-center" />
     </AccountOrPublicFrame>
   );

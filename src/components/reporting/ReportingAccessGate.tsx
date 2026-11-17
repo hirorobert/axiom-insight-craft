@@ -4,7 +4,8 @@ import { PendingStatus } from "@/components/feedback/Activity";
  *
  * A page renders only for a member whose server-granted access opens the Statements stage AND whose company the server
  * reports as enabled for reporting (financial_statements_workspace_access: rollout allow-list, kill switch). Everyone
- * else sees the same neutral unavailable boundary as before activation. Every write is still authorized by the server.
+ * else sees the unavailable boundary in its pilot form (S2-C07): financial reporting is a pilot by invitation, and how to
+ * ask about it. Every write is still authorized by the server.
  */
 import type { ReactNode } from "react";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
@@ -17,8 +18,8 @@ import { canOpenStage } from "@/lib/workspace/workspaceAccess";
 export default function ReportingAccessGate({ children, prepareStage = false }: { children: ReactNode; prepareStage?: boolean }) {
   const { companyId, access } = useWorkspace();
   const reporting = useReportingAccess(companyId);
-  if (!prepareStage && !canOpenStage(access, "statements")) return <WorkspaceUnavailable />;
+  if (!prepareStage && !canOpenStage(access, "statements")) return <WorkspaceUnavailable reportingPilot />;
   if (reporting.state === "loading") return <PendingStatus label="Checking reporting access…" className="p-6" skeleton />;
-  if (reporting.state !== "enabled") return <WorkspaceUnavailable />;
+  if (reporting.state !== "enabled") return <WorkspaceUnavailable reportingPilot />;
   return <>{children}</>;
 }
