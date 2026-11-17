@@ -124,7 +124,10 @@ async function main() {
   const cut = files.indexOf(MIGRATION);
   group(ABSENT ? "Migration chain WITHOUT the migration (regression run)" : "Migration chain");
   await check(`every migration before ${MIGRATION} applies`, async () => { if (cut < 0) return "missing"; for (const f of files.slice(0, cut)) await applyMigration(f); return true; });
-  await check(`${MIGRATION} is the last file of the chain (it follows the consolidated release tail)`, async () => files.at(-1) === MIGRATION ? true : files.slice(-3));
+  // Reviewed later additions that follow it (each its own reviewed, registered migration): the QuickBooks realmID protection (Intuit case 00232331).
+  const REVIEWED_LATER = ["20261230100000_qbo_realm_protection_schema.sql", "20261230200000_qbo_realm_protection_connect.sql", "20261230300000_qbo_realm_protection_evidence.sql"];
+  await check(`${MIGRATION} follows the consolidated release tail; only the reviewed later additions follow it`, async () =>
+    JSON.stringify(files.slice(cut + 1)) === JSON.stringify(REVIEWED_LATER) ? true : files.slice(cut + 1));
   if (!ABSENT) {
     await check(`${MIGRATION} applies`, async () => { await applyMigration(MIGRATION); return true; });
     await check("a replay of the migration is a no-op (idempotent)", async () => { await applyMigration(MIGRATION); return true; });
