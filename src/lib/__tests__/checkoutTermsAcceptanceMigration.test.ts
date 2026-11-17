@@ -63,7 +63,7 @@ describe("checkout terms acceptance migration (PR #266): applied as hosted 113 t
   it("the repository is in parity: 0112 mirrors the source through its reviewed entry; only the registered realm protection sources are pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual(["20261230100000_qbo_realm_protection_schema.sql", "20261230200000_qbo_realm_protection_connect.sql", "20261230300000_qbo_realm_protection_evidence.sql"]);   // QuickBooks realmID protection r1, authored and not applied
+    expect(r.pending).toEqual(["20261230100000_qbo_realm_protection_schema.sql", "20261230200000_qbo_realm_protection_connect.sql", "20261230300000_qbo_realm_protection_evidence.sql", "20261231100000_qbo_realm_protection_cutover_schema.sql", "20261231200000_qbo_realm_protection_cutover_functions.sql", "20261231300000_qbo_realm_protection_cutover_redaction.sql"]);   // QuickBooks realmID protection r1, authored and not applied
     expect(r.mirrored.find((x) => x.tag === TAG)).toMatchObject({ source: NAME, how: "release_verbatim_final_lf_removed" });
   }, 120_000);
 
@@ -82,7 +82,7 @@ describe("checkout terms acceptance migration (PR #266): applied as hosted 113 t
     expect(submittedForm(NAME, altered, altered)).toBeNull();
     const r = run((d) => fs.writeFileSync(path.join(d, "supabase/migrations/20261230100000_unregistered_commercial_change.sql"), altered));
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual(["20261230100000_qbo_realm_protection_schema.sql", "20261230100000_unregistered_commercial_change.sql", "20261230200000_qbo_realm_protection_connect.sql", "20261230300000_qbo_realm_protection_evidence.sql"]);
+    expect(r.pending).toEqual(["20261230100000_qbo_realm_protection_schema.sql", "20261230100000_unregistered_commercial_change.sql", "20261230200000_qbo_realm_protection_connect.sql", "20261230300000_qbo_realm_protection_evidence.sql", "20261231100000_qbo_realm_protection_cutover_schema.sql", "20261231200000_qbo_realm_protection_cutover_functions.sql", "20261231300000_qbo_realm_protection_cutover_redaction.sql"]);
     expect(Object.keys(SUBMISSION_FORMS)).not.toContain("20261230100000_unregistered_commercial_change.sql");
   }, 120_000);
 });

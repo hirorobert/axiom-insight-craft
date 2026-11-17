@@ -103,12 +103,11 @@ describe("authenticated disconnect and lost-response recovery", () => {
     expect(await runQboDisconnect(d, request)).toEqual({ status: 200, outcome: "disconnected" });
     expect(opened).toEqual([connectionBinding(ID, "123", "sandbox")]);
   });
-  it("an operation recorded before the backfill is protected after begin judged the person, then revoked", async () => {
-    const submitted: unknown[] = [];
+  it("after the cutover an operation without protection cannot be revoked from a plaintext: it stays pending, no token is opened", async () => {
     const begin = vi.fn(async () => ({ outcome: "pending", leaseId: RID, envelope: "fixture-envelope", companyId: ID, realmId: "123", realmEnvelope: null, realmIndex: null, environment: "sandbox" as const }));
-    const d = world({ begin, realm: (id, b) => realmForOperation({ id, company_id: b.companyId!, environment: b.environment!, realm_id: b.realmId ?? null, realm_envelope: b.realmEnvelope ?? null, realm_index: b.realmIndex ?? null }, REALM_KEYS, async (a) => (submitted.push(a), "protected")) });
-    expect(await runQboDisconnect(d, request)).toEqual({ status: 200, outcome: "disconnected" });
-    expect(submitted).toHaveLength(1); expect(submitted[0]).toMatchObject({ p_connection: ID, p_realm_id: "123" });
+    const d = world({ begin, realm: (id, b) => realmForOperation({ id, company_id: b.companyId!, environment: b.environment!, realm_id: null, realm_envelope: b.realmEnvelope ?? null, realm_index: b.realmIndex ?? null }, REALM_KEYS, null) });
+    expect(await runQboDisconnect(d, request)).toEqual({ status: 202, outcome: "revocation_pending" });
+    expect(d.open).not.toHaveBeenCalled();
   });
   it("a realm that cannot be read leaves the local disconnect in place and the revocation pending; no token is opened", async () => {
     const d = world({ realm: vi.fn(async () => ({ ok: false as const, reason: "unreadable" as const })) });

@@ -1,6 +1,5 @@
-// qbo-disconnect: local disconnect first, then revocation at Intuit (see _shared/qboDisconnect.ts). realmID protection (Intuit case 00232331): the
-// realm is read only by opening the operation's realm envelope; an operation recorded from a connection the backfill had not reached is protected
-// here through the service-only qbo_protect_disconnect_realm, after qbo_begin_disconnect has judged the person. Without the realm index key: "not configured".
+// qbo-disconnect: local disconnect first, then revocation at Intuit (see _shared/qboDisconnect.ts). realmID protection (Intuit case 00232331; after the
+// cutover): the realm is read only by opening the operation's realm envelope; there is no plaintext. Without the realm index key: "not configured".
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/auth.ts";
 import { parseDisconnectRequest, runQboDisconnect } from "../_shared/qboDisconnect.ts";
@@ -30,12 +29,8 @@ Deno.serve(async req => {
     },
     realm: (connectionId, b) => realmForOperation({
       id: connectionId, company_id: b.companyId ?? "", environment: b.environment ?? "sandbox",
-      realm_id: b.realmId ?? null, realm_envelope: b.realmEnvelope ?? null, realm_index: b.realmIndex ?? null,
-    }, realmKeys, async (args) => {
-      const { data, error } = await service.rpc("qbo_protect_disconnect_realm", args);
-      if (error) throw error;
-      return String(data);
-    }),
+      realm_id: null, realm_envelope: b.realmEnvelope ?? null, realm_index: b.realmIndex ?? null,
+    }, realmKeys, null),
     open: async (envelope, binding) => {
       const keys = config.keys(); if (!keys) return null;
       try { return await openSecret(envelope, keys.all, binding); } catch { return null; }

@@ -14,7 +14,8 @@ import { QBO_CONNECTOR_ENABLED } from "../workspace/qboConnectorClient";
 const ROOT = path.resolve(__dirname, "../../..");
 const read = (f: string) => fs.readFileSync(path.join(ROOT, f), "utf8");
 const MIGRATION = "supabase/migrations/20261215100000_api_cache_control_headers.sql";
-const REALM_MIGRATIONS = ["20261230100000_qbo_realm_protection_schema.sql", "20261230200000_qbo_realm_protection_connect.sql", "20261230300000_qbo_realm_protection_evidence.sql"];
+const REALM_MIGRATIONS = ["20261230100000_qbo_realm_protection_schema.sql", "20261230200000_qbo_realm_protection_connect.sql", "20261230300000_qbo_realm_protection_evidence.sql",
+  "20261231100000_qbo_realm_protection_cutover_schema.sql", "20261231200000_qbo_realm_protection_cutover_functions.sql", "20261231300000_qbo_realm_protection_cutover_redaction.sql"];
 const NO_CACHE_FUNCTIONS = ["qbo-connect-start", "qbo-disconnect", "qbo-finish-connection", "qbo-oauth-callback", "qbo-pull-trial-balance",
   "trial-balance-draft", "trial-balance-source-download", "trial-balance-source-signer"];
 /** Functions that still send no-store only (not QuickBooks and not serving workspace data to a browser): listed in the record, changed deliberately. */
@@ -97,6 +98,9 @@ describe("the realmID protection: the inert candidate is superseded by the autho
       expect(src, fn).toMatch(/from "\.\.\/_shared\/qboRealm(Protection|Backfill)\.ts"/);
       expect(src, fn).toMatch(/realmKeys\(\)/);
       expect(src, fn).not.toMatch(/console\.log\([^)]*realm(Id|_id|Envelope|_envelope|Index|_index)/);
+      // after the cutover no function sends a plaintext realm to the database or reads one from it
+      expect(src, fn).not.toMatch(/p_realm_id: (?!null)/);
+      expect(src, fn).not.toMatch(/qbo_protect_(connection|disconnect)_realm|qbo_verify_(connection|disconnect)_realm/);
     }
   });
   const key = (id: string, fill: number) => ({ id, bytes: new Uint8Array(32).fill(fill) });

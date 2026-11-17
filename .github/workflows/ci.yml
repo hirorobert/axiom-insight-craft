@@ -762,7 +762,7 @@ jobs:
           createdb qbo_readiness
           bun scripts/db-proof/qboReadiness.mjs
 
-      - name: QuickBooks realmID protection proof (20261230100000-20261230300000 on the full chain - existing connections, operations, OAuth returns and import evidence byte-identical except the new columns; backfill through the real orchestration and module; shared realm shares one index; replay idempotent; wrong plaintext, conflicting index and malformed values refused; members cannot call the backfill; reconnect keeps the protection; no realm reaches a member; new writes carry the protection)
+      - name: QuickBooks realmID protection proof (20261230100000-20261230300000 and the cutover 20261231100000-20261231300000 on the full chain - the cutover refused until every row is verified, then no plaintext in any live connection, operation or OAuth state, every rule on the index, terminal rows and historical evidence unchanged; existing connections, operations, OAuth returns and import evidence byte-identical except the new columns; backfill through the real orchestration and module; shared realm shares one index; replay idempotent; wrong plaintext, conflicting index and malformed values refused; members cannot call the backfill; reconnect keeps the protection; no realm reaches a member; new writes carry the protection)
         env:
           DB_PROOF_MODE: external
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/qbo_realm_protection

@@ -1,9 +1,10 @@
 // qbo-realm-protect: the one-off, SERVICE-ONLY backfill and verification of QuickBooks realmIDs stored before the protection release (Intuit case
 // 00232331; docs/release/qbo-realm-protection-r1/README.md). No browser, no member: the caller must present the service-role credential itself
 // (compared in constant time with this runtime's own), so nothing here is reachable with a member's sign-in, and every database function it calls is
-// service-role only. POST { "action": "protect" } seals each live connection's and each disconnect operation's realm and submits it; POST
-// { "action": "verify" } opens every envelope, compares it with the stored plaintext and the index, and marks the row verified. The answer and the
-// log carry COUNTS only: never a realm, an envelope, an index, a key or a row id. See _shared/qboRealmBackfill.ts.
+// service-role only. AFTER THE CUTOVER there is no plaintext and no database writer: POST { "action": "verify" } opens every live connection's and
+// every disconnect operation's envelope and recomputes its index (counts only, nothing written); POST { "action": "protect" } only reports rows
+// without protection (there must be none). The answer and the log carry COUNTS only: never a realm, an envelope, an index, a key or a row id.
+// See _shared/qboRealmBackfill.ts.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { readQboEnv } from "../_shared/qboEnv.ts";
@@ -22,33 +23,24 @@ Deno.serve(async (req) => {
   const authHeader = req.headers.get("Authorization") ?? "";
   const presented = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
   const service = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
-  const rpc = async (name: string, args: Record<string, unknown>): Promise<string> => {
-    const { data, error } = await service.rpc(name, args);
-    if (error) throw error;
-    return String(data);
-  };
   const rows = (data: unknown[] | null, id: string): BackfillRow[] => (data ?? []).map((r) => {
     const x = r as Record<string, unknown>;
     return { id: x[id] as string, company_id: x.company_id as string, environment: x.environment as "production" | "sandbox",
-      realm_id: (x.realm_id as string | null) ?? null, realm_envelope: (x.realm_envelope as string | null) ?? null, realm_index: (x.realm_index as string | null) ?? null };
+      realm_id: null, realm_envelope: (x.realm_envelope as string | null) ?? null, realm_index: (x.realm_index as string | null) ?? null };
   });
 
   const result = await runRealmBackfill({
     authorize: () => sameCredential(presented, serviceKey),
     listConnections: async () => {
-      const { data, error } = await service.from("qbo_connections").select("id, company_id, environment, realm_id, realm_envelope, realm_index").neq("status", "disconnected");
+      const { data, error } = await service.from("qbo_connections").select("id, company_id, environment, realm_envelope, realm_index").neq("status", "disconnected");
       if (error) throw error;
       return rows(data, "id");
     },
     listOperations: async () => {
-      const { data, error } = await service.from("qbo_disconnect_operations").select("connection_id, company_id, environment, realm_id, realm_envelope, realm_index");
+      const { data, error } = await service.from("qbo_disconnect_operations").select("connection_id, company_id, environment, realm_envelope, realm_index");
       if (error) throw error;
       return rows(data, "connection_id");
     },
-    protectConnection: (a) => rpc("qbo_protect_connection_realm", { ...a }),
-    protectOperation: (a) => rpc("qbo_protect_disconnect_realm", { ...a }),
-    verifyConnection: (a) => rpc("qbo_verify_connection_realm", { ...a }),
-    verifyOperation: (a) => rpc("qbo_verify_disconnect_realm", { ...a }),
     status: async () => {
       const { data, error } = await service.rpc("qbo_realm_protection_status");
       if (error) throw error;

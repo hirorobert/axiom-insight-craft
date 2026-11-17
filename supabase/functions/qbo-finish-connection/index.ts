@@ -3,8 +3,9 @@
 // parked, sealed authorisation code back only if that person is the one who STARTED the attempt, the handoff has not expired and they still hold both rights; every
 // answer ends the handoff. Only then is the code exchanged through the read-only guard, the refresh token sealed (bound to workspace + environment + realm) and only
 // the envelope stored (qbo_store_connection, which judges the right again). See _shared/qboConnect.ts. The service-role key and every secret stay inside the
-// function and are never logged. realmID protection (Intuit case 00232331): the parked realm is opened from its envelope and the connection is stored with
-// the realm sealed to the workspace and environment plus its keyed index; without the realm index key the function answers "not configured".
+// function and are never logged. realmID protection (Intuit case 00232331; after the cutover): the parked realm is read ONLY by opening its envelope and the
+// connection is stored with the realm sealed to the workspace and environment plus its keyed index, never in clear; without the realm index key the function
+// answers "not configured".
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/auth.ts";
@@ -50,7 +51,7 @@ Deno.serve(async (req) => {
       const { data, error } = await service.rpc("qbo_take_oauth_return", { p_handoff_hash: handoffHash, p_actor_user_id: actorUserId });
       if (error) throw error;
       const row = Array.isArray(data) ? data[0] : null;
-      if (row?.outcome === "taken" && row.company_id && (row.realm_envelope || row.realm_id) && row.code_envelope && (row.environment === "production" || row.environment === "sandbox")) {
+      if (row?.outcome === "taken" && row.company_id && row.realm_envelope && row.realm_index && row.code_envelope && (row.environment === "production" || row.environment === "sandbox")) {
         return {
           outcome: "taken", companyId: row.company_id as string, environment: row.environment, codeEnvelope: row.code_envelope as string,
           realmId: (row.realm_id as string | null) ?? null, realmEnvelope: (row.realm_envelope as string | null) ?? null, realmIndex: (row.realm_index as string | null) ?? null,
@@ -68,9 +69,9 @@ Deno.serve(async (req) => {
       return creds ? await createQboTokenClient(guardedFetch, creds).exchangeCode(code, redirectUri) : { ok: false as const, reason: "rejected" as const };
     },
     sealRefreshToken: (refreshToken, binding) => sealSecret(refreshToken, keys.current, binding),
-    storeConnection: async (companyId, actorUserId, realmId, environment, envelope, refreshExpiresAt, hardExpiresAt, realm) => {
+    storeConnection: async (companyId, actorUserId, environment, envelope, refreshExpiresAt, hardExpiresAt, realm) => {
       const { data, error } = await service.rpc("qbo_store_connection", {
-        p_company_id: companyId, p_actor_user_id: actorUserId, p_realm_id: realmId, p_environment: environment, p_envelope: envelope,
+        p_company_id: companyId, p_actor_user_id: actorUserId, p_realm_id: null, p_environment: environment, p_envelope: envelope,
         p_refresh_expires_at: refreshExpiresAt, p_hard_expires_at: hardExpiresAt, p_realm_envelope: realm.envelope, p_realm_index: realm.index,
       });
       if (error || typeof data !== "string") throw new Error("connection not stored");

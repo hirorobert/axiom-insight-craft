@@ -700,6 +700,12 @@ describe("database inertness — schema and functions", () => {
     for (const f of ["supabase/functions/_shared/qboConnect.ts", "supabase/functions/_shared/qboDisconnect.ts", "supabase/functions/_shared/qboEnv.ts", "supabase/functions/_shared/qboPull.ts",
       "supabase/functions/qbo-disconnect/index.ts", "supabase/functions/qbo-finish-connection/index.ts", "supabase/functions/qbo-oauth-callback/index.ts",
       "supabase/functions/qbo-pull-trial-balance/index.ts", "supabase/config.toml"]) modified.add(f);
+    // ...and its Phase C cutover (IRREVERSIBLE for the plaintext; separately approved, stacked on Phase B): three forward-only migrations (schema accepts
+    // rows without plaintext and the guards allow only a verified row's redaction; every realm rule on the index; the plaintext removed behind a 100 %
+    // verification gate), and the same functions reading the realm only from its envelope. AUTHORED, NOT APPLIED, NOT DEPLOYED.
+    for (const f of ["20261231100000_qbo_realm_protection_cutover_schema", "20261231200000_qbo_realm_protection_cutover_functions", "20261231300000_qbo_realm_protection_cutover_redaction"]) added.add(`supabase/migrations/${f}.sql`);
+    // The cutover edits the realm module's users added by Phases A and B (reviewed above as additions): exact files, modified in the stacked change.
+    for (const f of ["supabase/functions/_shared/qboRealmBackfill.ts", "supabase/functions/qbo-realm-protect/index.ts"]) modified.add(f);
     expect(unreviewedChanges(changed, { added, modified, removed })).toEqual([]);
   });
 
@@ -1031,7 +1037,7 @@ describe("database inertness — schema and functions", () => {
     // QuickBooks realmID protection r1: the loopback-only disposable-database proof that replaces the inert candidate's (removed), its CI step, the
     // registered submission forms, and the three proofs whose reviewed migration-tail lists name the new migrations. No hosted access, no deploy.
     for (const file of ["scripts/db-proof/qboRealmProtection.mjs", "scripts/db-proof/qboRealmProtectionCandidate.mjs", ".github/workflows/ci.yml", "scripts/ci/releaseJournal.mjs",
-      "scripts/db-proof/serviceWithholding.mjs", "scripts/db-proof/trackAHardening.mjs", "scripts/db-proof/firstPeriodGovernedReview.mjs"]) allowed.add(file);
+      "scripts/db-proof/serviceWithholding.mjs", "scripts/db-proof/trackAHardening.mjs", "scripts/db-proof/firstPeriodGovernedReview.mjs", "scripts/db-proof/qboRealmProtectionCutover.mjs"]) allowed.add(file);
     // SheetJS 0.20.3 vendored (vendor/sheetjs/PROVENANCE.md): the offline CI guard that pins the vendored files and refuses any
     // externally hosted spreadsheet code (reads files only), and the manual re-verification script (never run by CI; downloads
     // the publisher's tarball and tagged files into memory and compares hashes). Neither deploys, applies or touches a database.
