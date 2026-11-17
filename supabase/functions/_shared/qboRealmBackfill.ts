@@ -5,7 +5,8 @@
  *
  * WHO MAY RUN IT: only a signed-in ACTIVE PLATFORM OWNER, decided by the database's own public.is_platform_owner(user) (an active
  * commercial_admins row at the platform_owner tier). Lovable Cloud does not expose the service-role credential to anyone, so the operation
- * cannot depend on a caller presenting it; and it must not be an ordinary member's endpoint. The caller's own session proves identity, the
+ * cannot depend on a caller presenting it; and it must not be an ordinary member's endpoint. The caller's own session proves identity (a
+ * valid signature, unexpired, with a user subject), the
  * database decides authority, and only then does the function use its service client for the service-only database functions below. A
  * service-role or anon token has no user and is refused; a member, a commercial-tier administrator or an inactive platform owner is refused;
  * an authority check that cannot be completed is refused (never assumed).

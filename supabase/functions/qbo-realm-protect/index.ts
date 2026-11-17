@@ -1,6 +1,6 @@
 // qbo-realm-protect: the one-off backfill and verification of QuickBooks realmIDs stored before the protection release (Intuit case 00232331;
 // docs/release/qbo-realm-protection-r1/README.md). ONLY A SIGNED-IN ACTIVE PLATFORM OWNER may run it: the caller's own session proves who they
-// are (verified by the auth server through _shared/auth.ts validateAuth), and the database's own public.is_platform_owner(user) decides
+// are (_shared/auth.ts validateAuth: signature, expiry and a user subject), and the database's own public.is_platform_owner(user) decides
 // authority. Lovable Cloud never discloses the service-role credential, so nothing here asks for it; a service-role or anon token has no user
 // and is refused, as is every member, commercial-tier administrator or inactive owner. Only after that decision does this function use its
 // own service client, for the service-only database functions. POST { "action": "protect" } seals each live connection's and each disconnect
