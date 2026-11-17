@@ -3,8 +3,9 @@ import { QBO_CONNECTOR_ENABLED, QBO_ENVIRONMENT, QBO_MESSAGES, RECORD_PENDING_NO
 
 // Invented values only.
 const COMPANY = "11111111-1111-1111-1111-111111111111";
-const row = (over: Partial<QboConnectionRow> = {}): QboConnectionRow => ({ id: "c1", realm_id: "9341458607761798", environment: "sandbox", status: "active", refresh_expires_at: "2027-02-09T00:00:00Z", created_at: "2026-11-01T00:00:00Z", ...over });
-const PULL: PullInput = { companyId: COMPANY, environment: "sandbox", realmId: "9341458607761798", startDate: "2026-01-01", endDate: "2026-10-31", periodYear: 2026, periodId: null, engagementId: null };
+const row = (over: Partial<QboConnectionRow> = {}): QboConnectionRow => ({ id: "c1", environment: "sandbox", status: "active", refresh_expires_at: "2027-02-09T00:00:00Z", created_at: "2026-11-01T00:00:00Z", ...over });
+const CONNECTION = "33333333-3333-3333-3333-333333333333";
+const PULL: PullInput = { companyId: COMPANY, environment: "sandbox", connectionId: CONNECTION, startDate: "2026-01-01", endDate: "2026-10-31", periodYear: 2026, periodId: null, engagementId: null };
 const fn = (answer: () => unknown) => ({ functions: { invoke: vi.fn(async () => answer() as { data: unknown; error: unknown }) } });
 const failingWith = (json: unknown) => ({ data: null, error: { context: { json: async () => json } } });
 
@@ -21,10 +22,10 @@ describe("connection state", () => {
     expect(connectionState([], "sandbox")).toEqual({ kind: "none" });
     expect(connectionState([row({ status: "disconnected" })], "sandbox")).toEqual({ kind: "none" });
     expect(connectionState([row({ environment: "production" })], "sandbox")).toEqual({ kind: "none" });
-    expect(connectionState([row()], "sandbox")).toEqual({ kind: "connected", realmId: "9341458607761798", connectionId: "c1" });
-    expect(connectionState([row({ status: "reconnect_needed" })], "sandbox")).toEqual({ kind: "reconnect", realmId: "9341458607761798" });
-    expect(connectionState([row({ id: "old", status: "reconnect_needed", created_at: "2026-01-01T00:00:00Z" }), row({ id: "new", realm_id: "777", created_at: "2026-06-01T00:00:00Z" })], "sandbox"))
-      .toEqual({ kind: "connected", realmId: "777", connectionId: "new" });
+    expect(connectionState([row()], "sandbox")).toEqual({ kind: "connected", connectionId: "c1", connectedOn: "2026-11-01" });
+    expect(connectionState([row({ status: "reconnect_needed" })], "sandbox")).toEqual({ kind: "reconnect", connectionId: "c1" });
+    expect(connectionState([row({ id: "old", status: "reconnect_needed", created_at: "2026-01-01T00:00:00Z" }), row({ id: "new", created_at: "2026-06-01T00:00:00Z" })], "sandbox"))
+      .toEqual({ kind: "connected", connectionId: "new", connectedOn: "2026-06-01" });
   });
   it("reads status through the status function only, and treats any failure as unavailable", async () => {
     const rpc = vi.fn(async () => ({ data: [row()], error: null }));
@@ -33,6 +34,13 @@ describe("connection state", () => {
     expect(await fetchConnections({ rpc: async () => ({ data: null, error: { message: "no such function" } }) } as never, COMPANY)).toBeNull();
     expect(await fetchConnections({ rpc: async () => ({ data: "x", error: null }) } as never, COMPANY)).toBeNull();
     expect(await fetchConnections({ rpc: async () => { throw new Error("network"); } } as never, COMPANY)).toBeNull();
+  });
+  it("never keeps a realm: an older server's realm_id is dropped from every row, and a row without its identity makes the read unavailable", async () => {
+    const older = { ...row(), realm_id: "9341458607761798" };
+    const rows = await fetchConnections({ rpc: async () => ({ data: [older], error: null }) } as never, COMPANY);
+    expect(rows).toEqual([row()]);
+    expect(JSON.stringify(rows)).not.toContain("9341458607761798");
+    expect(await fetchConnections({ rpc: async () => ({ data: [{ ...row(), id: undefined }], error: null }) } as never, COMPANY)).toBeNull();
   });
 });
 
@@ -82,7 +90,8 @@ describe("importing", () => {
   it("sends the documented keys, omits an absent period or engagement id, and returns what was imported", async () => {
     const c = fn(() => ({ data: { outcome: "imported", uploadId: "u-1", accountCount: 30, currency: "GBP" }, error: null }));
     expect(await pullFromQuickBooks(c, PULL)).toEqual({ kind: "imported", uploadId: "u-1", accountCount: 30, currency: "GBP", recordPending: false });
-    expect(c.functions.invoke).toHaveBeenCalledWith("qbo-pull-trial-balance", { body: { companyId: COMPANY, environment: "sandbox", realmId: PULL.realmId, startDate: "2026-01-01", endDate: "2026-10-31", periodYear: 2026 } });
+    expect(c.functions.invoke).toHaveBeenCalledWith("qbo-pull-trial-balance", { body: { companyId: COMPANY, environment: "sandbox", connectionId: CONNECTION, startDate: "2026-01-01", endDate: "2026-10-31", periodYear: 2026 } });
+    expect(JSON.stringify(c.functions.invoke.mock.calls)).not.toMatch(/realm/i);
     await pullFromQuickBooks(c, { ...PULL, periodId: "p-1", engagementId: "e-1" });
     expect((c.functions.invoke.mock.calls[1] as unknown[])[1]).toMatchObject({ body: { periodId: "p-1", engagementId: "e-1" } });
   });

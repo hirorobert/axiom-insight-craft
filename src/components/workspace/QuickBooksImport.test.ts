@@ -42,26 +42,27 @@ describe("Import from QuickBooks card", () => {
 
   });
   it("connected with the period's dates: names the company and the dates it will import, and offers exactly one action, Import", async () => {
-    const html = await render({ state: { kind: "connected", realmId: "9341458607761798" } });
+    const html = await render({ state: { kind: "connected", connectionId: "c1", connectedOn: "2026-11-01" } });
     expect(buttons(html)).toEqual(["import"]);
-    expect(text(html)).toContain("Connected to QuickBooks company 9341458607761798 (a test company)");
+    expect(text(html)).toContain("QuickBooks company connected on 2026-11-01 (a test company)");
+    expect(html).not.toMatch(/\d{10,}/);   // no QuickBooks company id is ever shown (Intuit case 00232331)
 
   });
   it("a production connection is not called a test company", async () => {
-    expect(text(await render({ state: { kind: "connected", realmId: "1" }, environment: "production" }))).not.toContain("test company");
+    expect(text(await render({ state: { kind: "connected", connectionId: "c1", connectedOn: "2026-11-01" }, environment: "production" }))).not.toContain("test company");
   });
   it("connected but the period has no dates: no Import button, and it says what to do first", async () => {
-    const html = await render({ state: { kind: "connected", realmId: "1" }, period: { start: null, end: "2026-12-31" } });
+    const html = await render({ state: { kind: "connected", connectionId: "c1", connectedOn: "2026-11-01" }, period: { start: null, end: "2026-12-31" } });
     expect(buttons(html)).toEqual([]);
     expect(text(html)).toContain("Set this period's start and end dates first");
   });
   it("connected while the dates are still loading: no button yet", async () => {
-    const html = await render({ state: { kind: "connected", realmId: "1" }, period: "loading" });
+    const html = await render({ state: { kind: "connected", connectionId: "c1", connectedOn: "2026-11-01" }, period: "loading" });
     expect(buttons(html)).toEqual([]);
     expect(text(html)).toContain("Reading this period's dates");
   });
   it("an expired connection offers exactly one action, Reconnect", async () => {
-    const html = await render({ state: { kind: "reconnect", realmId: "1" } });
+    const html = await render({ state: { kind: "reconnect", connectionId: "c1" } });
     expect(buttons(html)).toEqual(["connect"]);
     expect(text(html)).toContain("Reconnect QuickBooks");
     expect(text(html)).toContain("expired or was removed");
@@ -73,7 +74,7 @@ describe("Import from QuickBooks card", () => {
     const finishing = await render({ state: { kind: "none" }, busy: "finish" });
     expect(text(finishing)).toContain("Finishing the QuickBooks connection");
     expect(finishing).toMatch(/disabled/);
-    const importing = await render({ state: { kind: "connected", realmId: "1" }, busy: "import" });
+    const importing = await render({ state: { kind: "connected", connectionId: "c1", connectedOn: "2026-11-01" }, busy: "import" });
     expect(text(importing)).toContain("Importing");
     expect(importing).toMatch(/disabled/);
   });
@@ -85,15 +86,15 @@ describe("Import from QuickBooks card", () => {
     expect(failed).toContain("text-destructive");
   });
   it("shows a success as a status and a refusal as an alert, with the server's detail when there is one", async () => {
-    const ok = await render({ state: { kind: "connected", realmId: "1" }, result: { ok: true, text: "Imported 30 accounts (GBP). The check has started and its result appears below." } });
+    const ok = await render({ state: { kind: "connected", connectionId: "c1", connectedOn: "2026-11-01" }, result: { ok: true, text: "Imported 30 accounts (GBP). The check has started and its result appears below." } });
     expect(ok).toContain('role="status"');
     expect(text(ok)).toContain("Imported 30 accounts (GBP)");
-    const bad = await render({ state: { kind: "connected", realmId: "1" }, result: { ok: false, text: "Nothing was imported.", detail: "The report's debits and credits are not equal." } });
+    const bad = await render({ state: { kind: "connected", connectionId: "c1", connectedOn: "2026-11-01" }, result: { ok: false, text: "Nothing was imported.", detail: "The report's debits and credits are not equal." } });
     expect(bad).toContain('role="alert"');
     expect(text(bad)).toContain("The report's debits and credits are not equal.");
   });
   it("never names an engine and never shows a credential term, in any state", async () => {
-    const states: Props["state"][] = ["checking", { kind: "none" }, { kind: "connected", realmId: "1" }, { kind: "reconnect", realmId: "1" }];
+    const states: Props["state"][] = ["checking", { kind: "none" }, { kind: "connected", connectionId: "c1", connectedOn: "2026-11-01" }, { kind: "reconnect", connectionId: "c1" }];
     for (const state of states) {
       for (const returned of [null, "connected", "denied", "failed"] as const) {
         const t = text(await render({ state, returned }));

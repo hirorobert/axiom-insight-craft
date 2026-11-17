@@ -4,12 +4,14 @@ import crypto from "node:crypto";
 import { OAUTH_STATE_TTL_SECONDS, oauthReturnBinding, parseCallbackQuery, parseConnectStartRequest, parseFinishRequest, runQboCallback, runQboConnectStart, runQboFinish, type CallbackDeps, type ConnectStartDeps, type FinishDeps, type ReturnBack } from "../../../supabase/functions/_shared/qboConnect";
 import { connectionBinding, openSecret, sealSecret, type EnvelopeKey } from "../../../supabase/functions/_shared/qboTokenEnvelope";
 import type { TokenResult } from "../../../supabase/functions/_shared/qboTokenClient";
+import { openParkedRealm, openRealm, protectParkedRealm, protectRealm, realmIndex, type RealmKeys } from "../../../supabase/functions/_shared/qboRealmProtection";
 
 // Invented values only: no real client id, code, state or token appears here.
 const COMPANY = "11111111-1111-1111-1111-111111111111";
 const ACTOR = "22222222-2222-2222-2222-222222222222";
 const CFG = { clientId: "ABtestclientidtestclientidtestclientid00", redirectUri: "https://app.example.test/functions/v1/qbo-oauth-callback" };
 const KEY: EnvelopeKey = { id: "k1", bytes: new Uint8Array(32).fill(5) };
+const REALM_KEYS: RealmKeys = { current: KEY, all: [KEY], index: { id: "idx1", bytes: new Uint8Array(32).fill(6) } };
 const sha = async (s: string) => crypto.createHash("sha256").update(s).digest("hex");
 const STATE = "ab".repeat(32);
 
@@ -89,6 +91,7 @@ function callbackDeps(over: Partial<CallbackDeps> = {}) {
     sha256Hex: sha,
     randomHandoff: () => HANDOFF,
     sealCode: async (c, b) => { log.sealed.push([c, b]); return sealSecret(c, KEY, b); },
+    protectParkedRealm: (realm, handoffHash) => protectParkedRealm(realm, handoffHash, REALM_KEYS),
     recordReturn: async (...a) => { log.recorded.push(a); return { companyId: COMPANY, environment: "sandbox", returnPeriodYear: 2026 }; },
     returnTo: RETURN_URL,
     ...over,
@@ -113,13 +116,24 @@ describe("callback: the code is parked, never exchanged, and the browser carries
     expect(r).toEqual({ status: 302, outcome: "handed_back", location: `https://app.example.test/workspace/${COMPANY}/2026/trial-balance/review#qbo_handoff=${HANDOFF}` });
     const u = new URL((r as { location: string }).location);
     expect(u.search).toBe(""); expect(u.hash).toBe(`#qbo_handoff=${HANDOFF}`);   // a browser never sends the fragment to a server
-    const [stateHash, parked] = log.recorded[0] as [string, { realmId: string; codeEnvelope: string; handoffHash: string }];
+    const [stateHash, parked] = log.recorded[0] as [string, { realmId: string; codeEnvelope: string; handoffHash: string; realm: { envelope: string; indexSandbox: string; indexProduction: string } }];
     expect(stateHash).toBe(await sha(STATE));
     expect(parked.realmId).toBe(QUERY.realmId); expect(parked.handoffHash).toBe(await sha(HANDOFF));
     expect(parked.codeEnvelope).not.toContain("code-not-real");
     expect(await openSecret(parked.codeEnvelope, [KEY], oauthReturnBinding(await sha(HANDOFF)))).toBe("code-not-real");
     await expect(openSecret(parked.codeEnvelope, [KEY], oauthReturnBinding(await sha("other")))).rejects.toThrow();   // it opens for no other handoff
     expect(JSON.stringify(log.recorded)).not.toContain(HANDOFF);   // the database holds only the handoff's hash
+    // realmID protection: the realm is parked sealed to the same handoff, with its keyed index for each environment (the database keeps the state's own).
+    expect(parked.realm.envelope).not.toContain(QUERY.realmId);
+    expect(await openParkedRealm(parked.realm.envelope, await sha(HANDOFF), [KEY])).toBe(QUERY.realmId);
+    await expect(openParkedRealm(parked.realm.envelope, await sha("other"), [KEY])).rejects.toThrow();
+    expect(parked.realm.indexSandbox).toBe(await realmIndex(QUERY.realmId, "sandbox", REALM_KEYS.index));
+    expect(parked.realm.indexProduction).toBe(await realmIndex(QUERY.realmId, "production", REALM_KEYS.index));
+  });
+  it("protecting the realm fails (no index key): nothing is consumed or parked", async () => {
+    const { deps, log } = callbackDeps({ protectParkedRealm: async () => { throw new Error("no index key"); } });
+    await expect(runQboCallback(deps, QUERY)).rejects.toThrow("no index key");
+    expect(log.recorded).toHaveLength(0);
   });
   it("never puts the code, the state, a token or an envelope in the redirect", async () => {
     const { deps } = callbackDeps();
@@ -149,14 +163,16 @@ describe("callback: the code is parked, never exchanged, and the browser carries
   });
   it("the callback's dependencies offer no way to reach Intuit", () => {
     const { deps } = callbackDeps();
-    expect(Object.keys(deps).sort()).toEqual(["randomHandoff", "recordReturn", "returnTo", "sealCode", "sha256Hex"]);
+    expect(Object.keys(deps).sort()).toEqual(["protectParkedRealm", "randomHandoff", "recordReturn", "returnTo", "sealCode", "sha256Hex"]);
   });
 });
 
 const GOOD: TokenResult = { ok: true, tokens: { accessToken: "access-not-real", refreshToken: "refresh-not-real-0001", accessExpiresInSeconds: 3600, refreshExpiresAt: "2027-02-09T12:00:00.000Z", hardExpiresAt: "2031-11-01T12:00:00.000Z" } };
 const OTHER = "55555555-5555-5555-5555-555555555555";
-async function finishDeps(over: Partial<FinishDeps> = {}, who: string = ACTOR) {
+const REALM = "9341458604136919";
+async function finishDeps(over: Partial<FinishDeps> = {}, who: string = ACTOR, park: { realmId?: string | null; protect?: boolean; index?: string } = {}) {
   const handoffHash = await sha(HANDOFF);
+  const sealedRealm = park.protect === false ? null : await protectParkedRealm(REALM, handoffHash, REALM_KEYS);
   const parked = { starter: ACTOR, envelope: await sealSecret("code-not-real", KEY, oauthReturnBinding(handoffHash)), open: true };
   const log = { taken: [] as unknown[][], exchanged: [] as unknown[][], stored: [] as unknown[][], sealed: [] as unknown[][] };
   const deps: FinishDeps = {
@@ -167,9 +183,15 @@ async function finishDeps(over: Partial<FinishDeps> = {}, who: string = ACTOR) {
       log.taken.push([h, actor]);
       if (h !== handoffHash || !parked.open) return { outcome: "unknown" };
       parked.open = false;
-      return actor === parked.starter ? { outcome: "taken", companyId: COMPANY, environment: "sandbox", realmId: "9341458604136919", codeEnvelope: parked.envelope } : { outcome: "not_yours" };
+      return actor === parked.starter ? {
+        outcome: "taken", companyId: COMPANY, environment: "sandbox", realmId: park.realmId === undefined ? REALM : park.realmId, codeEnvelope: parked.envelope,
+        realmEnvelope: sealedRealm?.envelope ?? null, realmIndex: sealedRealm ? park.index ?? sealedRealm.indexSandbox : null,
+      } : { outcome: "not_yours" };
     },
     openCode: async (e, b) => { try { return await openSecret(e, [KEY], b); } catch { return null; } },
+    openParkedRealm: async (e, h) => { try { return await openParkedRealm(e, h, [KEY]); } catch { return null; } },
+    realmIndex: (realm, environment) => realmIndex(realm, environment, REALM_KEYS.index),
+    protectRealm: (realm, environment, company) => protectRealm(realm, environment, company, REALM_KEYS),
     oauthConfig: () => CFG,
     exchangeCode: async (...a) => { log.exchanged.push(a); return GOOD; },
     sealRefreshToken: async (t, b) => { log.sealed.push([t, b]); return sealSecret(t, KEY, b); },
@@ -191,9 +213,37 @@ describe("finish: only the signed-in person who started the attempt connects any
     expect(log.exchanged).toEqual([["sandbox", "code-not-real", CFG.redirectUri]]);
     const binding = connectionBinding(COMPANY, "9341458604136919", "sandbox");
     expect(log.sealed).toEqual([["refresh-not-real-0001", binding]]);
-    const [company, actor, realm, env, envelope] = log.stored[0] as string[];
+    const [company, actor, realm, env, envelope, , , protection] = log.stored[0] as [string, string, string, string, string, string, string, { envelope: string; index: string }];
     expect([company, actor, realm, env]).toEqual([COMPANY, ACTOR, "9341458604136919", "sandbox"]);
     expect(await openSecret(envelope, [KEY], binding)).toBe("refresh-not-real-0001");
+    // the connection's realm is stored sealed to the workspace and environment, with its index
+    expect(await openRealm(protection.envelope, "sandbox", COMPANY, [KEY])).toBe(REALM);
+    await expect(openRealm(protection.envelope, "sandbox", OTHER, [KEY])).rejects.toThrow();
+    expect(protection.index).toBe(await realmIndex(REALM, "sandbox", REALM_KEYS.index));
+  });
+  it("the parked realm is read by OPENING its envelope: with the plaintext gone (after the cutover) the same connection is stored", async () => {
+    const { deps, log } = await finishDeps({}, ACTOR, { realmId: null });
+    expect(await runQboFinish(deps, { handoff: HANDOFF })).toEqual({ status: 200, outcome: "connected" });
+    expect((log.stored[0] as string[])[2]).toBe(REALM);
+  });
+  it("an attempt parked in clear before the protection release is finished once and stored protected", async () => {
+    const { deps, log } = await finishDeps({}, ACTOR, { protect: false });
+    expect(await runQboFinish(deps, { handoff: HANDOFF })).toEqual({ status: 200, outcome: "connected" });
+    const protection = (log.stored[0] as unknown[])[7] as { envelope: string; index: string };
+    expect(await openRealm(protection.envelope, "sandbox", COMPANY, [KEY])).toBe(REALM);
+  });
+  it.each<[string, { realmId?: string | null; index?: string }]>([
+    ["the parked plaintext disagrees with the envelope", { realmId: "1111" }],
+    ["the parked index is not the realm's", { index: "h1.idx1." + "0".repeat(64) }],
+  ])("%s -> refused before Intuit is touched, nothing stored", async (_l, park) => {
+    const { deps, log } = await finishDeps({}, ACTOR, park);
+    expect(await runQboFinish(deps, { handoff: HANDOFF })).toEqual({ status: 500, outcome: "failed" });
+    expect(log.exchanged).toHaveLength(0); expect(log.stored).toHaveLength(0);
+  });
+  it("neither an envelope nor a plaintext realm: refused, nothing stored", async () => {
+    const { deps, log } = await finishDeps({}, ACTOR, { protect: false, realmId: null });
+    expect(await runQboFinish(deps, { handoff: HANDOFF })).toEqual({ status: 500, outcome: "failed" });
+    expect(log.exchanged).toHaveLength(0);
   });
   it("THE ATTACK: someone else finishes an attempt another person started. Refused before Intuit is touched; no token ever exists; the attempt is over", async () => {
     const { deps, log } = await finishDeps({}, OTHER);
@@ -215,6 +265,7 @@ describe("finish: only the signed-in person who started the attempt connects any
     ["the handoff expired", { takeReturn: async () => ({ outcome: "expired" }) }, 410, "expired", true],
     ["the app is no longer configured", { oauthConfig: () => null }, 503, "not_configured", true],
     ["the parked code cannot be opened", { openCode: async () => null }, 500, "failed", true],
+    ["the parked realm cannot be opened", { openParkedRealm: async () => null }, 500, "failed", true],
     ["QuickBooks no longer accepts the code", { exchangeCode: async () => ({ ok: false, reason: "invalid_grant" }) }, 410, "expired", true],
     ["QuickBooks is unavailable", { exchangeCode: async () => ({ ok: false, reason: "unavailable" }) }, 503, "quickbooks_unavailable", true],
     ["QuickBooks rejects for another reason", { exchangeCode: async () => ({ ok: false, reason: "rejected" }) }, 502, "failed", true],

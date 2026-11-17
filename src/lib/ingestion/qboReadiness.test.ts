@@ -5,6 +5,9 @@ import { boundedQboRead } from "../../../supabase/functions/_shared/qboBoundedRe
 import { classifyQboRequest, createGuardedQboFetch, qboPreferencesUrl, QBO_REVOKE_URL } from "../../../supabase/functions/_shared/qboReadOnlyGuard";
 import { parseDisconnectRequest, runQboDisconnect, type DisconnectDeps } from "../../../supabase/functions/_shared/qboDisconnect";
 import { readQboEnv } from "../../../supabase/functions/_shared/qboEnv";
+import { connectionBinding } from "../../../supabase/functions/_shared/qboTokenEnvelope";
+import { protectRealm, realmForOperation, type RealmKeys } from "../../../supabase/functions/_shared/qboRealmProtection";
+const REALM_KEYS: RealmKeys = { current: { id: "k1", bytes: new Uint8Array(32).fill(1) }, all: [{ id: "k1", bytes: new Uint8Array(32).fill(1) }], index: { id: "idx1", bytes: new Uint8Array(32).fill(2) } };
 const ID = "11111111-1111-1111-1111-111111111111", RID = "22222222-2222-2222-2222-222222222222";
 const prefs = (month: string) => ({ Preferences: { AccountingInfoPrefs: { FirstMonthOfFiscalYear: month }, ReportPrefs: { ReportBasis: "Accrual" }, CurrencyPrefs: { HomeCurrency: { value: "USD" } } } });
 const period = (start: string, end: string) => ({ id: ID, companyId: ID, year: Number(end.slice(0, 4)), start, end, currency: "USD" });
@@ -70,7 +73,7 @@ describe("outbound writes cannot leave the guard", () => {
 });
 describe("authenticated disconnect and lost-response recovery", () => {
   const world = (over: Partial<DisconnectDeps> = {}) => {
-    const d: DisconnectDeps = { authenticate: async () => ID, begin: vi.fn(async () => ({ outcome: "pending", leaseId: RID, envelope: "fixture-envelope", companyId: ID, realmId: "123", environment: "sandbox" })), open: vi.fn(async () => "FAKE-not-a-token"), revoke: vi.fn(async () => true), finish: vi.fn(async () => true), ...over };
+    const d: DisconnectDeps = { authenticate: async () => ID, begin: vi.fn(async () => ({ outcome: "pending", leaseId: RID, envelope: "fixture-envelope", companyId: ID, realmId: "123", environment: "sandbox" })), realm: vi.fn(async () => ({ ok: true as const, realmId: "123", protected: true })), open: vi.fn(async () => "FAKE-not-a-token"), revoke: vi.fn(async () => true), finish: vi.fn(async () => true), ...over };
     return d;
   };
   const request = { connectionId: ID, requestId: RID };
@@ -90,6 +93,32 @@ describe("authenticated disconnect and lost-response recovery", () => {
       expect(await runQboDisconnect(d, request)).toEqual({ status: 202, outcome: "revocation_pending" });
     }
     const d = world(); expect(await runQboDisconnect(d, request)).toEqual({ status: 200, outcome: "disconnected" }); expect(d.begin).toHaveBeenCalledWith(ID, ID, RID);
+  });
+  it("the realm is read by opening the operation's envelope; the token opens only with that realm's binding", async () => {
+    const p = await protectRealm("123", "sandbox", ID, REALM_KEYS);
+    const begin = vi.fn(async () => ({ outcome: "pending", leaseId: RID, envelope: "fixture-envelope", companyId: ID, realmId: null, realmEnvelope: p.envelope, realmIndex: p.index, environment: "sandbox" as const }));
+    const opened: unknown[] = [];
+    const d = world({ begin, realm: (id, b) => realmForOperation({ id, company_id: b.companyId!, environment: b.environment!, realm_id: b.realmId ?? null, realm_envelope: b.realmEnvelope ?? null, realm_index: b.realmIndex ?? null }, REALM_KEYS, null),
+      open: vi.fn(async (_e, binding) => (opened.push(binding), "FAKE-not-a-token")) });
+    expect(await runQboDisconnect(d, request)).toEqual({ status: 200, outcome: "disconnected" });
+    expect(opened).toEqual([connectionBinding(ID, "123", "sandbox")]);
+  });
+  it("an operation recorded before the backfill is protected after begin judged the person, then revoked", async () => {
+    const submitted: unknown[] = [];
+    const begin = vi.fn(async () => ({ outcome: "pending", leaseId: RID, envelope: "fixture-envelope", companyId: ID, realmId: "123", realmEnvelope: null, realmIndex: null, environment: "sandbox" as const }));
+    const d = world({ begin, realm: (id, b) => realmForOperation({ id, company_id: b.companyId!, environment: b.environment!, realm_id: b.realmId ?? null, realm_envelope: b.realmEnvelope ?? null, realm_index: b.realmIndex ?? null }, REALM_KEYS, async (a) => (submitted.push(a), "protected")) });
+    expect(await runQboDisconnect(d, request)).toEqual({ status: 200, outcome: "disconnected" });
+    expect(submitted).toHaveLength(1); expect(submitted[0]).toMatchObject({ p_connection: ID, p_realm_id: "123" });
+  });
+  it("a realm that cannot be read leaves the local disconnect in place and the revocation pending; no token is opened", async () => {
+    const d = world({ realm: vi.fn(async () => ({ ok: false as const, reason: "unreadable" as const })) });
+    expect(await runQboDisconnect(d, request)).toEqual({ status: 202, outcome: "revocation_pending" });
+    expect(d.open).not.toHaveBeenCalled(); expect(d.revoke).not.toHaveBeenCalled();
+  });
+  it("refused or finished disconnects never ask for the realm", async () => {
+    for (const outcome of ["forbidden", "busy", "shared_connection", "revoked", "local_only"]) {
+      const d = world({ begin: vi.fn(async () => ({ outcome })) }); await runQboDisconnect(d, request); expect(d.realm).not.toHaveBeenCalled();
+    }
   });
   it("production cannot borrow sandbox credentials or activate solely from client input", () => {
     const values: Record<string,string> = { QBO_CLIENT_ID_SANDBOX: "sandbox", QBO_CLIENT_SECRET_SANDBOX: "fixture", QBO_CLIENT_ID_PRODUCTION: "production", QBO_CLIENT_SECRET_PRODUCTION: "other" };

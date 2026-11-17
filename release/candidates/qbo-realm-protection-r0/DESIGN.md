@@ -1,8 +1,15 @@
-# QuickBooks realmID protection — design and inert candidate (r0)
+# SUPERSEDED — QuickBooks realmID protection, design of the inert candidate (r0)
 
-**Status: INERT CANDIDATE — awaiting Intuit's written clarification (case 00232331).** Nothing here is a migration, is registered,
-is imported by a function or page, or is deployed. Do not apply, promote or wire any of it until the clarification arrives and
-the owner decides.
+**Superseded on 2026-11-17 by the authorized release `docs/release/qbo-realm-protection-r1/README.md`.** Intuit answered case
+00232331 on 9 Nov 2026: *"Refresh tokens and realmID must both be encrypted in persistent storage (AES preferred), with the key in
+separate server-side configuration. Host encryption at rest is not enough for realmID if the app stores it in the clear."* The
+owner authorized building the release. The candidate's module and SQL were promoted (`supabase/functions/_shared/qboRealmProtection.ts`,
+`supabase/migrations/20261230100000_qbo_realm_protection_schema.sql` and its Phase B companions) and removed from this folder; its
+proof was replaced by `scripts/db-proof/qboRealmProtection.mjs`. The text below is kept unchanged as the reviewed design record.
+
+---
+
+**Original status (r0): INERT CANDIDATE — awaiting Intuit's written clarification (case 00232331).**
 
 ## The requirement and the open question
 

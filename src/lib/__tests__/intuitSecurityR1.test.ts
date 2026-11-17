@@ -1,17 +1,20 @@
 /**
  * intuit-security-r1 (docs/release/intuit-security-r1/RECORD.md): static guards for the Intuit security-requirement changes.
  * The behaviour is proven elsewhere: scripts/db-proof/apiCacheHeaders.mjs (a real PostgREST), scripts/e2e/sourceDownloadJourney.mjs and
- * localStackJourney.mjs (the local Supabase stack in CI), scripts/db-proof/qboRealmProtectionCandidate.mjs (the inert realm candidate).
+ * localStackJourney.mjs (the local Supabase stack in CI). The realmID protection that the inert candidate (release/candidates/qbo-realm-protection-r0)
+ * designed is now a real release (Intuit's answer of 9 Nov 2026, case 00232331): docs/release/qbo-realm-protection-r1/README.md, proven by
+ * scripts/db-proof/qboRealmProtection.mjs and src/lib/ingestion/qboRealmProtection.test.ts.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { openRealm, realmIndex, sealRealm, REALM_INDEX_SHAPE } from "../../../release/candidates/qbo-realm-protection-r0/realmProtection";
+import { openRealm, realmIndex, sealRealm, REALM_INDEX_SHAPE } from "../../../supabase/functions/_shared/qboRealmProtection";
 import { QBO_CONNECTOR_ENABLED } from "../workspace/qboConnectorClient";
 
 const ROOT = path.resolve(__dirname, "../../..");
 const read = (f: string) => fs.readFileSync(path.join(ROOT, f), "utf8");
 const MIGRATION = "supabase/migrations/20261215100000_api_cache_control_headers.sql";
+const REALM_MIGRATIONS = ["20261230100000_qbo_realm_protection_schema.sql", "20261230200000_qbo_realm_protection_connect.sql", "20261230300000_qbo_realm_protection_evidence.sql"];
 const NO_CACHE_FUNCTIONS = ["qbo-connect-start", "qbo-disconnect", "qbo-finish-connection", "qbo-oauth-callback", "qbo-pull-trial-balance",
   "trial-balance-draft", "trial-balance-source-download", "trial-balance-source-signer"];
 /** Functions that still send no-store only (not QuickBooks and not serving workspace data to a browser): listed in the record, changed deliberately. */
@@ -80,12 +83,21 @@ describe("the PostgREST pre-request hook migration", () => {
   });
 });
 
-describe("the realmID protection candidate stays inert (awaiting Intuit clarification)", () => {
-  it("is not a migration, is imported by no function or page, and says it awaits clarification", () => {
-    expect(fs.readdirSync(path.join(ROOT, "supabase/migrations")).filter((f) => /realm/i.test(f))).toEqual([]);
-    const importers = [...walk("supabase/functions"), ...walk("src")].filter((f) => !f.includes("__tests__") && read(f).includes("qbo-realm-protection-r0"));
+describe("the realmID protection: the inert candidate is superseded by the authorized release (Intuit case 00232331, answer of 9 Nov 2026)", () => {
+  it("the candidate folder keeps only its superseded design; nothing imports it; the release's migrations are the reviewed ones", () => {
+    expect(fs.readdirSync(path.join(ROOT, "release/candidates/qbo-realm-protection-r0"))).toEqual(["DESIGN.md"]);
+    expect(read("release/candidates/qbo-realm-protection-r0/DESIGN.md")).toMatch(/^# SUPERSEDED/);
+    const importers = [...walk("supabase/functions"), ...walk("src"), ...walk("scripts")].filter((f) => !f.includes("__tests__") && read(f).includes("qbo-realm-protection-r0"));
     expect(importers).toEqual([]);
-    for (const f of ["DESIGN.md", "phase-a-additive.sql", "realmProtection.ts"]) expect(read(`release/candidates/qbo-realm-protection-r0/${f}`), f).toMatch(/awaiting Intuit('s written)? clarification/i);
+    expect(fs.readdirSync(path.join(ROOT, "supabase/migrations")).filter((f) => /realm/i.test(f))).toEqual(REALM_MIGRATIONS);
+  });
+  it("every function that stores or reads a realm uses the module and refuses without the realm keys", () => {
+    for (const fn of ["qbo-oauth-callback", "qbo-finish-connection", "qbo-pull-trial-balance", "qbo-disconnect", "qbo-realm-protect"]) {
+      const src = read(`supabase/functions/${fn}/index.ts`);
+      expect(src, fn).toMatch(/from "\.\.\/_shared\/qboRealm(Protection|Backfill)\.ts"/);
+      expect(src, fn).toMatch(/realmKeys\(\)/);
+      expect(src, fn).not.toMatch(/console\.log\([^)]*realm(Id|_id|Envelope|_envelope|Index|_index)/);
+    }
   });
   const key = (id: string, fill: number) => ({ id, bytes: new Uint8Array(32).fill(fill) });
   it("an envelope opens to its realm only for its own workspace and environment; the index is keyed, deterministic and shaped", async () => {

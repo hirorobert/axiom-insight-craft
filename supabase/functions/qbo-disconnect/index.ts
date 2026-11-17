@@ -1,18 +1,23 @@
+// qbo-disconnect: local disconnect first, then revocation at Intuit (see _shared/qboDisconnect.ts). realmID protection (Intuit case 00232331): the
+// realm is read only by opening the operation's realm envelope; an operation recorded from a connection the backfill had not reached is protected
+// here through the service-only qbo_protect_disconnect_realm, after qbo_begin_disconnect has judged the person. Without the realm index key: "not configured".
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/auth.ts";
 import { parseDisconnectRequest, runQboDisconnect } from "../_shared/qboDisconnect.ts";
 import { readQboEnv } from "../_shared/qboEnv.ts";
 import { openSecret } from "../_shared/qboTokenEnvelope.ts";
+import { realmForOperation } from "../_shared/qboRealmProtection.ts";
 import { createGuardedQboFetch, QBO_REVOKE_URL } from "../_shared/qboReadOnlyGuard.ts";
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-cache, no-store" } });
 Deno.serve(async req => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json(405, { outcome: "invalid_request" });
   const url = Deno.env.get("SUPABASE_URL"), key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  if (!url || !key) return json(503, { outcome: "not_configured" });
+  const config = readQboEnv(n => Deno.env.get(n));
+  const realmKeys = config.realmKeys();
+  if (!url || !key || !realmKeys) return json(503, { outcome: "not_configured" });
   const service = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
   const bearer = req.headers.get("Authorization")?.replace(/^Bearer /, "") ?? "";
-  const config = readQboEnv(n => Deno.env.get(n));
   const fetcher = createGuardedQboFetch((u, init) => fetch(u, init));
   const result = await runQboDisconnect({
     authenticate: async () => {
@@ -23,6 +28,14 @@ Deno.serve(async req => {
       const { data, error } = await service.rpc("qbo_begin_disconnect", { p_connection: id, p_actor: actor, p_request: request });
       if (error) throw new Error("disconnect_unconfirmed"); return data;
     },
+    realm: (connectionId, b) => realmForOperation({
+      id: connectionId, company_id: b.companyId ?? "", environment: b.environment ?? "sandbox",
+      realm_id: b.realmId ?? null, realm_envelope: b.realmEnvelope ?? null, realm_index: b.realmIndex ?? null,
+    }, realmKeys, async (args) => {
+      const { data, error } = await service.rpc("qbo_protect_disconnect_realm", args);
+      if (error) throw error;
+      return String(data);
+    }),
     open: async (envelope, binding) => {
       const keys = config.keys(); if (!keys) return null;
       try { return await openSecret(envelope, keys.all, binding); } catch { return null; }
