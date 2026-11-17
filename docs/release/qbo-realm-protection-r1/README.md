@@ -45,19 +45,42 @@ Append-only evidence (`qbo_pull_intents`, `qbo_pulls`) follows option (a) of the
 callback, finish, import, disconnect and backfill functions answer "not configured" and write nothing: there is no plaintext-only fallback
 for new writes. Losing the index key means a full re-index; losing the token key means every envelope (tokens and realms) is unreadable.
 
+## Who may run the backfill
+
+Lovable Cloud does not disclose the service-role credential to anyone (Supabase: "Service role and API keys are not accessible for Lovable
+Cloud–managed projects"), and Lovable's own direct function calls use the signed-in user's session. So `qbo-realm-protect` does not ask for
+that credential. It admits **only a signed-in, active platform owner**:
+
+* the gateway requires a valid session (`verify_jwt = true`), and the function re-verifies it with the auth server
+  (`_shared/auth.ts` `validateAuth`); a token with no user (the service-role or anon key), an expired or forged session, or no session is
+  refused `401` before the database is asked;
+* the database decides authority with its own `public.is_platform_owner(user)` (an active `commercial_admins` row at the `platform_owner`
+  tier, hosted since 20261104100000); a workspace owner, member, commercial-tier administrator or inactive owner is refused `403`; an
+  answer that is not exactly `true`, or a check that cannot complete, is refused (`403` / `503`), never assumed;
+* only then does the function use its own service client, and only for the two fixed actions (`{"action":"protect"}` /
+  `{"action":"verify"}`, nothing else accepted) through the service-only database functions. There is no SQL, no row selection and no
+  realm in the request or the answer.
+
+Safe to repeat, to run twice at once, and to resume: each row is decided by its own call under a row lock that never overwrites
+(`already_protected` / `already_verified`), so an interrupted run leaves only finished rows and the next run completes the rest
+(proven on real PostgreSQL: an interrupted run, two concurrent protects, two concurrent verifications). The function log records the
+actor's user id, the outcome and the counts; never a realm, envelope, index, key or row id.
+
 ## Deployment order, PR 1 (Phases A + B) — owner / Lovable only
 
 1. Set the two secrets above (Supabase → Edge Functions → Secrets).
 2. Apply `20261230100000`, then `20261230200000`, then `20261230300000` through the canonical journalled migrator, in that order (each
    refuses without its predecessor; a replay is a no-op). Between apply and step 3 the deployed functions keep working (the new
-   parameters default to NULL); what they write unprotected is protected in step 4. The sandbox rehearsal's status line shows no company id
-   until step 5.
-3. Deploy `qbo-oauth-callback`, `qbo-finish-connection`, `qbo-pull-trial-balance`, `qbo-disconnect` and the new `qbo-realm-protect`
-   (`supabase functions deploy <name>`; a GitHub merge does not redeploy functions).
-4. Run the backfill with the service-role key (never a member's token):
-   `POST /functions/v1/qbo-realm-protect {"action":"protect"}`, then `{"action":"verify"}`. Both answer counts only; `verify` must answer
-   `200 complete` with `live_verified = live_connections` and `operations_verified = operations`.
-5. Publish the frontend (the import sends a connection id; the status line shows the connection date).
+   parameters default to NULL); what they write unprotected is protected in step 5. The sandbox rehearsal's status line shows no company id
+   until step 4.
+3. Deploy `qbo-oauth-callback`, `qbo-finish-connection`, `qbo-pull-trial-balance`, `qbo-disconnect`, `qbo-connect-start` (its bundle
+   includes `_shared/qboConnect.ts`) and the new `qbo-realm-protect` (a GitHub merge does not redeploy functions; deploy each explicitly).
+4. Publish the frontend (the import sends a connection id; the status line shows the connection date; the platform-owner rehearsal page
+   gains the encryption control). Until step 5, an import or disconnect protects its own connection first (`realmForOperation` in `_shared/qboRealmProtection.ts`).
+5. Run the backfill as the platform owner (see "Who may run the backfill"): sign in, open `/internal/tester/quickbooks`, press
+   **Encrypt stored company IDs**, then **Check encryption**. Both show counts only. Done only when the check reads "Check complete" with
+   every connection and every disconnect record checked (the function's `200 complete`). Anything else: run it again; if the count of
+   records needing attention does not fall, stop.
 
 Rollback of PR 1: stop at any step; the plaintext is intact. To remove the schema, drop the functions, guards' added rule, index,
 constraints and columns of Phase A (they hold only derived data).
@@ -66,13 +89,14 @@ constraints and columns of Phase A (they hold only derived data).
 
 Needs: PR 1 fully deployed, `verify` at 100 %, **a database backup**, and the owner's explicit go. Order:
 
-1. Backup. 2. `qbo-realm-protect` `{"action":"verify"}` → `200 complete` (connections stored since the last pass are verified here).
+1. Backup. 2. As the platform owner, **Check encryption** on `/internal/tester/quickbooks` (`qbo-realm-protect` `{"action":"verify"}`) →
+   "Check complete" (`200 complete`; connections stored since the last pass are verified here).
 3. Apply `20261231100000` → `20261231200000` → `20261231300000`, in order (each refuses unless every live connection and every disconnect
    operation is protected, and verified while it still holds a plaintext: `QBO_REALM_CUTOVER_REFUSED`, nothing changed). The Phase B
    functions keep working throughout (their plaintext argument is accepted and never stored; they read the realm from the envelope).
 4. Deploy the Phase C versions of `qbo-oauth-callback`, `qbo-finish-connection`, `qbo-pull-trial-balance`, `qbo-disconnect`,
-   `qbo-realm-protect` (and `qbo-connect-start`, whose bundle includes `qboConnect.ts`). 5. `verify` again: a local open-and-index check, counts
-   only, nothing written. No frontend change.
+   `qbo-realm-protect` (and `qbo-connect-start`, whose bundle includes `qboConnect.ts`). 5. **Check encryption** again: a local open-and-index
+   check, counts only, nothing written. No frontend change.
 
 What keeps a plaintext afterwards, by design: disconnected (terminal) connection rows (their guard forbids any change) and import intents
 and provenance rows written before Phase B (append-only evidence, DESIGN option a). `qbo_realm_protection_status()` counts both

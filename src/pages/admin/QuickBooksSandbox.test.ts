@@ -17,7 +17,11 @@ describe("internal Sandbox entry", () => {
     f.actor = null; ui = mount(h(QuickBooksSandbox)); await flush(); expect(ui.container.textContent).toContain("Sign in to continue"); expect(f.entries).not.toHaveBeenCalled();
   });
   it("denies ordinary users without listing workspaces", async () => {
-    f.allowed = false; ui = mount(h(QuickBooksSandbox)); await flush(); expect(ui.container.textContent).toContain("only to the platform owner"); expect(f.entries).not.toHaveBeenCalled();
+    f.allowed = false; ui = mount(h(QuickBooksSandbox)); await flush(); expect(ui.container.textContent).toContain("only to the platform owner"); expect(f.entries).not.toHaveBeenCalled(); expect(ui.container.textContent).not.toContain("Stored QuickBooks company IDs");
+  });
+  it("shows the platform owner the company-ID encryption control; it is absent before access is decided", async () => {
+    ui = mount(h(QuickBooksSandbox)); expect(ui.container.textContent).not.toContain("Stored QuickBooks company IDs"); await flush();
+    expect(ui.container.textContent).toContain("Stored QuickBooks company IDs");
   });
   it("requires a sample-data confirmation and enrolls before opening the normal review", async () => {
     ui = mount(h(QuickBooksSandbox)); await flush();

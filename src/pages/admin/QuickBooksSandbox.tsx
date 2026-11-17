@@ -5,6 +5,7 @@ import { useActiveEngagements } from "@/hooks/useActiveEngagements";
 import { useAuth } from "@/contexts/AuthContext";
 import { sandboxAccessDeps, sandboxStorage } from "@/hooks/useQboSandboxAccess";
 import { enrollSandbox, sandboxActor } from "@/lib/workspace/qboSandboxAccess";
+import RealmProtectionPanel from "./RealmProtectionPanel";
 
 function WorkspacePicker() {
   const { entries, loading, fetchFailed } = useActiveEngagements();
@@ -52,7 +53,7 @@ export default function QuickBooksSandbox() {
   return <main className="mx-auto max-w-2xl space-y-5 px-4 py-8">
     <h1 className="text-2xl font-semibold">QuickBooks Sandbox rehearsal</h1>
     <p>Internal testing only. This does not enable customer QuickBooks access or production connections.</p>
-    {loading ? <p role="status">Checking access…</p> : !user ? <Link className="underline" to="/auth">Sign in to continue</Link> : access?.actor !== user.id ? <p role="status">Checking access…</p> : !allowed ? <p role="alert">This rehearsal is available only to the platform owner.</p> : <WorkspacePicker />}
+    {loading ? <p role="status">Checking access…</p> : !user ? <Link className="underline" to="/auth">Sign in to continue</Link> : access?.actor !== user.id ? <p role="status">Checking access…</p> : !allowed ? <p role="alert">This rehearsal is available only to the platform owner.</p> : <><WorkspacePicker /><RealmProtectionPanel /></>}
     <Link className="underline" to="/dashboard">Back to workspaces</Link>
   </main>;
 }

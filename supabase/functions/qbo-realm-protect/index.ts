@@ -1,28 +1,39 @@
-// qbo-realm-protect: the one-off, SERVICE-ONLY backfill and verification of QuickBooks realmIDs stored before the protection release (Intuit case
-// 00232331; docs/release/qbo-realm-protection-r1/README.md). No browser, no member: the caller must present the service-role credential itself
-// (compared in constant time with this runtime's own), so nothing here is reachable with a member's sign-in, and every database function it calls is
-// service-role only. AFTER THE CUTOVER there is no plaintext and no database writer: POST { "action": "verify" } opens every live connection's and
-// every disconnect operation's envelope and recomputes its index (counts only, nothing written); POST { "action": "protect" } only reports rows
-// without protection (there must be none). The answer and the log carry COUNTS only: never a realm, an envelope, an index, a key or a row id.
-// See _shared/qboRealmBackfill.ts.
+// qbo-realm-protect: the one-off backfill and verification of QuickBooks realmIDs stored before the protection release (Intuit case 00232331;
+// docs/release/qbo-realm-protection-r1/README.md). ONLY A SIGNED-IN ACTIVE PLATFORM OWNER may run it: the caller's own session proves who they
+// are (verified by the auth server through _shared/auth.ts validateAuth), and the database's own public.is_platform_owner(user) decides
+// authority. Lovable Cloud never discloses the service-role credential, so nothing here asks for it; a service-role or anon token has no user
+// and is refused, as is every member, commercial-tier administrator or inactive owner. Only after that decision does this function use its
+// own service client. AFTER THE CUTOVER there is no plaintext and no database writer: POST { "action": "verify" } opens every live
+// connection's and every disconnect operation's envelope and recomputes its index (counts only, nothing written); POST { "action": "protect" }
+// only reports rows without protection (there must be none). The answer and the log carry COUNTS only: never a realm, an envelope, an index,
+// a key or a row id. See _shared/qboRealmBackfill.ts.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { corsHeaders, validateAuth } from "../_shared/auth.ts";
 import { readQboEnv } from "../_shared/qboEnv.ts";
-import { parseBackfillRequest, runRealmBackfill, sameCredential, type BackfillRow } from "../_shared/qboRealmBackfill.ts";
+import { decideMaintenanceAuthority, parseBackfillRequest, runRealmBackfill, type BackfillRow } from "../_shared/qboRealmBackfill.ts";
 
 const json = (status: number, body: unknown) =>
-  new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-cache, no-store" } });
+  new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-cache, no-store" } });
 
 Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: { ...corsHeaders, "Cache-Control": "no-cache, no-store" } });
   if (req.method !== "POST") return json(405, { outcome: "invalid_request" });
   const url = Deno.env.get("SUPABASE_URL");
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   const realmKeys = readQboEnv((n) => Deno.env.get(n)).realmKeys();
-  if (!url || !serviceKey || !realmKeys) return json(503, { outcome: "not_configured" });
+  if (!url || !serviceKey || !Deno.env.get("SUPABASE_ANON_KEY") || !realmKeys) return json(503, { outcome: "not_configured" });
 
-  const authHeader = req.headers.get("Authorization") ?? "";
-  const presented = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
   const service = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
+  const authority = await decideMaintenanceAuthority(req.headers.get("Authorization"), {
+    userIdOf: async (header) => (await validateAuth(header, corsHeaders)).result?.userId ?? null,
+    isPlatformOwner: async (userId) => {
+      const { data, error } = await service.rpc("is_platform_owner", { p_user: userId });
+      if (error) throw error;
+      return data;
+    },
+  });
+
   const rows = (data: unknown[] | null, id: string): BackfillRow[] => (data ?? []).map((r) => {
     const x = r as Record<string, unknown>;
     return { id: x[id] as string, company_id: x.company_id as string, environment: x.environment as "production" | "sandbox",
@@ -30,7 +41,7 @@ Deno.serve(async (req) => {
   });
 
   const result = await runRealmBackfill({
-    authorize: () => sameCredential(presented, serviceKey),
+    authorize: async () => authority,
     listConnections: async () => {
       const { data, error } = await service.from("qbo_connections").select("id, company_id, environment, realm_envelope, realm_index").neq("status", "disconnected");
       if (error) throw error;
@@ -48,8 +59,8 @@ Deno.serve(async (req) => {
     },
   }, realmKeys, parseBackfillRequest(await req.json().catch(() => null))).catch(() => ({ status: 500 as const, outcome: "failed" as const }));
 
-  // OPERATIONAL LOG: counts only.
-  console.log(JSON.stringify({ event: "qbo.realm_protect", status: result.status, outcome: result.outcome,
+  // OPERATIONAL LOG: who ran it (a user id, never a credential), the outcome and counts only.
+  console.log(JSON.stringify({ event: "qbo.realm_protect", status: result.status, outcome: result.outcome, actor: authority.ok ? authority.actor : null,
     ...("connections" in result ? { action: result.action, connections: result.connections, operations: result.operations } : {}) }));
   const { status, ...body } = result;
   return json(status, body);
