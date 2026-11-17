@@ -1,7 +1,18 @@
 /**
- * qboRealmBackfill — the one-off, service-only protection and verification of realmIDs stored before the protection release (Intuit case
- * 00232331; docs/release/qbo-realm-protection-r1/README.md). Pure orchestration with injected dependencies: unit-tested in Node, run unchanged
- * by the qbo-realm-protect Edge Function.
+ * qboRealmBackfill — the one-off protection and verification of realmIDs stored before the protection release (Intuit case 00232331;
+ * docs/release/qbo-realm-protection-r1/README.md). Pure orchestration with injected dependencies: unit-tested in Node, run unchanged by the
+ * qbo-realm-protect Edge Function.
+ *
+ * WHO MAY RUN IT: only a signed-in ACTIVE PLATFORM OWNER, decided by the database's own public.is_platform_owner(user) (an active
+ * commercial_admins row at the platform_owner tier). Lovable Cloud does not expose the service-role credential to anyone, so the operation
+ * cannot depend on a caller presenting it; and it must not be an ordinary member's endpoint. The caller's own session proves identity, the
+ * database decides authority, and only then does the function use its service client for the service-only database functions below. A
+ * service-role or anon token has no user and is refused; a member, a commercial-tier administrator or an inactive platform owner is refused;
+ * an authority check that cannot be completed is refused (never assumed).
+ *
+ * SAFE TO REPEAT, TO RUN CONCURRENTLY AND TO RESUME: every row is decided by its own database call under a row lock that never overwrites
+ * (protect answers already_protected for a row another run sealed first; verify answers already_verified), so an interrupted run leaves only
+ * finished rows behind and the next run completes the rest.
  *
  *   protect  every live connection and every disconnect operation that has a plaintext realm and no envelope: seal it (bound to its workspace
  *            and environment), prove the envelope opens back to the plaintext, compute its keyed index, and submit through the service-only
@@ -19,9 +30,11 @@ export type BackfillAction = "protect" | "verify";
 /** A connection, or a disconnect operation (whose id is its connection id). */
 export interface BackfillRow extends StoredRealm { id: string }
 export interface BackfillTally { total: number; protected: number; already: number; verified: number; unprotected: number; mismatched: number; refused: number }
+/** The caller's authority, decided before anything is listed or written. */
+export type MaintenanceAuthority = { ok: true; actor: string } | { ok: false; reason: "unauthenticated" | "forbidden" | "unavailable" };
 export interface BackfillDeps {
-  /** True only for a caller presenting the service-role credential itself. */
-  authorize(): boolean;
+  /** Only an active platform owner (decideMaintenanceAuthority). */
+  authorize(): Promise<MaintenanceAuthority>;
   /** Live connections (status other than 'disconnected'). Terminal connections cannot change and are not listed. */
   listConnections(): Promise<BackfillRow[]>;
   /** Every disconnect operation. */
@@ -35,7 +48,7 @@ export interface BackfillDeps {
 }
 export type BackfillResult =
   | { status: 200 | 409; outcome: "complete" | "incomplete"; action: BackfillAction; connections: BackfillTally; operations: BackfillTally; database: Record<string, number> }
-  | { status: 400 | 401 | 500; outcome: "invalid_request" | "unauthorized" | "failed" };
+  | { status: 400 | 401 | 403 | 500 | 503; outcome: "invalid_request" | "unauthorized" | "forbidden" | "failed" | "unavailable" };
 
 export function parseBackfillRequest(body: unknown): { action: BackfillAction } | null {
   if (!body || typeof body !== "object" || Array.isArray(body)) return null;
@@ -44,13 +57,23 @@ export function parseBackfillRequest(body: unknown): { action: BackfillAction } 
   return { action: o.action };
 }
 
-/** Constant-time comparison of two credentials (no early exit on the first differing character). */
-export function sameCredential(a: string, b: string): boolean {
-  if (typeof a !== "string" || typeof b !== "string" || a.length === 0 || b.length === 0) return false;
-  const x = new TextEncoder().encode(a), y = new TextEncoder().encode(b);
-  let diff = x.length ^ y.length;
-  for (let i = 0; i < Math.max(x.length, y.length); i++) diff |= (x[i] ?? 0) ^ (y[i] ?? 0);
-  return diff === 0;
+const BEARER_JWT = /^Bearer ([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/;
+export interface MaintenanceAuthorityDeps {
+  /** The signed-in user the presented session belongs to, verified by the auth server; null when it is not a user's valid session. */
+  userIdOf(authHeader: string): Promise<string | null>;
+  /** public.is_platform_owner(user), asked of the database. */
+  isPlatformOwner(userId: string): Promise<unknown>;
+}
+/** Exactly one authority: a signed-in user whom the database answers `true` for. Anything else (no session, a key that is not a user,
+ *  a member, an administrator below the platform-owner tier, an inactive owner, an unreadable answer) is refused. */
+export async function decideMaintenanceAuthority(authHeader: string | null, deps: MaintenanceAuthorityDeps): Promise<MaintenanceAuthority> {
+  if (typeof authHeader !== "string" || !BEARER_JWT.test(authHeader)) return { ok: false, reason: "unauthenticated" };
+  let userId: string | null;
+  try { userId = await deps.userIdOf(authHeader); } catch { return { ok: false, reason: "unauthenticated" }; }
+  if (typeof userId !== "string" || userId.length === 0) return { ok: false, reason: "unauthenticated" };
+  let owner: unknown;
+  try { owner = await deps.isPlatformOwner(userId); } catch { return { ok: false, reason: "unavailable" }; }
+  return owner === true ? { ok: true, actor: userId } : { ok: false, reason: "forbidden" };
 }
 
 const empty = (): BackfillTally => ({ total: 0, protected: 0, already: 0, verified: 0, unprotected: 0, mismatched: 0, refused: 0 });
@@ -89,7 +112,12 @@ async function verifyRows(rows: BackfillRow[], keys: RealmKeys, submit: (a: Prot
 }
 
 export async function runRealmBackfill(deps: BackfillDeps, keys: RealmKeys, req: { action: BackfillAction } | null): Promise<BackfillResult> {
-  if (!deps.authorize()) return { status: 401, outcome: "unauthorized" };
+  let authority: MaintenanceAuthority;
+  try { authority = await deps.authorize(); } catch { authority = { ok: false, reason: "unavailable" }; }
+  if (!authority.ok) {
+    return authority.reason === "forbidden" ? { status: 403, outcome: "forbidden" }
+      : authority.reason === "unavailable" ? { status: 503, outcome: "unavailable" } : { status: 401, outcome: "unauthorized" };
+  }
   if (!req) return { status: 400, outcome: "invalid_request" };
   try {
     const [conns, ops] = [await deps.listConnections(), await deps.listOperations()];

@@ -5,7 +5,7 @@ import {
   REALM_ENVELOPE_SHAPE, REALM_INDEX_SHAPE, oauthRealmBinding, openParkedRealm, openRealm, protectExistingRealm, protectParkedRealm, protectRealm, realmBinding,
   realmForOperation, realmIndex, resolveStoredRealm, sealRealm, type RealmKeys, type StoredRealm,
 } from "../../../supabase/functions/_shared/qboRealmProtection";
-import { parseBackfillRequest, runRealmBackfill, sameCredential, type BackfillDeps, type BackfillRow } from "../../../supabase/functions/_shared/qboRealmBackfill";
+import { decideMaintenanceAuthority, parseBackfillRequest, runRealmBackfill, type BackfillDeps, type BackfillRow, type MaintenanceAuthority } from "../../../supabase/functions/_shared/qboRealmBackfill";
 import { readQboEnv } from "../../../supabase/functions/_shared/qboEnv";
 import { connectionBinding, openSecret } from "../../../supabase/functions/_shared/qboTokenEnvelope";
 
@@ -126,22 +126,31 @@ describe("configuration: the index key is its own secret", () => {
   ])("nothing with %s (the functions then answer not configured)", (_l, o) => { expect(env(o).realmKeys()).toBeNull(); });
 });
 
-describe("the one-off backfill (service-only)", () => {
+describe("the one-off backfill (platform owner only)", () => {
   const rows = async (): Promise<BackfillRow[]> => [
     { id: A, company_id: A, environment: "sandbox", realm_id: REALM, realm_envelope: null, realm_index: null },
     { id: B, company_id: B, environment: "production", realm_id: "9130350000000002", ...(await (async () => { const p = await protectRealm("9130350000000002", "production", B, KEYS); return { realm_envelope: p.envelope, realm_index: p.index }; })()) },
   ];
   const deps = (over: Partial<BackfillDeps> = {}): BackfillDeps => ({
-    authorize: () => true, listConnections: rows, listOperations: async () => [],
+    authorize: async () => ({ ok: true, actor: "owner" }), listConnections: rows, listOperations: async () => [],
     protectConnection: vi.fn(async () => "protected"), protectOperation: vi.fn(async () => "protected"),
     verifyConnection: vi.fn(async () => "verified"), verifyOperation: vi.fn(async () => "verified"), status: async () => ({ live_connections: 2 }), ...over,
   });
-  it("only a caller presenting the service credential; exactly { action }", async () => {
-    expect(await runRealmBackfill(deps({ authorize: () => false }), KEYS, { action: "protect" })).toEqual({ status: 401, outcome: "unauthorized" });
+  it.each([
+    [{ ok: false, reason: "unauthenticated" }, { status: 401, outcome: "unauthorized" }],
+    [{ ok: false, reason: "forbidden" }, { status: 403, outcome: "forbidden" }],
+    [{ ok: false, reason: "unavailable" }, { status: 503, outcome: "unavailable" }],
+  ] as [MaintenanceAuthority, unknown][])("a refused authority (%o) lists, reads and writes nothing", async (authority, answer) => {
+    const d = deps({ authorize: async () => authority, listConnections: vi.fn(rows), listOperations: vi.fn(async () => []), status: vi.fn(async () => ({})) });
+    for (const action of ["protect", "verify"] as const) expect(await runRealmBackfill(d, KEYS, { action })).toEqual(answer);
+    for (const f of [d.listConnections, d.listOperations, d.protectConnection, d.protectOperation, d.verifyConnection, d.verifyOperation, d.status]) expect(f).not.toHaveBeenCalled();
+  });
+  it("an authority check that throws is refused as unavailable, never assumed", async () => {
+    expect(await runRealmBackfill(deps({ authorize: async () => { throw new Error("db down"); } }), KEYS, { action: "protect" })).toEqual({ status: 503, outcome: "unavailable" });
+  });
+  it("exactly { action }", async () => {
     expect(await runRealmBackfill(deps(), KEYS, null)).toEqual({ status: 400, outcome: "invalid_request" });
-    for (const bad of [null, {}, { action: "drop" }, { action: "protect", realmId: REALM }]) expect(parseBackfillRequest(bad)).toBeNull();
-    expect(sameCredential("abc", "abc")).toBe(true);
-    for (const [a, b] of [["abc", "abd"], ["abc", "abcd"], ["", ""]]) expect(sameCredential(a, b)).toBe(false);
+    for (const bad of [null, {}, [], "protect", { action: "drop" }, { action: "protect", realmId: REALM }, { action: "verify", sql: "select 1" }]) expect(parseBackfillRequest(bad)).toBeNull();
   });
   it("protect: seals and submits only the unprotected rows; the answer is counts only", async () => {
     const d = deps();
@@ -165,5 +174,56 @@ describe("the one-off backfill (service-only)", () => {
   });
   it("a failure to list is a plain failure with nothing else said", async () => {
     expect(await runRealmBackfill(deps({ listConnections: async () => { throw new Error(REALM); } }), KEYS, { action: "verify" })).toEqual({ status: 500, outcome: "failed" });
+  });
+});
+
+describe("who may run the backfill: only a signed-in active platform owner, decided by the database", () => {
+  const JWT = "Bearer aaa.bbb.ccc";
+  const decide = (header: string | null, user: string | null | Error, owner: unknown) => {
+    const deps = {
+      userIdOf: vi.fn(async () => { if (user instanceof Error) throw user; return user; }),
+      isPlatformOwner: vi.fn(async () => { if (owner instanceof Error) throw owner; return owner; }),
+    };
+    return { deps, result: decideMaintenanceAuthority(header, deps) };
+  };
+  it("an active platform owner (the database answers exactly true) is admitted as themself", async () => {
+    const { deps, result } = decide(JWT, "owner-uid", true);
+    expect(await result).toEqual({ ok: true, actor: "owner-uid" });
+    expect(deps.isPlatformOwner).toHaveBeenCalledWith("owner-uid");
+  });
+  it.each([
+    ["no Authorization header", null],
+    ["an empty header", ""],
+    ["a Basic credential", "Basic dXNlcjpwYXNz"],
+    ["a bearer that is not a JWT (an opaque secret key)", "Bearer sb_secret_abcdef"],
+    ["a JWT with extra segments", "Bearer a.b.c.d"],
+    ["lower-case scheme", "bearer aaa.bbb.ccc"],
+    ["trailing data", "Bearer aaa.bbb.ccc extra"],
+  ])("%s is unauthenticated and nothing is asked of the auth server or the database", async (_l, header) => {
+    const { deps, result } = decide(header as string | null, "owner-uid", true);
+    expect(await result).toEqual({ ok: false, reason: "unauthenticated" });
+    expect(deps.userIdOf).not.toHaveBeenCalled(); expect(deps.isPlatformOwner).not.toHaveBeenCalled();
+  });
+  it.each([
+    ["the service-role or anon key (a JWT with no user)", null],
+    ["an expired or forged session", new Error("invalid JWT")],
+    ["an empty user id", ""],
+  ])("%s is unauthenticated; the database is never asked", async (_l, user) => {
+    const { deps, result } = decide(JWT, user as string | null | Error, true);
+    expect(await result).toEqual({ ok: false, reason: "unauthenticated" });
+    expect(deps.isPlatformOwner).not.toHaveBeenCalled();
+  });
+  it.each([
+    ["an ordinary member or workspace owner", false],
+    ["a commercial-tier administrator or an inactive platform owner", false],
+    ["an answer that is not exactly true (string)", "true"],
+    ["an answer that is not exactly true (number)", 1],
+    ["no answer", null],
+    ["an object", { is_platform_owner: true }],
+  ])("%s is forbidden", async (_l, owner) => {
+    expect(await decide(JWT, "member-uid", owner).result).toEqual({ ok: false, reason: "forbidden" });
+  });
+  it("a database that cannot answer is unavailable (fail closed)", async () => {
+    expect(await decide(JWT, "owner-uid", new Error("connection reset")).result).toEqual({ ok: false, reason: "unavailable" });
   });
 });
