@@ -6,8 +6,8 @@
 // with a one-time handoff code in the address fragment. The app, signed in, finishes through qbo-finish-connection, which exchanges the code only for the person
 // who started. A decline or an unusable return comes back as a status word. An unknown, expired or used state is a plain 400.
 // This function never calls Intuit. See _shared/qboConnect.ts. The service-role key and every secret stay inside the function and are never logged.
-// realmID protection (Intuit case 00232331): the realm is parked SEALED to the handoff with its keyed index; without the realm index key
-// (QBO_REALM_INDEX_KEY_ID / _B64) nothing is parked and the function answers "not configured".
+// realmID protection (Intuit case 00232331; after the cutover): the realm is parked ONLY sealed to the handoff with its keyed index, never in clear;
+// without the realm index key (QBO_REALM_INDEX_KEY_ID / _B64) nothing is parked and the function answers "not configured".
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { parseCallbackQuery, runQboCallback } from "../_shared/qboConnect.ts";
@@ -39,7 +39,7 @@ Deno.serve(async (req) => {
     protectParkedRealm: (realmId, handoffHash) => protectParkedRealm(realmId, handoffHash, realmKeys),
     recordReturn: async (stateHash, parked) => {
       const { data, error } = await service.rpc("qbo_record_oauth_return", {
-        p_state_hash: stateHash, p_realm_id: parked?.realmId ?? null, p_code_envelope: parked?.codeEnvelope ?? null, p_handoff_hash: parked?.handoffHash ?? null,
+        p_state_hash: stateHash, p_realm_id: null, p_code_envelope: parked?.codeEnvelope ?? null, p_handoff_hash: parked?.handoffHash ?? null,
         p_realm_envelope: parked?.realm.envelope ?? null, p_realm_index_sandbox: parked?.realm.indexSandbox ?? null, p_realm_index_production: parked?.realm.indexProduction ?? null,
       });
       if (error) throw error;

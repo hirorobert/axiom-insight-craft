@@ -23,6 +23,10 @@
  *            recomputed with the current index key; only then is the row marked verified (qbo_verify_connection_realm / _disconnect_realm, which
  *            compare once more with the plaintext the database holds). The cutover (Phase C) refuses unless every row is verified.
  *
+ * AFTER THE CUTOVER (20261231100000-20261231300000) the database writers are gone (there is no plaintext left to compare): the database functions are
+ * not supplied, "protect" only reports rows without protection, and "verify" opens every envelope and recomputes its index (a local check; nothing is
+ * written).
+ *
  * The answer and every log line carry COUNTS only: never a realm, an envelope, an index, a key or a row id.
  */
 import { protectExistingRealm, resolveStoredRealm, PROTECTED_OUTCOMES, type ProtectArgs, type RealmKeys, type StoredRealm } from "./qboRealmProtection.ts";
@@ -40,10 +44,11 @@ export interface BackfillDeps {
   listConnections(): Promise<BackfillRow[]>;
   /** Every disconnect operation. */
   listOperations(): Promise<BackfillRow[]>;
-  protectConnection(args: ProtectArgs): Promise<string>;
-  protectOperation(args: ProtectArgs): Promise<string>;
-  verifyConnection(args: ProtectArgs): Promise<string>;
-  verifyOperation(args: ProtectArgs): Promise<string>;
+  /** The database writers; absent after the cutover. */
+  protectConnection?(args: ProtectArgs): Promise<string>;
+  protectOperation?(args: ProtectArgs): Promise<string>;
+  verifyConnection?(args: ProtectArgs): Promise<string>;
+  verifyOperation?(args: ProtectArgs): Promise<string>;
   /** qbo_realm_protection_status(): the database's own counts. */
   status(): Promise<Record<string, number>>;
 }
@@ -79,12 +84,12 @@ export async function decideMaintenanceAuthority(authHeader: string | null, deps
 
 const empty = (): BackfillTally => ({ total: 0, protected: 0, already: 0, verified: 0, unprotected: 0, mismatched: 0, refused: 0 });
 
-async function protectRows(rows: BackfillRow[], keys: RealmKeys, submit: (a: ProtectArgs) => Promise<string>): Promise<BackfillTally> {
+async function protectRows(rows: BackfillRow[], keys: RealmKeys, submit: ((a: ProtectArgs) => Promise<string>) | undefined): Promise<BackfillTally> {
   const t = empty();
   for (const row of rows) {
     t.total++;
     if (row.realm_envelope) { t.already++; continue; }
-    if (typeof row.realm_id !== "string") { t.unprotected++; continue; }
+    if (typeof row.realm_id !== "string" || !submit) { t.unprotected++; continue; }
     let outcome: string;
     try { outcome = await submit(await protectExistingRealm(row, keys)); } catch { t.refused++; continue; }
     if (outcome === "protected") t.protected++;
@@ -95,7 +100,7 @@ async function protectRows(rows: BackfillRow[], keys: RealmKeys, submit: (a: Pro
   return t;
 }
 
-async function verifyRows(rows: BackfillRow[], keys: RealmKeys, submit: (a: ProtectArgs) => Promise<string>): Promise<BackfillTally> {
+async function verifyRows(rows: BackfillRow[], keys: RealmKeys, submit: ((a: ProtectArgs) => Promise<string>) | undefined): Promise<BackfillTally> {
   const t = empty();
   for (const row of rows) {
     t.total++;
@@ -103,6 +108,7 @@ async function verifyRows(rows: BackfillRow[], keys: RealmKeys, submit: (a: Prot
     // Opened with the key ring for the row's own workspace and environment; equal to the plaintext where it exists; index recomputed.
     const r = await resolveStoredRealm(row, keys, { allowPlaintext: false });
     if (!r.ok) { t.mismatched++; continue; }
+    if (!submit) { t.verified++; continue; }   // after the cutover: opened and index recomputed; nothing to write
     let outcome: string;
     try { outcome = await submit({ p_connection: row.id, p_realm_id: r.realmId, p_realm_envelope: row.realm_envelope, p_realm_index: row.realm_index }); } catch { t.refused++; continue; }
     if (outcome === "verified" || outcome === "already_verified") t.verified++;

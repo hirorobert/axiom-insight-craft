@@ -502,6 +502,20 @@ export const SUBMISSION_FORMS = Object.freeze({
     identical: Object.freeze({ bytes: 16317, sha256: "2855b8f8c2328868e0881b03804badc5a5f5cc3bf0f1e676cf77d17f53582837" }),
     finalLfRemoved: Object.freeze({ bytes: 16316, sha256: "41a9646912b23dbc19f20e0657ea52c00ca157345b4acff4e3cf0f4ff68583f4" }),
   }),
+  // ...and its Phase C cutover (IRREVERSIBLE for the plaintext once 20261231300000 runs; separately approved, after a database backup and a 100 %
+  // verification): authored and authorized, NOT applied; reported PENDING. Digests computed from the committed LF blob (git show).
+  "20261231100000_qbo_realm_protection_cutover_schema.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 8120, sha256: "987fe74f3edaf9d394d96ad5a2dfcdf3e10d7ef3a4ec03ab001f5b5aa7a6eb6e" }),
+    finalLfRemoved: Object.freeze({ bytes: 8119, sha256: "6955f0d01af3fdfccdf04f6a30c95e0a3cc259423d000b010380676266ddcc70" }),
+  }),
+  "20261231200000_qbo_realm_protection_cutover_functions.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 17646, sha256: "610367a0094449c71ed66bd3a11067c2affffdbdaaa8f88d5f2b318c41cb1212" }),
+    finalLfRemoved: Object.freeze({ bytes: 17645, sha256: "f67db972f926c205ea6d88c08f05d72136ede7823fa368da067c059cb26c66e0" }),
+  }),
+  "20261231300000_qbo_realm_protection_cutover_redaction.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 6115, sha256: "039852279406847f51c6cbeea366e5fa4d86642a0e5e97fbcf91c29d132b49c2" }),
+    finalLfRemoved: Object.freeze({ bytes: 6114, sha256: "3d8523d22e80822d6e7e81ea1451434075db47894f5d4f0984a45de570dc6549" }),
+  }),
   // QBO readiness r2: promoted atomic envelope, NOT applied; exact registered bytes only.
   "20261214100000_qbo_readiness_controls.sql": Object.freeze({
     identical: Object.freeze({ bytes: 20040, sha256: "6ac1c74c46171138915d936191beff45d26ca92abb6f7a820d0d73aadf0ddcd8" }),

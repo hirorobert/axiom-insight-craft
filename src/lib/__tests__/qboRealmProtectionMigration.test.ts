@@ -4,7 +4,9 @@
  * whitespace variant (Lovable's migrator added one leading space to line 60). These tests pin their submission identity and the three reviewed
  * release entries, prove the variant validator accepts exactly that one indentation change and nothing else, and hold the static properties
  * the release record promises: Lovable-migrator size, one atomic DO block each, no transaction control, append-only guards and RLS untouched,
- * every new or replaced writer service-role only, and no realm in anything a member can execute.
+ * every new or replaced writer service-role only, and no realm in anything a member can execute. The Phase C cutover (three more migrations, IRREVERSIBLE
+ * for the plaintext, separately approved) is registered the same way and held to its own properties: the gate in every part, the redaction only in
+ * the last part, the append-only evidence and terminal rows untouched.
  */
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -18,6 +20,8 @@ import { RELEASE_JOURNAL, SUBMISSION_FORMS, checkReleaseEntry, submittedForm } f
 type Result = { ok: boolean; errors: string[]; pending: string[]; mirrored: { tag: string; source: string }[] };
 const ROOT = path.join(__dirname, "../../..");
 const NAMES = ["20261230100000_qbo_realm_protection_schema.sql", "20261230200000_qbo_realm_protection_connect.sql", "20261230300000_qbo_realm_protection_evidence.sql"];
+const CUTOVER = ["20261231100000_qbo_realm_protection_cutover_schema.sql", "20261231200000_qbo_realm_protection_cutover_functions.sql", "20261231300000_qbo_realm_protection_cutover_redaction.sql"];
+const ALL = [...NAMES, ...CUTOVER];
 const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 const src = (n: string) => fs.readFileSync(path.join(ROOT, "supabase/migrations", n));
 const code = (n: string) => src(n).toString("utf8").replace(/^\s*--[^\n]*$/gm, "");
@@ -33,7 +37,7 @@ const withEntry = (tag: string, patch: Record<string, unknown>, fn: () => void) 
 
 describe("realmID protection migrations: registered, then applied as hosted 114-116 (2026-11-18)", () => {
   it("their two submission forms are the committed bytes; the release entries pin exactly what was applied", () => {
-    for (const n of NAMES) {
+    for (const n of ALL) {   // Phases A and B (applied) and the Phase C cutover (registered, pending)
       const s = src(n);
       expect(s[s.length - 1], n).toBe(0x0a);
       expect(s.includes("\r\n"), n).toBe(false);
@@ -59,6 +63,7 @@ describe("realmID protection migrations: registered, then applied as hosted 114-
     const r = checkMigrationAuthority(ROOT) as Result & { mirrored: { tag: string; source: string; how: string }[] };
     expect(r.errors).toEqual([]);
     expect(r.pending.filter((n) => NAMES.includes(n))).toEqual([]);
+    expect(r.pending.filter((n) => ALL.includes(n))).toEqual(CUTOVER);   // Phase C is registered and pending, never mirrored
     expect(r.mirrored.filter((m) => NAMES.includes(m.source))).toEqual([
       { tag: TAGS[0], source: NAMES[0], how: "release_verbatim" },
       { tag: TAGS[1], source: NAMES[1], how: "release_verbatim" },
@@ -140,5 +145,48 @@ describe("realmID protection migrations: static properties", () => {
   });
   it("Phase A and B never set the plaintext realm to NULL and never relax its constraints (that is the separately approved cutover)", () => {
     for (const n of NAMES) expect(code(n), n).not.toMatch(/realm_id\s*=\s*NULL|ALTER COLUMN realm_id|DROP NOT NULL/i);
+  });
+});
+
+describe("the cutover (Phase C): IRREVERSIBLE for the plaintext, held to its own properties", () => {
+  it("each part fits the migrator, is ONE DO block, says it is irreversible, and re-checks the 100 % gate before anything changes", () => {
+    for (const n of CUTOVER) {
+      const s = src(n), c = code(n), raw = s.toString("utf8");
+      expect(s.length, n).toBeLessThan(18_000);
+      expect(c.trim(), n).toMatch(/^DO \$(\w+)\$[\s\S]*\nEND\n\$\1\$;$/);
+      expect(c, n).not.toMatch(/^\s*(BEGIN|COMMIT|ROLLBACK)\s*;/im);
+      expect(raw, n).toMatch(/IRREVERSIBLE FOR THE PLAINTEXT/);
+      const gate = c.indexOf("QBO_REALM_CUTOVER_REFUSED");
+      expect(gate, n).toBeGreaterThan(0);
+      // nothing is altered, created, dropped or updated before the gate
+      expect(c.slice(0, gate), n).not.toMatch(/\b(ALTER TABLE|CREATE OR REPLACE|DROP|UPDATE public|DELETE FROM)\b/);
+    }
+  });
+  it("only the last part removes a plaintext; it never touches append-only evidence, a terminal connection, RLS or a table grant", () => {
+    const [schema, functions, redaction] = CUTOVER.map(code);
+    for (const c of [schema, functions]) expect(c).not.toMatch(/SET realm_id = NULL|DELETE FROM/);
+    expect(redaction).toMatch(/UPDATE public\.qbo_connections SET realm_id = NULL WHERE status <> 'disconnected' AND realm_id IS NOT NULL;/);
+    expect(redaction).toMatch(/UPDATE public\.qbo_disconnect_operations SET realm_id = NULL WHERE realm_id IS NOT NULL;/);
+    expect([...redaction.matchAll(/DELETE FROM (\S+)/g)].map((m) => m[1])).toEqual(["public.qbo_oauth_states"]);
+    for (const c of [schema, functions, redaction]) {
+      expect(c).not.toMatch(/tbu_append_only_guard|qbo_evidence_no_truncate|DROP TRIGGER|DISABLE TRIGGER|ROW LEVEL SECURITY|POLICY|\bTRUNCATE\b/i);
+      expect(c).not.toMatch(/UPDATE public\.qbo_(pull_intents|pulls)\b|GRANT\s+(SELECT|INSERT|UPDATE|DELETE|ALL)\s+ON/i);
+    }
+  });
+  it("the guards allow exactly one new transition: a verified row's realm_id to NULL", () => {
+    const schema = code(CUTOVER[0]);
+    expect(schema.match(/NOT \(NEW\.realm_id IS NULL AND OLD\.realm_index IS NOT NULL AND OLD\.realm_verified_at IS NOT NULL\)/g)).toHaveLength(2);
+    expect(schema).toMatch(/IF OLD\.status = 'disconnected' THEN\s+RAISE EXCEPTION 'QBO_CONNECTION_TERMINAL/);   // terminal rows still cannot change
+  });
+  it("after the cutover every realm rule reads the index and no function writes a plaintext", () => {
+    const f = code(CUTOVER[1]);
+    expect(f).toMatch(/hashtextextended\('qbo-connect:'\|\|p_environment\|\|':'\|\|p_realm_index,0\)/);
+    expect(f).toMatch(/x\.realm_index=c\.realm_index/);
+    expect(f).toMatch(/realm_index=p_realm_index AND environment=p_environment AND outcome='pending'/);
+    // the only "c.realm_id" left: the anchor the live fiscal text is checked against and replaced, and the postcondition that it is gone
+    expect(f.split("c.realm_id").length - 1).toBe(f.split("OR c.realm_id<>p_realm_id OR c.environment<>p_environment").length - 1 + f.split("position('c.realm_id' IN").length - 1);
+    expect(f).toMatch(/position\('c\.realm_id' IN pg_get_functiondef\(to_regprocedure\(c_fiscal\)\)\) > 0/);
+    expect(f).not.toMatch(/realm_id = p_realm_id|realm_id=p_realm_id AND/);
+    expect(f.match(/QBO_REALM_PROTECTION_REQUIRED/g)).toHaveLength(2);
   });
 });

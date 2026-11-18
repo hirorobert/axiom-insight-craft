@@ -12,8 +12,7 @@ export interface DisconnectDeps {
   authenticate(): Promise<string | null>;
   begin(connectionId: string, actor: string, requestId: string): Promise<BeginAnswer>;
   /**
-   * The realm of the disconnect operation, read by opening its envelope (bound to the workspace and environment); an operation recorded from a connection
-   * the backfill had not reached yet is protected here, after begin has judged the person (qboRealmProtection.realmForOperation).
+   * The realm of the disconnect operation, read ONLY by opening its envelope (bound to the workspace and environment; qboRealmProtection.realmForOperation).
    */
   realm(connectionId: string, answer: BeginAnswer): Promise<RealmResolution>;
   open(envelope: string, binding: EnvelopeBinding): Promise<string | null>;

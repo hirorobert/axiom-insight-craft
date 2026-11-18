@@ -3,10 +3,10 @@
 // are (_shared/auth.ts validateAuth: signature, expiry and a user subject), and the database's own public.is_platform_owner(user) decides
 // authority. Lovable Cloud never discloses the service-role credential, so nothing here asks for it; a service-role or anon token has no user
 // and is refused, as is every member, commercial-tier administrator or inactive owner. Only after that decision does this function use its
-// own service client, for the service-only database functions. POST { "action": "protect" } seals each live connection's and each disconnect
-// operation's realm and submits it; POST { "action": "verify" } opens every envelope, compares it with the stored plaintext and the index, and
-// marks the row verified. Repeating, running concurrently or resuming after an interruption is safe (see _shared/qboRealmBackfill.ts). The
-// answer and the log carry COUNTS only: never a realm, an envelope, an index, a key or a row id.
+// own service client. AFTER THE CUTOVER there is no plaintext and no database writer: POST { "action": "verify" } opens every live
+// connection's and every disconnect operation's envelope and recomputes its index (counts only, nothing written); POST { "action": "protect" }
+// only reports rows without protection (there must be none). The answer and the log carry COUNTS only: never a realm, an envelope, an index,
+// a key or a row id. See _shared/qboRealmBackfill.ts.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, validateAuth } from "../_shared/auth.ts";
@@ -34,33 +34,24 @@ Deno.serve(async (req) => {
     },
   });
 
-  const rpc = async (name: string, args: Record<string, unknown>): Promise<string> => {
-    const { data, error } = await service.rpc(name, args);
-    if (error) throw error;
-    return String(data);
-  };
   const rows = (data: unknown[] | null, id: string): BackfillRow[] => (data ?? []).map((r) => {
     const x = r as Record<string, unknown>;
     return { id: x[id] as string, company_id: x.company_id as string, environment: x.environment as "production" | "sandbox",
-      realm_id: (x.realm_id as string | null) ?? null, realm_envelope: (x.realm_envelope as string | null) ?? null, realm_index: (x.realm_index as string | null) ?? null };
+      realm_id: null, realm_envelope: (x.realm_envelope as string | null) ?? null, realm_index: (x.realm_index as string | null) ?? null };
   });
 
   const result = await runRealmBackfill({
     authorize: async () => authority,
     listConnections: async () => {
-      const { data, error } = await service.from("qbo_connections").select("id, company_id, environment, realm_id, realm_envelope, realm_index").neq("status", "disconnected");
+      const { data, error } = await service.from("qbo_connections").select("id, company_id, environment, realm_envelope, realm_index").neq("status", "disconnected");
       if (error) throw error;
       return rows(data, "id");
     },
     listOperations: async () => {
-      const { data, error } = await service.from("qbo_disconnect_operations").select("connection_id, company_id, environment, realm_id, realm_envelope, realm_index");
+      const { data, error } = await service.from("qbo_disconnect_operations").select("connection_id, company_id, environment, realm_envelope, realm_index");
       if (error) throw error;
       return rows(data, "connection_id");
     },
-    protectConnection: (a) => rpc("qbo_protect_connection_realm", { ...a }),
-    protectOperation: (a) => rpc("qbo_protect_disconnect_realm", { ...a }),
-    verifyConnection: (a) => rpc("qbo_verify_connection_realm", { ...a }),
-    verifyOperation: (a) => rpc("qbo_verify_disconnect_realm", { ...a }),
     status: async () => {
       const { data, error } = await service.rpc("qbo_realm_protection_status");
       if (error) throw error;

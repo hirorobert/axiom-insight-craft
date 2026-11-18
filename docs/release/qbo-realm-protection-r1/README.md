@@ -28,7 +28,7 @@ realmID. The reviewed design is `release/candidates/qbo-realm-protection-r0/DESI
 |---|---|---|---|
 | A — additive schema | `20261230100000_qbo_realm_protection_schema.sql` | yes | `realm_envelope` + `realm_index` on `qbo_connections`, `qbo_disconnect_operations`, `qbo_oauth_states`, `qbo_pull_intents`, `qbo_pulls`; `realm_verified_at` on connections and operations; shape checks; `uq_qbo_connections_live_protected`; write-once guards; service-only `qbo_protect_*_realm`, `qbo_verify_*_realm`, `qbo_realm_protection_status` |
 | B — dual write (PR 1) | `20261230200000_qbo_realm_protection_connect.sql`, `20261230300000_qbo_realm_protection_evidence.sql` | yes (plaintext still written) | callback, finish, store, disconnect, intent and provenance write the protection beside the plaintext; status read loses `realm_id` |
-| C — cutover (PR 2, separate) | `20261231100000_qbo_realm_protection_cutover.sql` | **no, for the plaintext** | uniqueness, locks and shared-realm checks on the index; plaintext of live rows set NULL after a 100 % verification gate |
+| C — cutover (PR 2, separate) | `20261231100000_qbo_realm_protection_cutover_schema.sql`, `20261231200000_qbo_realm_protection_cutover_functions.sql`, `20261231300000_qbo_realm_protection_cutover_redaction.sql` | **no, for the plaintext** (part 3) | part 1: realm_id nullable, every row keeps plaintext or protection, guards allow only a verified row's redaction; part 2: uniqueness, per-realm lock, pending-revocation and shared-realm checks on the index, no function writes a plaintext, backfill writers dropped; part 3: plaintext of live connections, operations and OAuth states removed. Each part re-checks the 100 % gate |
 
 Append-only evidence (`qbo_pull_intents`, `qbo_pulls`) follows option (a) of the design: historical rows keep their plaintext as provenance
 (their guards are unchanged); new rows carry the protection. Disconnected (terminal) connection rows cannot change and keep theirs.
@@ -100,10 +100,22 @@ Before the backfill: 5 connections (3 live), 2 disconnect operations, none prote
 
 ## Phase C (PR 2) — irreversible for the plaintext
 
-Needs: PR 1 fully deployed, `verify` at 100 %, **a database backup**, and the owner's explicit go. Order: backup → `verify` (200
-complete) → apply `20261231100000` (it refuses unless every live connection and every disconnect operation is protected and verified) →
-deploy the five functions of PR 2 → `verify` again (counts only; no plaintext left in live rows). Backups taken before Phase C still contain
-the plaintext until they age out; say so to Intuit if asked.
+Needs: PR 1 fully deployed, `verify` at 100 %, **a database backup**, and the owner's explicit go. Order:
+
+1. Backup. 2. As the platform owner, **Check encryption** on `/internal/tester/quickbooks` (`qbo-realm-protect` `{"action":"verify"}`) →
+   "Check complete" (`200 complete`; connections stored since the last pass are verified here).
+3. Apply `20261231100000` → `20261231200000` → `20261231300000`, in order (each refuses unless every live connection and every disconnect
+   operation is protected, and verified while it still holds a plaintext: `QBO_REALM_CUTOVER_REFUSED`, nothing changed). The Phase B
+   functions keep working throughout (their plaintext argument is accepted and never stored; they read the realm from the envelope).
+4. Deploy the Phase C versions of `qbo-oauth-callback`, `qbo-finish-connection`, `qbo-pull-trial-balance`, `qbo-disconnect`,
+   `qbo-realm-protect` (and `qbo-connect-start`, whose bundle includes `qboConnect.ts`). 5. **Check encryption** again: a local open-and-index
+   check, counts only, nothing written. No frontend change.
+
+What keeps a plaintext afterwards, by design: disconnected (terminal) connection rows (their guard forbids any change) and import intents
+and provenance rows written before Phase B (append-only evidence, DESIGN option a). `qbo_realm_protection_status()` counts both
+(`terminal_plaintext`, `intents_plaintext_only`, `pulls_plaintext_only`). Backups taken before Phase C still contain the plaintext until they
+age out; say so to Intuit if asked. An OAuth attempt parked in clear before Phase B (consumed, at most minutes old) is ended and its state
+row removed, as `qbo_housekeeping` would.
 
 ## Evidence
 

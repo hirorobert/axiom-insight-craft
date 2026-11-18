@@ -172,6 +172,14 @@ describe("the one-off backfill (platform owner only)", () => {
     expect(await runRealmBackfill(wrongPlain, KEYS, { action: "verify" })).toMatchObject({ connections: { mismatched: 1, verified: 0 } });
     expect(wrongPlain.verifyConnection).not.toHaveBeenCalled();
   });
+  it("after the cutover (no database writers): protect only reports unprotected rows; verify is a local open-and-index check", async () => {
+    const d = deps({ protectConnection: undefined, protectOperation: undefined, verifyConnection: undefined, verifyOperation: undefined });
+    expect(await runRealmBackfill(d, KEYS, { action: "protect" })).toMatchObject({ status: 409, connections: { unprotected: 1, already: 1, protected: 0 } });
+    const sealedOnly = deps({ verifyConnection: undefined, listConnections: async () => [{ ...(await rows())[1], realm_id: null }] });
+    expect(await runRealmBackfill(sealedOnly, KEYS, { action: "verify" })).toMatchObject({ status: 200, outcome: "complete", connections: { verified: 1 } });
+    const moved = deps({ verifyConnection: undefined, listConnections: async () => [{ ...(await rows())[1], realm_id: null, company_id: A }] });
+    expect(await runRealmBackfill(moved, KEYS, { action: "verify" })).toMatchObject({ status: 409, connections: { mismatched: 1 } });
+  });
   it("a failure to list is a plain failure with nothing else said", async () => {
     expect(await runRealmBackfill(deps({ listConnections: async () => { throw new Error(REALM); } }), KEYS, { action: "verify" })).toEqual({ status: 500, outcome: "failed" });
   });
