@@ -15769,7 +15769,6 @@ export type Database = {
           created_at: string
           environment: string
           id: string
-          realm_id: string
           refresh_expires_at: string
           status: string
         }[]
@@ -15855,7 +15854,10 @@ export type Database = {
         Args: {
           p_code_envelope: string
           p_handoff_hash: string
+          p_realm_envelope?: string
           p_realm_id: string
+          p_realm_index_production?: string
+          p_realm_index_sandbox?: string
           p_state_hash: string
         }
         Returns: {
@@ -15936,7 +15938,9 @@ export type Database = {
           p_envelope: string
           p_environment: string
           p_hard_expires_at: string
+          p_realm_envelope?: string
           p_realm_id: string
+          p_realm_index?: string
           p_refresh_expires_at: string
         }
         Returns: string
@@ -15948,7 +15952,9 @@ export type Database = {
           company_id: string
           environment: string
           outcome: string
+          realm_envelope: string
           realm_id: string
+          realm_index: string
         }[]
       }
       qbo_verify_connection_realm: {
