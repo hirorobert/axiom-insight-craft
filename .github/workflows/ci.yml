@@ -770,6 +770,14 @@ jobs:
           createdb qbo_realm_protection
           bun scripts/db-proof/qboRealmProtection.mjs
 
+      - name: QuickBooks token-key reseal proof (20261230400000 after Phases A and B - live realm envelopes, operation envelopes and refresh tokens sealed under the retiring key re-sealed onto the new key through the real orchestration; plaintext and index unchanged; service-only)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/qbo_realm_key_reseal
+        run: |
+          createdb qbo_realm_key_reseal
+          bun scripts/db-proof/qboRealmKeyReseal.mjs
+
       - name: Internal beta activation controls proof (20261203100000 — only an active commercial administrator reads the beta state or opens/closes reporting; opening is one transaction that makes the allowlist exactly the chosen companies and releases the master switch last, refusals change nothing; closing engages the master switch first; synthetic scope recorded from the database's own composition hash; open/close races never deadlock; full chain, real certification engine, on the same throwaway container)
         env:
           DB_PROOF_MODE: external

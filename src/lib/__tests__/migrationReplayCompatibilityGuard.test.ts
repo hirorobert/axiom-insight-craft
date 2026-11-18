@@ -303,7 +303,8 @@ describe("migration directory integrity", () => {
     //   payment_checkout_intents' acceptance keys). Authored and not applied.
     // 221 -> 224: the QuickBooks realmID protection (Intuit case 00232331): 20261230100000 additive schema, 20261230200000 connect dual write,
     //   20261230300000 disconnect and import evidence dual write. Authored and not applied.
-    expect(files.length).toBe(224);
+    // 224 -> 225: the token-key reseal (20261230400000): service-only re-seals of live envelopes onto a new key. Authored and not applied.
+    expect(files.length).toBe(225);
   });
 });
 

@@ -5,8 +5,10 @@
 // and is refused, as is every member, commercial-tier administrator or inactive owner. Only after that decision does this function use its
 // own service client, for the service-only database functions. POST { "action": "protect" } seals each live connection's and each disconnect
 // operation's realm and submits it; POST { "action": "verify" } opens every envelope, compares it with the stored plaintext and the index, and
-// marks the row verified. Repeating, running concurrently or resuming after an interruption is safe (see _shared/qboRealmBackfill.ts). The
-// answer and the log carry COUNTS only: never a realm, an envelope, an index, a key or a row id.
+// marks the row verified. POST { "action": "keys" } (read only) opens every live realm envelope and refresh token and every operation's realm
+// envelope and counts them by key id; POST { "action": "reseal" } moves every live row still sealed with an older token key onto the current
+// sealing key (QBO_TOKEN_KEY_NEXT_*), by compare-and-swap (20261230400000). Repeating, running concurrently or resuming after an interruption
+// is safe (see _shared/qboRealmBackfill.ts). The answer and the log carry COUNTS only: never a realm, an envelope, an index, a key or a row id.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, validateAuth } from "../_shared/auth.ts";
@@ -42,13 +44,14 @@ Deno.serve(async (req) => {
   const rows = (data: unknown[] | null, id: string): BackfillRow[] => (data ?? []).map((r) => {
     const x = r as Record<string, unknown>;
     return { id: x[id] as string, company_id: x.company_id as string, environment: x.environment as "production" | "sandbox",
-      realm_id: (x.realm_id as string | null) ?? null, realm_envelope: (x.realm_envelope as string | null) ?? null, realm_index: (x.realm_index as string | null) ?? null };
+      realm_id: (x.realm_id as string | null) ?? null, realm_envelope: (x.realm_envelope as string | null) ?? null, realm_index: (x.realm_index as string | null) ?? null,
+      refresh_token_envelope: (x.refresh_token_envelope as string | null) ?? null };
   });
 
   const result = await runRealmBackfill({
     authorize: async () => authority,
     listConnections: async () => {
-      const { data, error } = await service.from("qbo_connections").select("id, company_id, environment, realm_id, realm_envelope, realm_index").neq("status", "disconnected");
+      const { data, error } = await service.from("qbo_connections").select("id, company_id, environment, realm_id, realm_envelope, realm_index, refresh_token_envelope").neq("status", "disconnected");
       if (error) throw error;
       return rows(data, "id");
     },
@@ -66,11 +69,20 @@ Deno.serve(async (req) => {
       if (error) throw error;
       return (data ?? {}) as Record<string, number>;
     },
+    resealConnection: (a) => rpc("qbo_reseal_connection_realm", { ...a }),
+    resealOperation: (a) => rpc("qbo_reseal_disconnect_realm", { ...a }),
+    resealToken: (a) => rpc("qbo_reseal_refresh_token", { ...a }),
+    coverage: async () => {
+      const { data, error } = await service.rpc("qbo_realm_key_coverage");
+      if (error) throw error;
+      return (data ?? {}) as Record<string, number>;
+    },
   }, realmKeys, parseBackfillRequest(await req.json().catch(() => null))).catch(() => ({ status: 500 as const, outcome: "failed" as const }));
 
   // OPERATIONAL LOG: who ran it (a user id, never a credential), the outcome and counts only.
   console.log(JSON.stringify({ event: "qbo.realm_protect", status: result.status, outcome: result.outcome, actor: authority.ok ? authority.actor : null,
-    ...("connections" in result ? { action: result.action, connections: result.connections, operations: result.operations } : {}) }));
+    ...("connections" in result ? { action: result.action, connections: result.connections, operations: result.operations } : {}),
+    ...("refreshTokens" in result ? { action: result.action, currentKeyId: result.currentKeyId, connectionRealms: result.connectionRealms, refreshTokens: result.refreshTokens, operationRealms: result.operationRealms } : {}) }));
   const { status, ...body } = result;
   return json(status, body);
 });

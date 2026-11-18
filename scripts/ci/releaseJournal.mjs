@@ -502,6 +502,11 @@ export const SUBMISSION_FORMS = Object.freeze({
     identical: Object.freeze({ bytes: 16317, sha256: "2855b8f8c2328868e0881b03804badc5a5f5cc3bf0f1e676cf77d17f53582837" }),
     finalLfRemoved: Object.freeze({ bytes: 16316, sha256: "41a9646912b23dbc19f20e0657ea52c00ca157345b4acff4e3cf0f4ff68583f4" }),
   }),
+  // ...and its token-key reseal (20261230400000): authored, NOT applied; reported PENDING. Digests computed from the committed LF blob (git show).
+  "20261230400000_qbo_realm_key_reseal.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 16076, sha256: "ee921a7b9043aa382c0da0cb3f7bbf8daa2e43e8ca3039593916010845d6c775" }),
+    finalLfRemoved: Object.freeze({ bytes: 16075, sha256: "b62254a14dd7cf12ae25bea2289610af579937349c5e933e59f66a98c55eb65b" }),
+  }),
   // QBO readiness r2: promoted atomic envelope, NOT applied; exact registered bytes only.
   "20261214100000_qbo_readiness_controls.sql": Object.freeze({
     identical: Object.freeze({ bytes: 20040, sha256: "6ac1c74c46171138915d936191beff45d26ca92abb6f7a820d0d73aadf0ddcd8" }),

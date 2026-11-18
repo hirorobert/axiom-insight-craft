@@ -54,6 +54,22 @@ describe("connector configuration", () => {
     expect(env({ ...FULL, QBO_TOKEN_KEY_PREV_ID: "k2", QBO_TOKEN_KEY_PREV_B64: b64(1) }).keys()).toBeNull();
     expect(env({ ...FULL, QBO_TOKEN_KEY_PREV_ID: "k1", QBO_TOKEN_KEY_PREV_B64: "%%%" }).keys()).toBeNull();
   });
+  it("a NEXT key seals while the configured key stays in the ring for opening; half a pair, a shared name or shared bytes are refused", () => {
+    const k = env({ ...FULL, QBO_TOKEN_KEY_NEXT_ID: "k3", QBO_TOKEN_KEY_NEXT_B64: b64(3) }).keys();
+    expect(k?.current.id).toBe("k3"); expect(k?.all.map((x) => x.id)).toEqual(["k3", "k2"]);
+    // The configured key's value is never re-entered: rotation adds a key, it does not replace one.
+    expect(Array.from(k!.all[1].bytes)).toEqual(Array.from(new Uint8Array(32).fill(2)));
+    expect(env({ ...FULL, QBO_TOKEN_KEY_NEXT_ID: "k3", QBO_TOKEN_KEY_NEXT_B64: b64(3), QBO_TOKEN_KEY_PREV_ID: "k1", QBO_TOKEN_KEY_PREV_B64: b64(1) }).keys()?.all.map((x) => x.id)).toEqual(["k3", "k2", "k1"]);
+    expect(env({ ...FULL, QBO_TOKEN_KEY_NEXT_ID: "k3" }).keys()).toBeNull();
+    expect(env({ ...FULL, QBO_TOKEN_KEY_NEXT_B64: b64(3) }).keys()).toBeNull();
+    expect(env({ ...FULL, QBO_TOKEN_KEY_NEXT_ID: "k2", QBO_TOKEN_KEY_NEXT_B64: b64(3) }).keys()).toBeNull();
+    expect(env({ ...FULL, QBO_TOKEN_KEY_NEXT_ID: "k3", QBO_TOKEN_KEY_NEXT_B64: b64(2) }).keys()).toBeNull();
+    expect(env({ ...FULL, QBO_TOKEN_KEY_NEXT_ID: "k3", QBO_TOKEN_KEY_NEXT_B64: btoa("short") }).keys()).toBeNull();
+    // The realm index key must differ from every key in the ring, the NEXT key included.
+    const withIndex = { ...FULL, QBO_REALM_INDEX_KEY_ID: "idx1", QBO_REALM_INDEX_KEY_B64: b64(9) };
+    expect(env({ ...withIndex, QBO_TOKEN_KEY_NEXT_ID: "k3", QBO_TOKEN_KEY_NEXT_B64: b64(3) }).realmKeys()?.current.id).toBe("k3");
+    expect(env({ ...withIndex, QBO_TOKEN_KEY_NEXT_ID: "k3", QBO_TOKEN_KEY_NEXT_B64: b64(9) }).realmKeys()).toBeNull();
+  });
   it("the minor version defaults to 75 and refuses nonsense", () => {
     expect(env({ ...FULL, QBO_MINOR_VERSION: "40" }).minorVersion).toBe(40);
     for (const bad of ["abc", "-1", "1000", "7.5"]) expect(env({ ...FULL, QBO_MINOR_VERSION: bad }).minorVersion).toBe(75);
