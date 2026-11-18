@@ -8532,7 +8532,10 @@ export type Database = {
           environment: string
           hard_expires_at: string | null
           id: string
+          realm_envelope: string | null
           realm_id: string
+          realm_index: string | null
+          realm_verified_at: string | null
           refresh_expires_at: string | null
           refresh_lease_id: string | null
           refresh_lease_until: string | null
@@ -8549,7 +8552,10 @@ export type Database = {
           environment: string
           hard_expires_at?: string | null
           id?: string
+          realm_envelope?: string | null
           realm_id: string
+          realm_index?: string | null
+          realm_verified_at?: string | null
           refresh_expires_at?: string | null
           refresh_lease_id?: string | null
           refresh_lease_until?: string | null
@@ -8566,7 +8572,10 @@ export type Database = {
           environment?: string
           hard_expires_at?: string | null
           id?: string
+          realm_envelope?: string | null
           realm_id?: string
+          realm_index?: string | null
+          realm_verified_at?: string | null
           refresh_expires_at?: string | null
           refresh_lease_id?: string | null
           refresh_lease_until?: string | null
@@ -8594,7 +8603,10 @@ export type Database = {
           environment: string
           outcome: string
           pending_envelope: string | null
+          realm_envelope: string | null
           realm_id: string
+          realm_index: string | null
+          realm_verified_at: string | null
           request_id: string
           revoke_lease_id: string | null
           revoke_lease_until: string | null
@@ -8608,7 +8620,10 @@ export type Database = {
           environment: string
           outcome: string
           pending_envelope?: string | null
+          realm_envelope?: string | null
           realm_id: string
+          realm_index?: string | null
+          realm_verified_at?: string | null
           request_id: string
           revoke_lease_id?: string | null
           revoke_lease_until?: string | null
@@ -8622,7 +8637,10 @@ export type Database = {
           environment?: string
           outcome?: string
           pending_envelope?: string | null
+          realm_envelope?: string | null
           realm_id?: string
+          realm_index?: string | null
+          realm_verified_at?: string | null
           request_id?: string
           revoke_lease_id?: string | null
           revoke_lease_until?: string | null
@@ -8664,7 +8682,9 @@ export type Database = {
           handoff_expires_at: string | null
           handoff_hash: string | null
           id: string
+          realm_envelope: string | null
           realm_id: string | null
+          realm_index: string | null
           return_period_year: number
           state_hash: string
         }
@@ -8681,7 +8701,9 @@ export type Database = {
           handoff_expires_at?: string | null
           handoff_hash?: string | null
           id?: string
+          realm_envelope?: string | null
           realm_id?: string | null
+          realm_index?: string | null
           return_period_year: number
           state_hash: string
         }
@@ -8698,7 +8720,9 @@ export type Database = {
           handoff_expires_at?: string | null
           handoff_hash?: string | null
           id?: string
+          realm_envelope?: string | null
           realm_id?: string | null
+          realm_index?: string | null
           return_period_year?: number
           state_hash?: string
         }
@@ -8727,7 +8751,9 @@ export type Database = {
           minor_version: number | null
           prepare_basis: string
           raw_sha256: string
+          realm_envelope: string | null
           realm_id: string
+          realm_index: string | null
           recorded_at: string
           report: string
           reservation_id: string
@@ -8749,7 +8775,9 @@ export type Database = {
           minor_version?: number | null
           prepare_basis: string
           raw_sha256: string
+          realm_envelope?: string | null
           realm_id: string
+          realm_index?: string | null
           recorded_at?: string
           report: string
           reservation_id: string
@@ -8771,7 +8799,9 @@ export type Database = {
           minor_version?: number | null
           prepare_basis?: string
           raw_sha256?: string
+          realm_envelope?: string | null
           realm_id?: string
+          realm_index?: string | null
           recorded_at?: string
           report?: string
           reservation_id?: string
@@ -8797,7 +8827,9 @@ export type Database = {
           prepare_basis: string
           pulled_at: string
           raw_sha256: string
+          realm_envelope: string | null
           realm_id: string
+          realm_index: string | null
           report: string
           result_sha256: string
           source_basis: string
@@ -8819,7 +8851,9 @@ export type Database = {
           prepare_basis: string
           pulled_at?: string
           raw_sha256: string
+          realm_envelope?: string | null
           realm_id: string
+          realm_index?: string | null
           report: string
           result_sha256: string
           source_basis: string
@@ -8841,7 +8875,9 @@ export type Database = {
           prepare_basis?: string
           pulled_at?: string
           raw_sha256?: string
+          realm_envelope?: string | null
           realm_id?: string
+          realm_index?: string | null
           report?: string
           result_sha256?: string
           source_basis?: string
@@ -15733,7 +15769,6 @@ export type Database = {
           created_at: string
           environment: string
           id: string
-          realm_id: string
           refresh_expires_at: string
           status: string
         }[]
@@ -15768,6 +15803,24 @@ export type Database = {
         Returns: boolean
       }
       qbo_pending_disconnect: { Args: { p_company: string }; Returns: Json }
+      qbo_protect_connection_realm: {
+        Args: {
+          p_connection: string
+          p_realm_envelope: string
+          p_realm_id: string
+          p_realm_index: string
+        }
+        Returns: string
+      }
+      qbo_protect_disconnect_realm: {
+        Args: {
+          p_connection: string
+          p_realm_envelope: string
+          p_realm_id: string
+          p_realm_index: string
+        }
+        Returns: string
+      }
       qbo_provenance_past_retention: {
         Args: { p_retention: string }
         Returns: {
@@ -15775,6 +15828,7 @@ export type Database = {
           pulls: number
         }[]
       }
+      qbo_realm_protection_status: { Args: never; Returns: Json }
       qbo_record_fiscal_pull_intent: {
         Args: {
           p_account_count: number
@@ -15800,7 +15854,10 @@ export type Database = {
         Args: {
           p_code_envelope: string
           p_handoff_hash: string
+          p_realm_envelope?: string
           p_realm_id: string
+          p_realm_index_production?: string
+          p_realm_index_sandbox?: string
           p_state_hash: string
         }
         Returns: {
@@ -15821,7 +15878,9 @@ export type Database = {
           p_environment: string
           p_minor_version: number
           p_raw_sha256: string
+          p_realm_envelope?: string
           p_realm_id: string
+          p_realm_index?: string
           p_reservation_id: string
           p_result_sha256: string
           p_start_date: string
@@ -15881,7 +15940,9 @@ export type Database = {
           p_envelope: string
           p_environment: string
           p_hard_expires_at: string
+          p_realm_envelope?: string
           p_realm_id: string
+          p_realm_index?: string
           p_refresh_expires_at: string
         }
         Returns: string
@@ -15893,8 +15954,28 @@ export type Database = {
           company_id: string
           environment: string
           outcome: string
+          realm_envelope: string
           realm_id: string
+          realm_index: string
         }[]
+      }
+      qbo_verify_connection_realm: {
+        Args: {
+          p_connection: string
+          p_realm_envelope: string
+          p_realm_id: string
+          p_realm_index: string
+        }
+        Returns: string
+      }
+      qbo_verify_disconnect_realm: {
+        Args: {
+          p_connection: string
+          p_realm_envelope: string
+          p_realm_id: string
+          p_realm_index: string
+        }
+        Returns: string
       }
       reconcile_all_named_user_allowances: { Args: never; Returns: number }
       reconcile_named_user_allowance: {

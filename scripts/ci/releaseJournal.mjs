@@ -436,6 +436,29 @@ export const RELEASE_JOURNAL = {
     digest: "f541d4d18bac1c4103e57e3e2dc5c36b47ba411793f8555cacfdbb96e693b027",
     submittedBytes: 11994,
     sha256: "a8be47afa5d8b28363b66ee1f932dff84e7038ac1f063549f4b10d2d7d203256" },
+  // QuickBooks realmID protection r1, Phases A and B (PR #281, merged in main 8819ccf), applied 2026-11-18 by Lovable's native migrator,
+  // owner-authorized, one file at a time; journal hashes read independently in the hosted SQL editor. Phase A and Phase B part 1 went in
+  // byte for byte (hosted 114 = 7b310469…, hosted 115 = 578a4baf…; mirrors a2d1940 / eccb3be).
+  "0113_qbo_realm_protection_schema": { kind: "release_verbatim",
+    source: "20261230100000_qbo_realm_protection_schema.sql", bytes: 17633,
+    digest: "7b310469b5b5919786295f7709f8d9532e604abf2acaea7689df642037885598",
+    sha256: "7b310469b5b5919786295f7709f8d9532e604abf2acaea7689df642037885598" },
+  "0114_qbo_realm_protection_connect": { kind: "release_verbatim",
+    source: "20261230200000_qbo_realm_protection_connect.sql", bytes: 13128,
+    digest: "578a4bafc9e38fe793c1c8f88628ac613300a5e13b7d648c4d209d18213e1f82",
+    sha256: "578a4bafc9e38fe793c1c8f88628ac613300a5e13b7d648c4d209d18213e1f82" },
+  // Phase B part 2 (hosted 116, mirror 9062c82) was NOT submitted byte for byte: Lovable's migrator added ONE leading space to line 60
+  // ("   refresh_lease_until=NULL,refresh_lease_id=NULL,disconnected_at=clock_timestamp() WHERE id=c.id;" became four spaces), a
+  // continuation line of an UPDATE ... SET list inside qbo_begin_disconnect's PL/pgSQL body. The applied text is the source with that one
+  // indentation change and nothing else (16,318 bytes, b58065bb…); indentation there is not significant to PostgreSQL, the migration's own
+  // postconditions passed, and the hosted prosrc of qbo_begin_disconnect was read back with the extra space (2026-11-18). The Phase C
+  // cutover replaces qbo_begin_disconnect wholesale and none of its preflight checks reads that line. Reviewed as a whitespace variant:
+  // the validator below accepts exactly this line, exactly a leading-indentation change, nothing else.
+  "0115_qbo_realm_protection_evidence": { kind: "release_whitespace_variant",
+    source: "20261230300000_qbo_realm_protection_evidence.sql", bytes: 16317,
+    digest: "2855b8f8c2328868e0881b03804badc5a5f5cc3bf0f1e676cf77d17f53582837",
+    submittedBytes: 16318, variantLines: Object.freeze([60]),
+    sha256: "b58065bb05c99b33c11bf6aa1888360d104185f7600b400130c9fb0b0e78dfea" },
 };
 
 /**
@@ -464,9 +487,9 @@ export const SUBMISSION_FORMS = Object.freeze({
     identical: Object.freeze({ bytes: 11995, sha256: "f541d4d18bac1c4103e57e3e2dc5c36b47ba411793f8555cacfdbb96e693b027" }),
     finalLfRemoved: Object.freeze({ bytes: 11994, sha256: "a8be47afa5d8b28363b66ee1f932dff84e7038ac1f063549f4b10d2d7d203256" }),
   }),
-  // QuickBooks realmID protection r1 (Intuit case 00232331; docs/release/qbo-realm-protection-r1/README.md), Phases A and B: authored and
-  // authorized, NOT applied — the hosted journal stays at 113 until the owner applies them, in this order, through the canonical migrator; they
-  // are reported PENDING, never mirrored by normalised parity. Digests computed from the committed LF blob (git show), not the working tree.
+  // QuickBooks realmID protection r1 (Intuit case 00232331; docs/release/qbo-realm-protection-r1/README.md), Phases A and B: registered
+  // before application; applied 2026-11-18 as hosted 114-116 (mirrors 0113-0115, see RELEASE_JOURNAL: two identical, one reviewed
+  // whitespace variant). Never mirrored by normalised parity. Digests computed from the committed LF blob (git show), not the working tree.
   "20261230100000_qbo_realm_protection_schema.sql": Object.freeze({
     identical: Object.freeze({ bytes: 17633, sha256: "7b310469b5b5919786295f7709f8d9532e604abf2acaea7689df642037885598" }),
     finalLfRemoved: Object.freeze({ bytes: 17632, sha256: "c6294f28884bd69430d6bb48ade7cc23397ee0412ace317fb690c2e024d4e5e9" }),
@@ -980,6 +1003,35 @@ export function checkReleaseEntry(tag, text, srcBytes) {
       problems.push(`${tag} is not exactly ${entry.source} with its single final LF byte removed`);
     }
     return { covers: entry.source, how: "release_verbatim_final_lf_removed", outOfOrder: false, problems };
+  }
+  if (entry.kind === "release_whitespace_variant") {
+    // A hosted mirror that equals its registered source except for a reviewed LEADING-INDENTATION change on exactly the listed lines
+    // (1-based). Everything else is pinned: the source digest and bytes, the mirror's bytes and SHA-256 (checked above), the same line
+    // count, every other line byte-identical, and on each listed line the same text after its leading spaces/tabs, with only spaces/tabs
+    // before it. Any other difference, an unlisted line, or a listed line that does not differ is refused.
+    const src = srcBytes(entry.source);
+    if (!src) return { problems: [...problems, `${tag} applies an unknown migration ${entry.source}`] };
+    const hosted = Buffer.from(text, "utf8");
+    if (sha256(src) !== entry.digest) problems.push(`${tag}: the pinned digest does not match ${entry.source} in this repository`);
+    if (src.length !== entry.bytes) problems.push(`${tag}: the pinned byte count ${entry.bytes} does not match ${entry.source} (${src.length})`);
+    if (hosted.length !== entry.submittedBytes) problems.push(`${tag}: has ${hosted.length} bytes, expected ${entry.submittedBytes}`);
+    if (SUBMISSION_FORMS[entry.source]?.identical?.sha256 !== entry.digest) problems.push(`${tag}: ${entry.source} has no registered identical form with this digest (SUBMISSION_FORMS)`);
+    const a = src.toString("utf8").split("\n"), b = text.split("\n");
+    const listed = new Set(Array.isArray(entry.variantLines) ? entry.variantLines : []);
+    if (listed.size === 0) problems.push(`${tag}: a whitespace variant must list its reviewed lines`);
+    if (a.length !== b.length) problems.push(`${tag}: has ${b.length} lines, ${entry.source} has ${a.length}`);
+    else {
+      for (let i = 0; i < a.length; i++) {
+        const n = i + 1;
+        if (a[i] === b[i]) { if (listed.has(n)) problems.push(`${tag}: reviewed line ${n} does not differ`); continue; }
+        if (!listed.has(n)) { problems.push(`${tag}: line ${n} differs from ${entry.source} and is not a reviewed variant line`); continue; }
+        const lead = (x) => /^[ \t]*/.exec(x)[0];
+        if (a[i].slice(lead(a[i]).length) !== b[i].slice(lead(b[i]).length) || a[i].slice(lead(a[i]).length).length === 0) {
+          problems.push(`${tag}: line ${n} differs in more than its leading indentation`);
+        }
+      }
+    }
+    return { covers: entry.source, how: "release_whitespace_variant", outOfOrder: false, problems };
   }
   if (entry.kind === "release_self_checking_wrapper") {
     // A hosted mirror of a registered self-checking wrapper: the reviewed entry pins the source (digest, bytes), the

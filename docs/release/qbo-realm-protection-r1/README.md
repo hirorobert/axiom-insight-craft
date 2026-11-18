@@ -87,6 +87,17 @@ actor's user id, the outcome and the counts; never a realm, envelope, index, key
 Rollback of PR 1: stop at any step; the plaintext is intact. To remove the schema, drop the functions, guards' added rule, index,
 constraints and columns of Phase A (they hold only derived data).
 
+## Hosted record, Phases A + B (2026-11-18, owner-authorized)
+
+| Hosted id | Mirror | Source | Applied form |
+|---|---|---|---|
+| 114 | `0113_qbo_realm_protection_schema` | `20261230100000` | identical, `7b310469…` (17,633 B) |
+| 115 | `0114_qbo_realm_protection_connect` | `20261230200000` | identical, `578a4baf…` (13,128 B) |
+| 116 | `0115_qbo_realm_protection_evidence` | `20261230300000` | **whitespace variant**, `b58065bb…` (16,318 B): Lovable's migrator added one leading space to line 60 (a continuation line of an `UPDATE … SET` inside `qbo_begin_disconnect`); nothing else differs. Not significant to PostgreSQL; the migration's postconditions passed; the hosted `prosrc` was read back with the extra space. Registered as the reviewed `release_whitespace_variant` entry, whose validator accepts exactly that one indentation change. Phase C replaces `qbo_begin_disconnect` wholesale. |
+
+Applied through Lovable's migrator from main `8819ccf`, one file at a time; journal hashes read independently in the hosted SQL editor.
+Before the backfill: 5 connections (3 live), 2 disconnect operations, none protected.
+
 ## Phase C (PR 2) — irreversible for the plaintext
 
 Needs: PR 1 fully deployed, `verify` at 100 %, **a database backup**, and the owner's explicit go. Order:

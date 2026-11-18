@@ -792,6 +792,27 @@
       "when": 1794892308853,
       "tag": "0112_checkout_terms_acceptance",
       "breakpoints": true
+    },
+    {
+      "idx": 113,
+      "version": "7",
+      "when": 1794976700377,
+      "tag": "0113_qbo_realm_protection_schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "7",
+      "when": 1794976860247,
+      "tag": "0114_qbo_realm_protection_connect",
+      "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1794976987677,
+      "tag": "0115_qbo_realm_protection_evidence",
+      "breakpoints": true
     }
   ]
 }
