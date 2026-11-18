@@ -1056,7 +1056,9 @@ describe("database inertness — schema and functions", () => {
     const diff = gitStrict(`diff -U0 ${baseSha()}...HEAD -- package.json`).split(/\r?\n/).filter((l) => /^\+/.test(l) && !/^\+\+\+/.test(l));
     // Reviewed exception (workbench F1): two TEST-ONLY devDependencies, exact-pinned, used by the jsdom keyboard/focus
     // tests and axe-core accessibility checks (src/lib/workbench/testkit/dom.ts). Never a runtime dependency.
-    const REVIEWED_DEV_DEPENDENCIES = new Set(['+    "axe-core": "4.10.3",', '+    "jsdom": "26.1.0",', '+    "pg": "8.23.1",']);
+    // Lovable's own dev-server plugin, bumped by the platform itself on 2026-11-18 (commit 8902044, "Opened secrets form"):
+    // ^1.8.0 -> ^1.8.3 (bun.lock 1.8.2 -> 1.8.3). Build tooling of the hosting platform, never shipped to the browser.
+    const REVIEWED_DEV_DEPENDENCIES = new Set(['+    "axe-core": "4.10.3",', '+    "jsdom": "26.1.0",', '+    "pg": "8.23.1",', '+    "@lovable.dev/vite-plugin-hmr-gate": "^1.8.3",']);
     // Bounded on-device PDF/OCR candidate: exact versions, with every runtime asset bundled on the app origin.
     // Adding any other package/version still fails this guard. None creates a database or provider connection.
     const REVIEWED_LOCAL_DOCUMENT_DEPENDENCIES = new Map([["@tesseract.js-data/eng", "1.0.0"], ["pdfjs-dist", "6.4.299"], ["tesseract.js", "6.0.1"]]);
