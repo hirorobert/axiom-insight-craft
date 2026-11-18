@@ -15878,7 +15878,9 @@ export type Database = {
           p_environment: string
           p_minor_version: number
           p_raw_sha256: string
+          p_realm_envelope?: string
           p_realm_id: string
+          p_realm_index?: string
           p_reservation_id: string
           p_result_sha256: string
           p_start_date: string
