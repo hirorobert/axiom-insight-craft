@@ -690,6 +690,16 @@ describe("database inertness — schema and functions", () => {
     added.add("supabase/migrations/20261229100000_checkout_terms_acceptance.sql");
     added.add("supabase/functions/_shared/commercial/termsVersion.ts");
     for (const f of ["supabase/functions/commercial-create-checkout/index.ts", "supabase/functions/_shared/payments/contracts.ts", "supabase/functions/_shared/payments/providers/polar.ts"]) modified.add(f);
+    // QuickBooks realmID protection r1 (Intuit case 00232331; docs/release/qbo-realm-protection-r1/README.md), Phases A and B: three forward-only,
+    // additive migrations (protection columns, keyed unique index, write-once guards, service-only protect/verify/status functions; the connector
+    // functions dual-write the protection; the members' status read loses realm_id), the realm module and the one-off backfill (a new SERVICE-ONLY
+    // function, verify_jwt plus the service credential), and the four connector functions that store or read a realm. No financial-statement schema,
+    // no RLS or grant widened, no append-only guard changed. AUTHORED, NOT APPLIED, NOT DEPLOYED.
+    for (const f of ["20261230100000_qbo_realm_protection_schema", "20261230200000_qbo_realm_protection_connect", "20261230300000_qbo_realm_protection_evidence"]) added.add(`supabase/migrations/${f}.sql`);
+    for (const f of ["supabase/functions/_shared/qboRealmProtection.ts", "supabase/functions/_shared/qboRealmBackfill.ts", "supabase/functions/qbo-realm-protect/index.ts"]) added.add(f);
+    for (const f of ["supabase/functions/_shared/qboConnect.ts", "supabase/functions/_shared/qboDisconnect.ts", "supabase/functions/_shared/qboEnv.ts", "supabase/functions/_shared/qboPull.ts",
+      "supabase/functions/qbo-disconnect/index.ts", "supabase/functions/qbo-finish-connection/index.ts", "supabase/functions/qbo-oauth-callback/index.ts",
+      "supabase/functions/qbo-pull-trial-balance/index.ts", "supabase/config.toml"]) modified.add(f);
     expect(unreviewedChanges(changed, { added, modified, removed })).toEqual([]);
   });
 
@@ -1018,6 +1028,10 @@ describe("database inertness — schema and functions", () => {
     // Client-data containment (2026-11-11): a local, read-only scan of tracked files with a hash-only denylist, and the
     // invented trial balance the guarded staging scripts now upload instead of a client-derived file. No hosted access.
     for (const file of ["scripts/ci/clientDataGuard.mjs", "scripts/ci/clientDataDenylist.json", "scripts/fixtures/synthetic-sme-tb-2025.csv"]) allowed.add(file);
+    // QuickBooks realmID protection r1: the loopback-only disposable-database proof that replaces the inert candidate's (removed), its CI step, the
+    // registered submission forms, and the three proofs whose reviewed migration-tail lists name the new migrations. No hosted access, no deploy.
+    for (const file of ["scripts/db-proof/qboRealmProtection.mjs", "scripts/db-proof/qboRealmProtectionCandidate.mjs", ".github/workflows/ci.yml", "scripts/ci/releaseJournal.mjs",
+      "scripts/db-proof/serviceWithholding.mjs", "scripts/db-proof/trackAHardening.mjs", "scripts/db-proof/firstPeriodGovernedReview.mjs"]) allowed.add(file);
     // SheetJS 0.20.3 vendored (vendor/sheetjs/PROVENANCE.md): the offline CI guard that pins the vendored files and refuses any
     // externally hosted spreadsheet code (reads files only), and the manual re-verification script (never run by CI; downloads
     // the publisher's tarball and tagged files into memory and compares hashes). Neither deploys, applies or touches a database.

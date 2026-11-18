@@ -6,6 +6,8 @@
 // token, so each judges that person), and the existing processing and review gates then apply unchanged. The evidence (qbo_record_pull_intent) is written BEFORE
 // the file is stored and linked to the upload afterwards (qbo_complete_pull, idempotent and recoverable). The service-role
 // key, the tokens, the envelope key and the QuickBooks response never leave the function and are never logged. See _shared/qboPull.ts for the order and its reasons.
+// realmID protection (Intuit case 00232331): the browser names the connection by its id; the realm is read only by opening its envelope (a connection the
+// backfill has not reached is protected first, through the service-only qbo_protect_connection_realm). Without the realm index key: "not configured".
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/auth.ts";
@@ -15,6 +17,7 @@ import { createGuardedQboFetch, qboReportUrl, qboPreferencesUrl } from "../_shar
 import { sha256Hex, summariseCanonicalCsv } from "../_shared/qboPullSummary.ts";
 import { createQboTokenClient } from "../_shared/qboTokenClient.ts";
 import { openSecret, sealSecret } from "../_shared/qboTokenEnvelope.ts";
+import { realmForOperation } from "../_shared/qboRealmProtection.ts";
 
 import { boundedQboRead } from "../_shared/qboBoundedRead.ts";
 
@@ -31,7 +34,8 @@ Deno.serve(async (req) => {
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
   const config = readQboEnv((n) => Deno.env.get(n));
   const keys = config.keys();
-  if (!url || !serviceKey || !anonKey || !keys) return json(503, { outcome: "not_configured" });
+  const realmKeys = config.realmKeys();
+  if (!url || !serviceKey || !anonKey || !keys || !realmKeys) return json(503, { outcome: "not_configured" });
 
   const parsed = parsePullRequest(await req.json().catch(() => null));
   if (!parsed) return json(400, { outcome: "invalid_request" });
@@ -79,12 +83,21 @@ Deno.serve(async (req) => {
     },
     releaseRefreshLease: async (connectionId, leaseId) => { await service.rpc("qbo_release_refresh_lease", { p_connection_id: connectionId, p_lease_id: leaseId }); },
     completePending: async () => { await service.rpc("qbo_complete_pending_pulls"); },
-    findConnection: async (companyId, realmId, environment) => {
-      const { data, error } = await service.from("qbo_connections").select("id, status, refresh_token_envelope")
-        .eq("company_id", companyId).eq("realm_id", realmId).eq("environment", environment).neq("status", "disconnected").maybeSingle();
+    findConnection: async (companyId, connectionId, environment) => {
+      const { data, error } = await service.from("qbo_connections").select("id, company_id, environment, status, refresh_token_envelope, realm_id, realm_envelope, realm_index")
+        .eq("id", connectionId).eq("company_id", companyId).eq("environment", environment).neq("status", "disconnected").maybeSingle();
       if (error) throw error;
-      return data ? { id: data.id as string, status: data.status as "active" | "reconnect_needed", envelope: (data.refresh_token_envelope as string | null) ?? null } : null;
+      return data ? {
+        id: data.id as string, status: data.status as "active" | "reconnect_needed", envelope: (data.refresh_token_envelope as string | null) ?? null,
+        realm: { company_id: data.company_id as string, environment: data.environment as "production" | "sandbox", realm_id: (data.realm_id as string | null) ?? null,
+          realm_envelope: (data.realm_envelope as string | null) ?? null, realm_index: (data.realm_index as string | null) ?? null },
+      } : null;
     },
+    resolveRealm: (connection) => realmForOperation({ id: connection.id, ...connection.realm }, realmKeys, async (args) => {
+      const { data, error } = await service.rpc("qbo_protect_connection_realm", args);
+      if (error) throw error;
+      return String(data);
+    }),
     openRefreshToken: async (envelope, binding) => { try { return await openSecret(envelope, keys.all, binding); } catch { return null; } },
     refresh: (_environment, refreshToken) => tokens.refresh(refreshToken),
     sealRefreshToken: (refreshToken, binding) => sealSecret(refreshToken, keys.current, binding),

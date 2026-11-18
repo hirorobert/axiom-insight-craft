@@ -14,12 +14,18 @@
  *             the code exchanged through the read-only guard, the refresh token sealed (bound to workspace + environment + realm) and the envelope stored.
  *             A QuickBooks company approved by anyone else is therefore never connected, and no token for it ever exists.
  *
+ * realmID PROTECTION (qboRealmProtection.ts; Intuit case 00232331): the callback parks the realm SEALED to the handoff (like the code) with its keyed
+ * index for both environments (the database keeps the state's own); finish opens it, checks it against the parked plaintext (while that still exists)
+ * and the parked index, then stores the connection with the realm sealed to the workspace and environment and its index. A realm parked before this
+ * release (plaintext only) is accepted once, by finish, and stored protected.
+ *
  * An unknown, expired or already-used state is a plain refusal with no redirect: there is no trustworthy workspace to send the browser to.
  */
 import type { QboEnvironment } from "./qboReadOnlyGuard.ts";
 import { qboAuthorizeUrl } from "./qboReadOnlyGuard.ts";
 import { connectionBinding, type EnvelopeBinding } from "./qboTokenEnvelope.ts";
 import type { TokenResult } from "./qboTokenClient.ts";
+import type { ProtectedRealm } from "./qboRealmProtection.ts";
 
 export const OAUTH_STATE_TTL_SECONDS = 600;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -91,12 +97,15 @@ export function oauthReturnBinding(handoffHash: string): EnvelopeBinding {
 
 /** What the browser is sent back with: a plain status word in the query, or the one-time handoff code in the FRAGMENT (never sent to a server). */
 export type ReturnBack = { status: "denied" | "failed" } | { handoff: string };
-export interface ParkedReturn { realmId: string; codeEnvelope: string; handoffHash: string }
+export interface ParkedRealm { envelope: string; indexSandbox: string; indexProduction: string }
+export interface ParkedReturn { realmId: string; codeEnvelope: string; handoffHash: string; realm: ParkedRealm }
 export interface CallbackDeps {
   sha256Hex(text: string): Promise<string>;
   /** 32 random bytes as 64 hex characters. */
   randomHandoff(): string;
   sealCode(code: string, binding: EnvelopeBinding): Promise<string>;
+  /** The realm sealed to the handoff (verified to open back) and its index for both environments (qboRealmProtection.protectParkedRealm). */
+  protectParkedRealm(realmId: string, handoffHash: string): Promise<ParkedRealm>;
   /** qbo_record_oauth_return: consumes the state once and, given a code, parks it. Null for an unknown, expired or used state, or a starter who lost a right. */
   recordReturn(stateHash: string, parked: ParkedReturn | null): Promise<{ companyId: string; environment: QboEnvironment; returnPeriodYear: number } | null>;
   /** The app's trial-balance page for that workspace and period, carrying `back` and nothing else. */
@@ -118,7 +127,8 @@ export async function runQboCallback(deps: CallbackDeps, query: CallbackQuery | 
   // The code is NOT exchanged here: it is parked, sealed, until the person who started the attempt hands the handoff back (runQboFinish).
   const handoffHash = await deps.sha256Hex(handoff);
   const codeEnvelope = await deps.sealCode(query.code!, oauthReturnBinding(handoffHash));
-  const parked = await deps.recordReturn(stateHash, { realmId: query.realmId!, codeEnvelope, handoffHash });
+  const realm = await deps.protectParkedRealm(query.realmId!, handoffHash);
+  const parked = await deps.recordReturn(stateHash, { realmId: query.realmId!, codeEnvelope, handoffHash, realm });
   if (!parked) return { status: 400, outcome: "unknown_state" };
   return { status: 302, outcome: "handed_back", location: deps.returnTo(parked.companyId, parked.returnPeriodYear, { handoff }) };
 }
@@ -134,7 +144,7 @@ export function parseFinishRequest(body: unknown): { handoff: string } | null {
 }
 
 export type TakenReturn =
-  | { outcome: "taken"; companyId: string; environment: QboEnvironment; realmId: string; codeEnvelope: string }
+  | { outcome: "taken"; companyId: string; environment: QboEnvironment; realmId: string | null; realmEnvelope: string | null; realmIndex: string | null; codeEnvelope: string }
   | { outcome: "not_yours" | "expired" | "forbidden" | "unknown" };
 export interface FinishDeps {
   authenticate(): Promise<string | null>;
@@ -142,10 +152,16 @@ export interface FinishDeps {
   /** qbo_take_oauth_return: single use whatever the answer; the code comes back only to the person who started the attempt. */
   takeReturn(handoffHash: string, actorUserId: string): Promise<TakenReturn>;
   openCode(envelope: string, binding: EnvelopeBinding): Promise<string | null>;
+  /** Opens the realm parked with the handoff (null if it does not open). */
+  openParkedRealm(envelope: string, handoffHash: string): Promise<string | null>;
+  /** The keyed index of a realm in an environment. */
+  realmIndex(realmId: string, environment: QboEnvironment): Promise<string>;
+  /** The realm sealed to the workspace and environment, verified to open back, and its index (qboRealmProtection.protectRealm). */
+  protectRealm(realmId: string, environment: QboEnvironment, companyId: string): Promise<ProtectedRealm>;
   oauthConfig(environment: QboEnvironment): OAuthConfig | null;
   exchangeCode(environment: QboEnvironment, code: string, redirectUri: string): Promise<TokenResult>;
   sealRefreshToken(refreshToken: string, binding: EnvelopeBinding): Promise<string>;
-  storeConnection(companyId: string, actorUserId: string, realmId: string, environment: QboEnvironment, envelope: string, refreshExpiresAt: string, hardExpiresAt: string | null): Promise<string>;
+  storeConnection(companyId: string, actorUserId: string, realmId: string, environment: QboEnvironment, envelope: string, refreshExpiresAt: string, hardExpiresAt: string | null, realm: ProtectedRealm): Promise<string>;
 }
 export type FinishResult =
   | { status: 200; outcome: "connected" }
@@ -164,12 +180,29 @@ export async function runQboFinish(deps: FinishDeps, req: { handoff: string } | 
   if (!cfg) return { status: 503, outcome: "not_configured" };
   const code = await deps.openCode(taken.codeEnvelope, oauthReturnBinding(handoffHash));
   if (!code) return { status: 500, outcome: "failed" };
+  // The realm, before Intuit is touched: opened from its parked envelope, which must agree with the parked plaintext and index where they exist.
+  const realmId = await parkedRealm(deps, taken, handoffHash);
+  if (!realmId) return { status: 500, outcome: "failed" };
+  const realm = await deps.protectRealm(realmId, taken.environment, taken.companyId);
   const exchanged = await deps.exchangeCode(taken.environment, code, cfg.redirectUri);
   if (!exchanged.ok) {
     if (exchanged.reason === "invalid_grant") return { status: 410, outcome: "expired" };   // Intuit no longer accepts the code (too old, or used)
     return exchanged.reason === "unavailable" ? { status: 503, outcome: "quickbooks_unavailable" } : { status: 502, outcome: "failed" };
   }
-  const envelope = await deps.sealRefreshToken(exchanged.tokens.refreshToken, connectionBinding(taken.companyId, taken.realmId, taken.environment));
-  await deps.storeConnection(taken.companyId, userId, taken.realmId, taken.environment, envelope, exchanged.tokens.refreshExpiresAt, exchanged.tokens.hardExpiresAt);
+  const envelope = await deps.sealRefreshToken(exchanged.tokens.refreshToken, connectionBinding(taken.companyId, realmId, taken.environment));
+  await deps.storeConnection(taken.companyId, userId, realmId, taken.environment, envelope, exchanged.tokens.refreshExpiresAt, exchanged.tokens.hardExpiresAt, realm);
   return { status: 200, outcome: "connected" };
+}
+
+/** The parked realm: its envelope opened for this handoff (and equal to the parked plaintext and index where those exist), or — only for an attempt
+ *  parked before the protection release — the parked plaintext. Null when nothing trustworthy is there. */
+async function parkedRealm(deps: FinishDeps, taken: Extract<TakenReturn, { outcome: "taken" }>, handoffHash: string): Promise<string | null> {
+  if (taken.realmEnvelope) {
+    const opened = await deps.openParkedRealm(taken.realmEnvelope, handoffHash);
+    if (!opened || !REALM.test(opened)) return null;
+    if (taken.realmId !== null && taken.realmId !== opened) return null;
+    if (taken.realmIndex !== null && taken.realmIndex !== await deps.realmIndex(opened, taken.environment)) return null;
+    return opened;
+  }
+  return taken.realmId !== null && REALM.test(taken.realmId) ? taken.realmId : null;
 }

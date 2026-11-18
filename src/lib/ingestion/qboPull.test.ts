@@ -10,6 +10,7 @@ import { connectionBinding, openSecret, sealSecret, type EnvelopeKey } from "../
 import { normalisedAccountingResult } from "../../../supabase/functions/_shared/qboTrialBalance";
 import { readTrialBalanceSource, type XlsxLike } from "../../../supabase/functions/_shared/tbSource";
 import type { TokenResult } from "../../../supabase/functions/_shared/qboTokenClient";
+import { protectRealm, realmForOperation, type RealmKeys, type StoredRealm } from "../../../supabase/functions/_shared/qboRealmProtection";
 
 // Invented values only. The report is Intuit's own UK sandbox company (invented data), recorded in __fixtures__/qbo.
 const DIR = path.resolve(__dirname, "__fixtures__/qbo");
@@ -21,15 +22,18 @@ const CONN = "33333333-3333-3333-3333-333333333333";
 const UPLOAD = "44444444-4444-4444-4444-444444444444";
 const REALM = "9341458607761798";
 const KEY: EnvelopeKey = { id: "k1", bytes: new Uint8Array(32).fill(3) };
-const REQ: PullRequest = { companyId: COMPANY, environment: "sandbox", realmId: REALM, startDate: "2026-01-01", endDate: "2026-10-31", periodYear: 2026, periodId: COMPANY, engagementId: null };
+const REALM_KEYS: RealmKeys = { current: KEY, all: [KEY], index: { id: "idx1", bytes: new Uint8Array(32).fill(4) } };
+const REQ: PullRequest = { companyId: COMPANY, environment: "sandbox", connectionId: CONN, startDate: "2026-01-01", endDate: "2026-10-31", periodYear: 2026, periodId: COMPANY, engagementId: null };
 const BINDING = connectionBinding(COMPANY, REALM, "sandbox");
 const GOOD_TOKENS: TokenResult = { ok: true, tokens: { accessToken: "access-not-real", refreshToken: "refresh-new-not-real", accessExpiresInSeconds: 3600, refreshExpiresAt: "2027-02-09T00:00:00.000Z", hardExpiresAt: "2031-11-01T00:00:00.000Z" } };
 const SECRETS = ["access-not-real", "refresh-new-not-real", "refresh-old-not-real", "v1.k1."];
 
 async function world(over: Partial<PullDeps> = {}, opts: { text?: string } = {}) {
   const store = { envelope: await sealSecret("refresh-old-not-real", KEY, BINDING), status: "active" as StoredConnection["status"], leased: false, leaseId: null as string | null, leases: 0 };
+  const protection = await protectRealm(REALM, "sandbox", COMPANY, REALM_KEYS);
+  const realm: StoredRealm = { company_id: COMPANY, environment: "sandbox", realm_id: REALM, realm_envelope: protection.envelope, realm_index: protection.index };
   const calls: string[] = [];
-  const seen = { fetchToken: "", object: new Uint8Array(), recorded: null as null | Record<string, unknown>, removed: [] as string[], registered: [] as unknown[][], released: [] as string[], refused: [] as string[] };
+  const seen = { fileName: "", fetchRealm: "", fetchToken: "", object: new Uint8Array(), recorded: null as null | Record<string, unknown>, removed: [] as string[], registered: [] as unknown[][], released: [] as string[], refused: [] as string[] };
   const deps: PullDeps = {
     savedPeriod: async (_u, r) => ({ id: r.periodId ?? COMPANY, companyId: COMPANY, year: 2026, start: "2026-01-01", end: "2026-10-31", currency: "GBP" }),
     connectionActive: async () => store.status === "active",
@@ -41,17 +45,18 @@ async function world(over: Partial<PullDeps> = {}, opts: { text?: string } = {})
     // As the database does: only the holder's own id releases the lease.
     releaseRefreshLease: async (_c, id) => { calls.push("releaseLease"); seen.released.push(id); if (store.leaseId === id) { store.leased = false; store.leaseId = null; } },
     pause: async () => undefined,
-    findConnection: async () => (calls.push("findConnection"), { id: CONN, status: store.status, envelope: store.status === "active" ? store.envelope : null }),
+    findConnection: async () => (calls.push("findConnection"), { id: CONN, status: store.status, envelope: store.status === "active" ? store.envelope : null, realm }),
+    resolveRealm: async (c) => (calls.push("resolveRealm"), realmForOperation({ id: c.id, ...c.realm }, REALM_KEYS, null)),
     openRefreshToken: async (e, b) => { calls.push("open"); try { return await openSecret(e, [KEY], b); } catch { return null; } },
     refresh: async () => (calls.push("refresh"), GOOD_TOKENS),
     sealRefreshToken: async (t, b) => sealSecret(t, KEY, b),
     rotate: async (_id, expected, next) => { calls.push("rotate"); if (store.envelope === next) return true; if (store.envelope !== expected) return false; store.envelope = next; return true; },
     // As the database does: only the token that was refused is deleted.
     markReconnectNeeded: async (_c, refused) => { calls.push("markReconnectNeeded"); seen.refused.push(refused); if (store.envelope !== refused) return; store.status = "reconnect_needed"; store.leased = false; store.leaseId = null; },
-    fetchReport: async (_e, _r, token) => { calls.push("fetchReport"); seen.fetchToken = token; return { status: 200, text: opts.text ?? GB_TEXT }; },
+    fetchReport: async (_e, r, token) => { calls.push("fetchReport"); seen.fetchToken = token; seen.fetchRealm = r; return { status: 200, text: opts.text ?? GB_TEXT }; },
     sha256Hex,
     summarise: async (csv, currency, year) => (calls.push("summarise"), summariseCanonicalCsv(csv, currency, year)),
-    reserve: async () => (calls.push("reserve"), { ok: true, reservationId: "55555555-5555-5555-5555-555555555555", objectPath: `workspaces/${COMPANY}/source/quickbooks.csv` }),
+    reserve: async (_c, fileName) => (calls.push("reserve"), seen.fileName = fileName, { ok: true, reservationId: "55555555-5555-5555-5555-555555555555", objectPath: `workspaces/${COMPANY}/source/quickbooks.csv` }),
     putObject: async (_p, bytes) => { calls.push("putObject"); seen.object = bytes; return true; },
     removeObject: async (p) => { calls.push("removeObject"); seen.removed.push(p); },
     register: async (...a) => { calls.push("register"); seen.registered.push(a); return { outcome: "registered", uploadId: UPLOAD }; },
@@ -60,12 +65,12 @@ async function world(over: Partial<PullDeps> = {}, opts: { text?: string } = {})
     minorVersion: 75,
     ...over,
   };
-  return { deps, store, calls, seen };
+  return { deps, store, calls, seen, realm };
 }
 const noSecrets = (r: unknown) => { const t = JSON.stringify(r); for (const s of SECRETS) expect(t).not.toContain(s); };
 
 describe("pull request", () => {
-  const ok = { companyId: COMPANY, environment: "sandbox", realmId: REALM, startDate: "2026-01-01", endDate: "2026-10-31", periodYear: 2026 };
+  const ok = { companyId: COMPANY, environment: "sandbox", connectionId: CONN, startDate: "2026-01-01", endDate: "2026-10-31", periodYear: 2026 };
   it("accepts exactly the documented keys", () => {
     expect(parsePullRequest(ok)).toEqual({ ...ok, periodId: null, engagementId: null });
     expect(parsePullRequest({ ...ok, accountingMethod: "Cash", periodId: COMPANY, engagementId: COMPANY })).toMatchObject({ accountingMethod: "Cash", periodId: COMPANY, engagementId: COMPANY });
@@ -77,7 +82,9 @@ describe("pull request", () => {
     ["a lone start date is not the point: the dates must be real", { ...ok, startDate: "2026-02-30" }],
     ["start after end", { ...ok, startDate: "2026-11-01" }],
     ["a malformed date", { ...ok, endDate: "31/10/2026" }],
-    ["a realm that is not digits", { ...ok, realmId: "12ab" }],
+    ["a realm id: the browser never sends one (Intuit case 00232331)", { ...ok, realmId: REALM }],
+    ["a realm id instead of the connection", (({ connectionId: _c, ...r }) => ({ ...r, realmId: REALM }))(ok)],
+    ["a connection that is not a uuid", { ...ok, connectionId: "12ab" }],
     ["an unknown environment", { ...ok, environment: "test" }],
     ["a year that is not an integer", { ...ok, periodYear: 2026.5 }],
     ["a year out of range", { ...ok, periodYear: 1999 }],
@@ -92,7 +99,24 @@ describe("a pull that succeeds", () => {
     const w = await world();
     const r = await runQboPull(w.deps, REQ);
     expect(r).toMatchObject({ status: 200, outcome: "imported", uploadId: UPLOAD, currency: "GBP", startDate: "2026-01-01", endDate: "2026-10-31" });
-    expect(w.calls).toEqual(["authenticate", "canPrepare", "canManageSources", "findConnection", "open", "acquireLease", "refresh", "rotate", "fetchReport", "summarise", "reserve", "recordIntent", "putObject", "register", "completePull", "releaseLease"]);
+    expect(w.calls).toEqual(["authenticate", "canPrepare", "canManageSources", "findConnection", "resolveRealm", "open", "acquireLease", "refresh", "rotate", "fetchReport", "summarise", "reserve", "recordIntent", "putObject", "register", "completePull", "releaseLease"]);
+  });
+  it("the realm comes only from the opened envelope: it reaches Intuit's address and the evidence, never the file name or the outcome", async () => {
+    const w = await world();
+    const r = await runQboPull(w.deps, REQ);
+    expect(w.seen.fetchRealm).toBe(REALM);
+    expect(w.seen.fileName).toBe("quickbooks-sandbox-2026-10-31.csv");
+    expect(JSON.stringify(r)).not.toContain(REALM);
+  });
+  it("a connection the backfill has not reached is protected FIRST (once), then imported", async () => {
+    const w = await world();
+    const submitted: unknown[] = [];
+    const plain = { ...w.realm, realm_envelope: null, realm_index: null };
+    const r = await runQboPull({ ...w.deps, findConnection: async () => ({ id: CONN, status: "active", envelope: w.store.envelope, realm: plain }),
+      resolveRealm: (c) => realmForOperation({ id: c.id, ...c.realm }, REALM_KEYS, async (a) => (submitted.push(a), "protected")) }, REQ);
+    expect(r.outcome).toBe("imported");
+    expect(submitted).toHaveLength(1);
+    expect(submitted[0]).toMatchObject({ p_connection: CONN, p_realm_id: REALM });
   });
   it("uses the NEW access token for the report, stores the NEW refresh token (the old one no longer opens it), and the stored envelope opens only with its binding", async () => {
     const w = await world();
@@ -156,7 +180,21 @@ describe("a pull that is refused stops at the right step and does nothing later"
     expect(w.calls).toEqual(["authenticate"]);
   });
   it("no connection", async () => { await stops({ findConnection: async () => null }, 404, "not_connected", ["refresh", "fetchReport"]); });
-  it("a connection that needs reconnecting", async () => { await stops({ findConnection: async () => ({ id: CONN, status: "reconnect_needed", envelope: null }) }, 409, "reconnect_needed", ["refresh", "fetchReport"]); });
+  it("a connection that needs reconnecting", async () => {
+    const w = await world();
+    await stops({ findConnection: async () => ({ id: CONN, status: "reconnect_needed", envelope: null, realm: w.realm }) }, 409, "reconnect_needed", ["refresh", "fetchReport"]);
+  });
+  it("a connection of another workspace or environment is not this one", async () => {
+    const w = await world();
+    await stops({ findConnection: async () => ({ id: CONN, status: "active", envelope: w.store.envelope, realm: { ...w.realm, company_id: ACTOR } }) }, 404, "not_connected", ["resolveRealm", "open", "acquireLease", "refresh"]);
+    await stops({ findConnection: async () => ({ id: CONN, status: "active", envelope: w.store.envelope, realm: { ...w.realm, environment: "production" } }) }, 404, "not_connected", ["open", "acquireLease", "refresh"]);
+  });
+  it("a realm that cannot be read (wrong key, moved envelope, index mismatch) stops before the token is opened or Intuit is touched", async () => {
+    await stops({ resolveRealm: async () => ({ ok: false, reason: "unreadable" }) }, 500, "realm_unreadable", ["open", "acquireLease", "refresh", "fetchReport", "reserve"]);
+    const w = await world();
+    await stops({ findConnection: async () => ({ id: CONN, status: "active", envelope: w.store.envelope, realm: { ...w.realm, realm_id: "1111" } }) }, 500, "realm_unreadable", ["open", "acquireLease", "refresh"]);
+    await stops({ findConnection: async () => ({ id: CONN, status: "active", envelope: w.store.envelope, realm: { ...w.realm, realm_envelope: null, realm_index: null } }) }, 500, "realm_unreadable", ["open", "refresh"]);
+  });
   it("a stored token that cannot be opened (a configuration problem, not a reconnect)", async () => { await stops({ openRefreshToken: async () => null }, 500, "token_unreadable", ["refresh", "markReconnectNeeded"]); });
   it("Intuit refuses the refresh token: the connection is marked reconnect-needed for exactly the token that was presented", async () => {
     const { w } = await stops({ refresh: async () => ({ ok: false, reason: "invalid_grant" }) }, 409, "reconnect_needed", ["rotate", "fetchReport"]);
@@ -323,7 +361,7 @@ describe("two pulls at once (review finding 6)", () => {
       refresh: async (...x) => { refreshes.push("r"); return w.deps.refresh(...x); },
       rotate: async (_id, expected, next) => { if (w.store.envelope !== expected) return false; w.store.envelope = next; rotated.push(next); return true; },
       fetchReport: async (...x) => { fetches.push("f"); return w.deps.fetchReport(...x); },
-      findConnection: async () => ({ id: CONN, status: "active", envelope: w.store.envelope }) });
+      findConnection: async () => ({ id: CONN, status: "active", envelope: w.store.envelope, realm: w.realm }) });
     return { a: mk(), b: mk(), refreshes, fetches, rotated };
   };
   it("with the lease, the second is told busy BEFORE Intuit is called: Intuit sees exactly ONE refresh with that token", async () => {

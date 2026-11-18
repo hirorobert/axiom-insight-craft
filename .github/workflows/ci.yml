@@ -205,7 +205,7 @@ jobs:
         run: deno check supabase/functions/rfr-check-books/index.ts
 
       - name: Type-check the QuickBooks connector functions including authorized disconnect against the real Supabase client types
-        run: deno check supabase/functions/qbo-connect-start/index.ts supabase/functions/qbo-oauth-callback/index.ts supabase/functions/qbo-finish-connection/index.ts supabase/functions/qbo-pull-trial-balance/index.ts supabase/functions/qbo-disconnect/index.ts
+        run: deno check supabase/functions/qbo-connect-start/index.ts supabase/functions/qbo-oauth-callback/index.ts supabase/functions/qbo-finish-connection/index.ts supabase/functions/qbo-pull-trial-balance/index.ts supabase/functions/qbo-disconnect/index.ts supabase/functions/qbo-realm-protect/index.ts
 
       - name: Type-check the functions that now write financial evidence with the service role after verifying the caller (20261221100000)
         run: deno check supabase/functions/safisha-efdms-ingest/index.ts supabase/functions/maono-cashflow/index.ts supabase/functions/maono-risk/index.ts supabase/functions/safisha-categorize/index.ts supabase/functions/safisha-score/index.ts
@@ -761,6 +761,14 @@ jobs:
         run: |
           createdb qbo_readiness
           bun scripts/db-proof/qboReadiness.mjs
+
+      - name: QuickBooks realmID protection proof (20261230100000-20261230300000 on the full chain - existing connections, operations, OAuth returns and import evidence byte-identical except the new columns; backfill through the real orchestration and module; shared realm shares one index; replay idempotent; wrong plaintext, conflicting index and malformed values refused; members cannot call the backfill; reconnect keeps the protection; no realm reaches a member; new writes carry the protection)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/qbo_realm_protection
+        run: |
+          createdb qbo_realm_protection
+          bun scripts/db-proof/qboRealmProtection.mjs
 
       - name: Internal beta activation controls proof (20261203100000 — only an active commercial administrator reads the beta state or opens/closes reporting; opening is one transaction that makes the allowlist exactly the chosen companies and releases the master switch last, refusals change nothing; closing engages the master switch first; synthetic scope recorded from the database's own composition hash; open/close races never deadlock; full chain, real certification engine, on the same throwaway container)
         env:

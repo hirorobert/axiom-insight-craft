@@ -464,6 +464,21 @@ export const SUBMISSION_FORMS = Object.freeze({
     identical: Object.freeze({ bytes: 11995, sha256: "f541d4d18bac1c4103e57e3e2dc5c36b47ba411793f8555cacfdbb96e693b027" }),
     finalLfRemoved: Object.freeze({ bytes: 11994, sha256: "a8be47afa5d8b28363b66ee1f932dff84e7038ac1f063549f4b10d2d7d203256" }),
   }),
+  // QuickBooks realmID protection r1 (Intuit case 00232331; docs/release/qbo-realm-protection-r1/README.md), Phases A and B: authored and
+  // authorized, NOT applied — the hosted journal stays at 113 until the owner applies them, in this order, through the canonical migrator; they
+  // are reported PENDING, never mirrored by normalised parity. Digests computed from the committed LF blob (git show), not the working tree.
+  "20261230100000_qbo_realm_protection_schema.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 17633, sha256: "7b310469b5b5919786295f7709f8d9532e604abf2acaea7689df642037885598" }),
+    finalLfRemoved: Object.freeze({ bytes: 17632, sha256: "c6294f28884bd69430d6bb48ade7cc23397ee0412ace317fb690c2e024d4e5e9" }),
+  }),
+  "20261230200000_qbo_realm_protection_connect.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 13128, sha256: "578a4bafc9e38fe793c1c8f88628ac613300a5e13b7d648c4d209d18213e1f82" }),
+    finalLfRemoved: Object.freeze({ bytes: 13127, sha256: "1edd778485ac91b23f113dd7db212ec4d1af789db03d69ebfaddb7c6350f8ce9" }),
+  }),
+  "20261230300000_qbo_realm_protection_evidence.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 16317, sha256: "2855b8f8c2328868e0881b03804badc5a5f5cc3bf0f1e676cf77d17f53582837" }),
+    finalLfRemoved: Object.freeze({ bytes: 16316, sha256: "41a9646912b23dbc19f20e0657ea52c00ca157345b4acff4e3cf0f4ff68583f4" }),
+  }),
   // QBO readiness r2: promoted atomic envelope, NOT applied; exact registered bytes only.
   "20261214100000_qbo_readiness_controls.sql": Object.freeze({
     identical: Object.freeze({ bytes: 20040, sha256: "6ac1c74c46171138915d936191beff45d26ca92abb6f7a820d0d73aadf0ddcd8" }),

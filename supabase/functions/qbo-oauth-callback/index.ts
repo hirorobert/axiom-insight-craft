@@ -6,12 +6,15 @@
 // with a one-time handoff code in the address fragment. The app, signed in, finishes through qbo-finish-connection, which exchanges the code only for the person
 // who started. A decline or an unusable return comes back as a status word. An unknown, expired or used state is a plain 400.
 // This function never calls Intuit. See _shared/qboConnect.ts. The service-role key and every secret stay inside the function and are never logged.
+// realmID protection (Intuit case 00232331): the realm is parked SEALED to the handoff with its keyed index; without the realm index key
+// (QBO_REALM_INDEX_KEY_ID / _B64) nothing is parked and the function answers "not configured".
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { parseCallbackQuery, runQboCallback } from "../_shared/qboConnect.ts";
 import { readQboEnv } from "../_shared/qboEnv.ts";
 import { sha256Hex } from "../_shared/qboPullSummary.ts";
 import { sealSecret } from "../_shared/qboTokenEnvelope.ts";
+import { protectParkedRealm } from "../_shared/qboRealmProtection.ts";
 
 const noStore = { "Cache-Control": "no-cache, no-store", "Referrer-Policy": "no-referrer" };
 const plain = (status: number, text: string) => new Response(text, { status, headers: { ...noStore, "Content-Type": "text/plain; charset=utf-8" } });
@@ -24,7 +27,8 @@ Deno.serve(async (req) => {
   const config = readQboEnv((n) => Deno.env.get(n));
   const appUrl = config.appUrl();
   const keys = config.keys();
-  if (!url || !serviceKey || !appUrl || !keys) return plain(503, "QuickBooks connection is not configured.");
+  const realmKeys = config.realmKeys();
+  if (!url || !serviceKey || !appUrl || !keys || !realmKeys) return plain(503, "QuickBooks connection is not configured.");
 
   const service = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 
@@ -32,9 +36,11 @@ Deno.serve(async (req) => {
     sha256Hex,
     randomHandoff: () => [...crypto.getRandomValues(new Uint8Array(32))].map((b) => b.toString(16).padStart(2, "0")).join(""),
     sealCode: (code, binding) => sealSecret(code, keys.current, binding),
+    protectParkedRealm: (realmId, handoffHash) => protectParkedRealm(realmId, handoffHash, realmKeys),
     recordReturn: async (stateHash, parked) => {
       const { data, error } = await service.rpc("qbo_record_oauth_return", {
         p_state_hash: stateHash, p_realm_id: parked?.realmId ?? null, p_code_envelope: parked?.codeEnvelope ?? null, p_handoff_hash: parked?.handoffHash ?? null,
+        p_realm_envelope: parked?.realm.envelope ?? null, p_realm_index_sandbox: parked?.realm.indexSandbox ?? null, p_realm_index_production: parked?.realm.indexProduction ?? null,
       });
       if (error) throw error;
       const row = Array.isArray(data) ? data[0] : null;

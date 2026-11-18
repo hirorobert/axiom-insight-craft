@@ -65,7 +65,7 @@ export function QuickBooksImportView(p: QuickBooksImportViewProps): JSX.Element 
           )}
           {kind === "connected" && p.state !== "checking" && p.state.kind === "connected" && (
             <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
-              Connected to QuickBooks company {p.state.realmId}{test}.{" "}
+              QuickBooks company connected on {p.state.connectedOn}{test}.{" "}
               {hasDates && p.period !== "loading" ? <>As of {p.period.end}, on QuickBooks fiscal year-to-date basis. Its verified fiscal start must match this saved period’s start, {p.period.start}.</> : p.period === "loading" ? "Reading this period's dates…" : "Set this period's start and end dates first; the import uses them."}
             </p>
           )}
@@ -199,9 +199,9 @@ function QuickBooksImportSession({ companyId, periodYear, periodId, engagementId
     if (working.current || state === "checking" || state.kind !== "connected" || period === "loading" || !period.start || !period.end) return;
     working.current = true; setBusy("import"); setResult(null);
     try {
-      const r = await pullFromQuickBooks(supabase as never, { companyId, environment: QBO_ENVIRONMENT, realmId: state.realmId, startDate: period.start, endDate: period.end, periodYear, periodId, engagementId });
+      const r = await pullFromQuickBooks(supabase as never, { companyId, environment: QBO_ENVIRONMENT, connectionId: state.connectionId, startDate: period.start, endDate: period.end, periodYear, periodId, engagementId });
       if (r.kind === "failed") {
-        if (r.outcome === "reconnect_needed") setState({ kind: "reconnect", realmId: state.realmId });
+        if (r.outcome === "reconnect_needed") setState({ kind: "reconnect", connectionId: state.connectionId });
         setResult({ ok: false, text: r.message, detail: r.detail });
         return;
       }

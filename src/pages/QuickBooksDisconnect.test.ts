@@ -32,7 +32,6 @@ import Page from "./QuickBooksDisconnect";
 let root: Root, host: HTMLDivElement;
 const row = {
   id: "connection",
-  realm_id: "123",
   environment: "sandbox",
   status: "active",
   created_at: "2026-11-02",

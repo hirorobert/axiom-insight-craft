@@ -6,7 +6,9 @@
  *
  * ORDER (each step refuses before the next begins):
  *   1 login  2 BOTH rights an import needs, before Intuit is touched: prepare_trial_balance (the connector's own) and manage_source_files (the upload
- *     steps', judged again for the person at reserve and register)  3 a live connection  4 open the stored refresh token
+ *     steps', judged again for the person at reserve and register)  3 a live connection, named by its id (the browser never holds a realm)
+ *   3b its realm, read by OPENING the realm envelope (qboRealmProtection.ts; a connection the backfill has not reached yet is protected first)
+ *   4 open the stored refresh token
  *   5 take the refresh LEASE (a second simultaneous import is told "busy" here and never reaches Intuit; only this import's own lease id gives it back)
  *   6 refresh (Intuit; abandoned after 30 s, well inside the bounded operation lease)
  *   7 ROTATE: the new refresh token is sealed and stored by compare-and-swap BEFORE the new access token is used; a lost race stops here. The swap is
@@ -26,6 +28,7 @@ import { connectionBinding, type EnvelopeBinding } from "./qboTokenEnvelope.ts";
 import type { TokenResult } from "./qboTokenClient.ts";
 import { alignQboFiscalBasis, type QboSavedPeriod, type QboFiscalBasis } from "./qboFiscalBasis.ts";
 import type { QboEnvironment } from "./qboReadOnlyGuard.ts";
+import type { RealmResolution, StoredRealm } from "./qboRealmProtection.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -34,15 +37,15 @@ const MAX_REPORT_CHARS = 5_000_000;
 export const REFRESH_LEASE_SECONDS = 300;
 
 export interface PullRequest {
-  companyId: string; environment: QboEnvironment; realmId: string; startDate: string; endDate: string; periodYear: number;
+  companyId: string; environment: QboEnvironment; connectionId: string; startDate: string; endDate: string; periodYear: number;
   accountingMethod?: "Accrual" | "Cash"; periodId: string | null; engagementId: string | null;
 }
 
-const REQUIRED = ["companyId", "environment", "realmId", "startDate", "endDate", "periodYear"];
+const REQUIRED = ["companyId", "environment", "connectionId", "startDate", "endDate", "periodYear"];
 const OPTIONAL = ["accountingMethod", "periodId", "engagementId"];
 const validDate = (s: unknown): s is string => typeof s === "string" && DATE.test(s) && !Number.isNaN(Date.parse(s)) && new Date(s).toISOString().slice(0, 10) === s;
 
-/** Exactly these keys, nothing else: a bucket, path, user or token in the body is refused, never read. */
+/** Exactly these keys, nothing else: a bucket, path, user, token or realm in the body is refused, never read. The connection is named by its id. */
 export function parsePullRequest(body: unknown): PullRequest | null {
   if (!body || typeof body !== "object" || Array.isArray(body)) return null;
   const o = body as Record<string, unknown>;
@@ -50,19 +53,20 @@ export function parsePullRequest(body: unknown): PullRequest | null {
   if (!REQUIRED.every((k) => k in o) || keys.some((k) => !REQUIRED.includes(k) && !OPTIONAL.includes(k))) return null;
   if (typeof o.companyId !== "string" || !UUID.test(o.companyId)) return null;
   if (o.environment !== "production" && o.environment !== "sandbox") return null;
-  if (typeof o.realmId !== "string" || !/^[0-9]{1,20}$/.test(o.realmId)) return null;
+  if (typeof o.connectionId !== "string" || !UUID.test(o.connectionId)) return null;
   if (!validDate(o.startDate) || !validDate(o.endDate) || o.startDate > o.endDate) return null;
   if (typeof o.periodYear !== "number" || !Number.isInteger(o.periodYear) || o.periodYear < 2000 || o.periodYear > 2100) return null;
   if (o.accountingMethod !== undefined && o.accountingMethod !== "Accrual" && o.accountingMethod !== "Cash") return null;
   for (const k of ["periodId", "engagementId"]) if (o[k] !== undefined && o[k] !== null && (typeof o[k] !== "string" || !UUID.test(o[k] as string))) return null;
   return {
-    companyId: o.companyId, environment: o.environment, realmId: o.realmId, startDate: o.startDate, endDate: o.endDate, periodYear: o.periodYear,
+    companyId: o.companyId, environment: o.environment, connectionId: o.connectionId, startDate: o.startDate, endDate: o.endDate, periodYear: o.periodYear,
     ...(o.accountingMethod ? { accountingMethod: o.accountingMethod as "Accrual" | "Cash" } : {}),
     periodId: (o.periodId as string | null | undefined) ?? null, engagementId: (o.engagementId as string | null | undefined) ?? null,
   };
 }
 
-export interface StoredConnection { id: string; status: "active" | "reconnect_needed"; envelope: string | null }
+/** A live connection of the workspace: its token envelope and its realm columns (opened by resolveRealm, never sent anywhere). */
+export interface StoredConnection { id: string; status: "active" | "reconnect_needed"; envelope: string | null; realm: StoredRealm }
 /** The facts recorded BEFORE the file is stored, keyed by the upload reservation (the workspace comes from the reservation, never from here). */
 export interface ProvenanceRecord {
   reservationId: string; connectionId: string; actorUserId: string; realmId: string; environment: QboEnvironment; startDate: string; endDate: string;
@@ -87,7 +91,10 @@ export interface PullDeps {
   completePending?(): Promise<void>;
   /** Waits between retries of an idempotent evidence write. Injected so tests need no clock. */
   pause?(ms: number): Promise<void>;
-  findConnection(companyId: string, realmId: string, environment: QboEnvironment): Promise<StoredConnection | null>;
+  /** The live connection with this id in this workspace and environment, or null. */
+  findConnection(companyId: string, connectionId: string, environment: QboEnvironment): Promise<StoredConnection | null>;
+  /** The connection's realm, read by opening its envelope (qboRealmProtection.realmForOperation). */
+  resolveRealm(connection: StoredConnection): Promise<RealmResolution>;
   openRefreshToken(envelope: string, binding: EnvelopeBinding): Promise<string | null>;
   refresh(environment: QboEnvironment, refreshToken: string): Promise<TokenResult>;
   sealRefreshToken(refreshToken: string, binding: EnvelopeBinding): Promise<string>;
@@ -138,11 +145,15 @@ export async function runQboPull(deps: PullDeps, req: PullRequest): Promise<Pull
       || period.start !== req.startDate || period.end !== req.endDate) return fail(422, "saved_period_mismatch");
   await deps.completePending?.().catch(() => undefined);
 
-  const conn = await deps.findConnection(req.companyId, req.realmId, req.environment);
-  if (!conn) return fail(404, "not_connected");
+  const conn = await deps.findConnection(req.companyId, req.connectionId, req.environment);
+  if (!conn || conn.id !== req.connectionId || conn.realm.company_id !== req.companyId || conn.realm.environment !== req.environment) return fail(404, "not_connected");
   if (conn.status !== "active" || !conn.envelope) return fail(409, "reconnect_needed");
+  // The realm exists for this import only as the opened envelope: never in the request, an outcome or a log.
+  const resolved = await deps.resolveRealm(conn);
+  if (!resolved.ok) return fail(500, "realm_unreadable");
+  const realmId = resolved.realmId;
   const presented = conn.envelope;   // the envelope this import opens, leases, presents and swaps from
-  const binding = connectionBinding(req.companyId, req.realmId, req.environment);
+  const binding = connectionBinding(req.companyId, realmId, req.environment);
   const stored = await deps.openRefreshToken(presented, binding);
   if (!stored) return fail(500, "token_unreadable");
 
@@ -166,7 +177,7 @@ export async function runQboPull(deps: PullDeps, req: PullRequest): Promise<Pull
     accessToken = refreshed.tokens.accessToken;
 
     // All work remains inside the operation lease. SQL keeps it across rotation and fences registration.
-    const preferences = await deps.fetchPreferences(req.environment, req.realmId, accessToken);
+    const preferences = await deps.fetchPreferences(req.environment, realmId, accessToken);
     if (preferences.status === 429 || preferences.status === 402) return fail(429, "rate_limited");
     if (preferences.status !== 200) return fail(503, "fiscal_configuration_missing");
     let preferencesJson: unknown;
@@ -175,7 +186,7 @@ export async function runQboPull(deps: PullDeps, req: PullRequest): Promise<Pull
     if (!alignment.ok) return fail(422, alignment.outcome, { message: alignment.message });
     const fiscalBasis = alignment.basis;
     if (req.accountingMethod && req.accountingMethod !== fiscalBasis.accountingMethod) return fail(422, "accounting_basis_mismatch");
-    const res = await deps.fetchReport(req.environment, req.realmId, accessToken, { startDate: req.startDate, endDate: req.endDate, accountingMethod: fiscalBasis.accountingMethod });
+    const res = await deps.fetchReport(req.environment, realmId, accessToken, { startDate: req.startDate, endDate: req.endDate, accountingMethod: fiscalBasis.accountingMethod });
     if (res.status === 429 || res.status === 402) return fail(429, "rate_limited");
     if (res.status === 413) return fail(502, "report_too_large");
     if (res.status >= 500) return fail(503, "quickbooks_unavailable");
@@ -196,7 +207,8 @@ export async function runQboPull(deps: PullDeps, req: PullRequest): Promise<Pull
     const csv = new TextEncoder().encode(toCanonicalCsv(report));
     const [rawSha256, canonicalSha256, summary] = await Promise.all([deps.sha256Hex(res.text), deps.sha256Hex(csv), deps.summarise(csv, report.currency, req.periodYear)]);
 
-    const fileName = `quickbooks-${req.environment === "sandbox" ? "sandbox-" : ""}${req.realmId}-${req.endDate}.csv`;
+    // No realm in the file name: it is upload evidence that outlives the connection (Intuit case 00232331).
+    const fileName = `quickbooks-${req.environment === "sandbox" ? "sandbox-" : ""}${req.endDate}.csv`;
     if (!(await deps.connectionActive(conn.id))) return fail(409, "disconnected");
     const reserved = await deps.reserve(req.companyId, fileName);
     if (!reserved.ok) return reserved.reason === "forbidden" ? fail(403, "forbidden") : fail(500, "reserve_failed");
@@ -204,7 +216,7 @@ export async function runQboPull(deps: PullDeps, req: PullRequest): Promise<Pull
     // EVIDENCE FIRST. Nothing is stored or registered unless the facts of this report are already on record. If they cannot be written, the import stops here
     // and says so: there is no upload, so there is nothing that lacks its evidence (the unused reservation expires and is swept by the existing sweeper).
     const intent = await attempt(() => deps.recordIntent({
-      reservationId: reserved.reservationId, connectionId: conn.id, actorUserId: userId, realmId: req.realmId, environment: req.environment,
+      reservationId: reserved.reservationId, connectionId: conn.id, actorUserId: userId, realmId, environment: req.environment,
       startDate: fiscalBasis.fiscalStart, endDate: fiscalBasis.asOf, fiscalBasis: { ...fiscalBasis, operationLeaseId: leaseId }, periodId: period.id,
       accountingMethod: fiscalBasis.accountingMethod, minorVersion: deps.minorVersion, currency: report.currency,
       accountCount: summary.accountCount, rawSha256, canonicalSha256, resultSha256: summary.resultSha256,

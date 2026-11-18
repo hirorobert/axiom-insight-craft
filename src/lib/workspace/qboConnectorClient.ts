@@ -6,18 +6,21 @@
  * QBO_CONNECTOR_ENABLED is a reviewed source constant (the gate pattern of src/lib/workbench/gate.ts and TWO_PERIOD_INTAKE_ENABLED). It stays false until the
  * storage migration is applied, the three functions are deployed and the secrets are set; while false the upload page is exactly as before and the card is not
  * rendered. QBO_ENVIRONMENT stays 'sandbox' (Intuit's development app) until Intuit has approved production access.
+ *
+ * The browser never holds a QuickBooks company id (realmID; Intuit case 00232331): the status function returns none, a connection is named by its id,
+ * and an import asks for a connection id. The server opens the realm from its encrypted envelope.
  */
 export const QBO_CONNECTOR_ENABLED = false;
 export const QBO_ENVIRONMENT: "sandbox" | "production" = "sandbox";
 
 export interface QboConnectionRow {
-  id: string; realm_id: string; environment: string; status: string; refresh_expires_at: string | null; created_at: string;
+  id: string; environment: string; status: string; refresh_expires_at: string | null; created_at: string;
 }
 export type QboConnectionState =
   | { kind: "unavailable" }
   | { kind: "none" }
-  | { kind: "connected"; realmId: string; connectionId?: string }
-  | { kind: "reconnect"; realmId: string };
+  | { kind: "connected"; connectionId: string; connectedOn: string }
+  | { kind: "reconnect"; connectionId: string };
 
 type RpcClient = { rpc(name: string, args: Record<string, unknown>): PromiseLike<{ data: unknown; error: unknown }> };
 type FnClient = { functions: { invoke(name: string, opts: { body: unknown }): Promise<{ data: unknown; error: unknown }> } };
@@ -29,13 +32,23 @@ export function connectionState(rows: QboConnectionRow[] | null, environment: "s
     .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
   const newest = live[0];
   if (!newest) return { kind: "none" };
-  return newest.status === "active" ? { kind: "connected", realmId: newest.realm_id, connectionId: newest.id } : { kind: "reconnect", realmId: newest.realm_id };
+  return newest.status === "active" ? { kind: "connected", connectionId: newest.id, connectedOn: newest.created_at.slice(0, 10) } : { kind: "reconnect", connectionId: newest.id };
+}
+
+/** Only the fields the page uses survive a read: anything else an answer carries (an older server's realm_id, for one) is dropped, never kept. */
+function toRow(r: unknown): QboConnectionRow | null {
+  if (!r || typeof r !== "object") return null;
+  const o = r as Record<string, unknown>;
+  if (typeof o.id !== "string" || o.id === "" || typeof o.environment !== "string" || typeof o.status !== "string" || typeof o.created_at !== "string") return null;
+  return { id: o.id, environment: o.environment, status: o.status, refresh_expires_at: typeof o.refresh_expires_at === "string" ? o.refresh_expires_at : null, created_at: o.created_at };
 }
 
 export async function fetchConnections(client: RpcClient, companyId: string): Promise<QboConnectionRow[] | null> {
   try {
     const { data, error } = await client.rpc("qbo_connection_status", { p_company_id: companyId });
-    return error || !Array.isArray(data) ? null : (data as QboConnectionRow[]);
+    if (error || !Array.isArray(data)) return null;
+    const rows = data.map(toRow);
+    return rows.every((r): r is QboConnectionRow => r !== null) ? rows : null;
   } catch {
     return null;
   }
@@ -66,6 +79,7 @@ export const QBO_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
   quickbooks_rejected: "QuickBooks refused the request. Nothing was imported.",
   report_failed: "QuickBooks returned an answer that could not be used. Nothing was imported.",
   report_unreadable: "QuickBooks returned an answer that could not be read. Nothing was imported.",
+  realm_unreadable: "The stored QuickBooks connection could not be read. Disconnect it and connect again; nothing was imported.",
   report_too_large: "The QuickBooks report is too large to import this way. Export it from QuickBooks and upload the file instead.",
   report_refused: "The report from QuickBooks isn't one this import can read safely, so nothing was imported. Export it from QuickBooks and upload the file instead.",
   fiscal_configuration_missing: "QuickBooks fiscal settings could not be verified. Confirm the fiscal start month, accounting basis and home currency in QuickBooks.",
@@ -120,7 +134,7 @@ export async function finishConnect(client: FnClient, handoff: string): Promise<
   }
 }
 
-export interface PullInput { companyId: string; environment: "sandbox" | "production"; realmId: string; startDate: string; endDate: string; periodYear: number; periodId: string | null; engagementId: string | null }
+export interface PullInput { companyId: string; environment: "sandbox" | "production"; connectionId: string; startDate: string; endDate: string; periodYear: number; periodId: string | null; engagementId: string | null }
 /** Said when the trial balance is saved and its source record is already on file, but the final link between them is still being finished (HTTP 202). */
 export const RECORD_PENDING_NOTE = "The record of where these figures came from is saved and is being linked to this trial balance; that finishes by itself.";
 export type PullOutcome =
@@ -130,7 +144,7 @@ export type PullOutcome =
 export async function pullFromQuickBooks(client: FnClient, a: PullInput): Promise<PullOutcome> {
   try {
     const body = await readAnswer(await client.functions.invoke("qbo-pull-trial-balance", { body: {
-      companyId: a.companyId, environment: a.environment, realmId: a.realmId, startDate: a.startDate, endDate: a.endDate, periodYear: a.periodYear,
+      companyId: a.companyId, environment: a.environment, connectionId: a.connectionId, startDate: a.startDate, endDate: a.endDate, periodYear: a.periodYear,
       ...(a.periodId ? { periodId: a.periodId } : {}), ...(a.engagementId ? { engagementId: a.engagementId } : {}),
     } }));
     const outcome = typeof body?.outcome === "string" ? body.outcome : undefined;
