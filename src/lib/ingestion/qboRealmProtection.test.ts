@@ -151,6 +151,16 @@ describe("the one-off backfill (platform owner only)", () => {
   it("exactly { action }", async () => {
     expect(await runRealmBackfill(deps(), KEYS, null)).toEqual({ status: 400, outcome: "invalid_request" });
     for (const bad of [null, {}, [], "protect", { action: "drop" }, { action: "protect", realmId: REALM }, { action: "verify", sql: "select 1" }]) expect(parseBackfillRequest(bad)).toBeNull();
+    for (const action of ["keys", "reseal"]) expect(parseBackfillRequest({ action })).toEqual({ action });
+    for (const bad of [{ action: "reseal", keyId: "k1" }, { action: "keys", key: "x" }, { action: "rotate" }]) expect(parseBackfillRequest(bad)).toBeNull();
+  });
+  it("keys and reseal: refused callers read nothing; reseal without the 20261230400000 database functions is unavailable, never partial", async () => {
+    const d = deps({ authorize: async () => ({ ok: false, reason: "forbidden" }), listConnections: vi.fn(rows), listOperations: vi.fn(async () => []) });
+    for (const action of ["keys", "reseal"] as const) expect(await runRealmBackfill(d, KEYS, { action })).toEqual({ status: 403, outcome: "forbidden" });
+    expect(d.listConnections).not.toHaveBeenCalled();
+    const old = deps({ listConnections: vi.fn(rows) });
+    expect(await runRealmBackfill(old, KEYS, { action: "reseal" })).toEqual({ status: 503, outcome: "unavailable" });
+    expect(old.listConnections).not.toHaveBeenCalled();
   });
   it("protect: seals and submits only the unprotected rows; the answer is counts only", async () => {
     const d = deps();

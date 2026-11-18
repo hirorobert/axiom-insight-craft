@@ -8,6 +8,10 @@
  *   QBO_APP_URL         the https origin of this application (where the browser is sent back, with a status word only)
  *   QBO_TOKEN_KEY_ID / QBO_TOKEN_KEY_B64            the CURRENT envelope key (exactly 32 bytes, base64); new tokens are sealed with it
  *   QBO_TOKEN_KEY_PREV_ID / QBO_TOKEN_KEY_PREV_B64  an optional PREVIOUS key, kept only while old envelopes are still being re-sealed (rotation)
+ *   QBO_TOKEN_KEY_NEXT_ID / QBO_TOKEN_KEY_NEXT_B64  an optional NEXT key (rotation WITHOUT re-entering the current key): when BOTH are set it
+ *                       becomes the sealing key and QBO_TOKEN_KEY_ID / _B64 stays in the ring as an opening-only key, so envelopes sealed with it
+ *                       still open until qbo-realm-protect "reseal" has re-sealed every live row. A half-configured pair (one of the two) is
+ *                       refused (not configured), never ignored. Its id and bytes must differ from every other key's.
  *   QBO_REALM_INDEX_KEY_ID / QBO_REALM_INDEX_KEY_B64  the realmID INDEX key (exactly 32 bytes, base64; its own key, never a token key): the keyed
  *                       equality index of a QuickBooks company (qboRealmProtection.ts). Without it no function that stores a realm runs.
  *   QBO_MINOR_VERSION   the API minor version to ask for (default 75, the one the recorded samples were requested with)
@@ -43,22 +47,28 @@ export function readQboEnv(get: Get): QboEnvConfig {
   const app = get("QBO_APP_URL");
   const appUrl = present(app) && /^https:\/\/[^\s?#]+$/.test(app.trim()) ? app.trim().replace(/\/+$/, "") : null;
   const mv = Number(get("QBO_MINOR_VERSION") ?? "75");
+  const sameBytes = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((v, i) => v === b[i]);
   const keys = () => {
     try {
       const id = get("QBO_TOKEN_KEY_ID"), b64 = get("QBO_TOKEN_KEY_B64");
       if (!present(id) || !present(b64)) return null;
-      const current = keyFromBase64(id.trim(), b64);
-      const all = [current];
-      const pid = get("QBO_TOKEN_KEY_PREV_ID"), pb64 = get("QBO_TOKEN_KEY_PREV_B64");
-      if (present(pid) && present(pb64)) {
-        const prev = keyFromBase64(pid.trim(), pb64);
-        if (prev.id === current.id) return null; // two keys must not share a name
-        all.push(prev);
+      const configured = keyFromBase64(id.trim(), b64);
+      let current = configured;
+      const all = [configured];
+      const nid = get("QBO_TOKEN_KEY_NEXT_ID"), nb64 = get("QBO_TOKEN_KEY_NEXT_B64");
+      if (present(nid) !== present(nb64)) return null; // half a key pair is a configuration error, never silently ignored
+      if (present(nid) && present(nb64)) {
+        current = keyFromBase64(nid.trim(), nb64); // seals from now on; the configured key only opens what it sealed
+        all.unshift(current);
       }
+      const pid = get("QBO_TOKEN_KEY_PREV_ID"), pb64 = get("QBO_TOKEN_KEY_PREV_B64");
+      if (present(pid) && present(pb64)) all.push(keyFromBase64(pid.trim(), pb64));
+      // Every key in the ring has its own name and its own bytes (a name chooses the key that opens an envelope).
+      if (new Set(all.map((k) => k.id)).size !== all.length) return null;
+      if (all.some((a, i) => all.some((b, j) => i < j && sameBytes(a.bytes, b.bytes)))) return null;
       return { current, all };
     } catch { return null; }
   };
-  const sameBytes = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((v, i) => v === b[i]);
   const realmKeys = (): RealmKeys | null => {
     const ring = keys();
     const id = get("QBO_REALM_INDEX_KEY_ID"), b64 = get("QBO_REALM_INDEX_KEY_B64");

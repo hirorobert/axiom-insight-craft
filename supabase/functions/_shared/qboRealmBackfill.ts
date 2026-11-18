@@ -23,13 +23,25 @@
  *            recomputed with the current index key; only then is the row marked verified (qbo_verify_connection_realm / _disconnect_realm, which
  *            compare once more with the plaintext the database holds). The cutover (Phase C) refuses unless every row is verified.
  *
+ *   keys     READ ONLY: opens every live connection's realm envelope and refresh token and every disconnect operation's realm envelope with
+ *            the configured key ring and counts what opened under which key id (qbo_realm_key_coverage() adds the stored counts, historical
+ *            rows included). Nothing is written. It proves which key the deployed runtime needs before a key is retired.
+ *   reseal   moves every LIVE row that is still sealed with an older key onto the current sealing key (QBO_TOKEN_KEY_NEXT_* once configured):
+ *            the realm envelope of each live connection and each disconnect operation (opened, equal to the plaintext the database holds,
+ *            index recomputed and unchanged, re-sealed, opened back) and each live refresh token (opened under its binding, re-sealed, opened
+ *            back), each submitted by compare-and-swap through qbo_reseal_connection_realm / qbo_reseal_disconnect_realm /
+ *            qbo_reseal_refresh_token. A row changed meanwhile answers 'stale' and a row under an import's lease answers 'busy': nothing is
+ *            overwritten and the next run finishes it. Rows already under the current key are left alone, so it is safe to repeat.
+ *
  * The answer and every log line carry COUNTS only: never a realm, an envelope, an index, a key or a row id.
  */
-import { protectExistingRealm, resolveStoredRealm, PROTECTED_OUTCOMES, type ProtectArgs, type RealmKeys, type StoredRealm } from "./qboRealmProtection.ts";
+import { openRealm, protectExistingRealm, resolveStoredRealm, sealRealm, PROTECTED_OUTCOMES, type ProtectArgs, type RealmKeys, type StoredRealm } from "./qboRealmProtection.ts";
+import { connectionBinding, openSecret, sealSecret } from "./qboTokenEnvelope.ts";
 
 export type BackfillAction = "protect" | "verify";
+export type KeyAction = "keys" | "reseal";
 /** A connection, or a disconnect operation (whose id is its connection id). */
-export interface BackfillRow extends StoredRealm { id: string }
+export interface BackfillRow extends StoredRealm { id: string; refresh_token_envelope?: string | null }
 export interface BackfillTally { total: number; protected: number; already: number; verified: number; unprotected: number; mismatched: number; refused: number }
 /** The caller's authority, decided before anything is listed or written. */
 export type MaintenanceAuthority = { ok: true; actor: string } | { ok: false; reason: "unauthenticated" | "forbidden" | "unavailable" };
@@ -46,15 +58,21 @@ export interface BackfillDeps {
   verifyOperation(args: ProtectArgs): Promise<string>;
   /** qbo_realm_protection_status(): the database's own counts. */
   status(): Promise<Record<string, number>>;
+  /** 20261230400000: compare-and-swap re-seals and the stored counts by key id (absent before that migration). */
+  resealConnection?(args: ResealArgs): Promise<string>;
+  resealOperation?(args: ResealArgs): Promise<string>;
+  resealToken?(args: { p_connection: string; p_expected_envelope: string; p_new_envelope: string }): Promise<string>;
+  coverage?(): Promise<Record<string, number>>;
 }
+export interface ResealArgs { p_connection: string; p_realm_id: string; p_expected_envelope: string; p_new_envelope: string; p_realm_index: string }
 export type BackfillResult =
   | { status: 200 | 409; outcome: "complete" | "incomplete"; action: BackfillAction; connections: BackfillTally; operations: BackfillTally; database: Record<string, number> }
   | { status: 400 | 401 | 403 | 500 | 503; outcome: "invalid_request" | "unauthorized" | "forbidden" | "failed" | "unavailable" };
 
-export function parseBackfillRequest(body: unknown): { action: BackfillAction } | null {
+export function parseBackfillRequest(body: unknown): { action: BackfillAction | KeyAction } | null {
   if (!body || typeof body !== "object" || Array.isArray(body)) return null;
   const o = body as Record<string, unknown>;
-  if (Object.keys(o).length !== 1 || (o.action !== "protect" && o.action !== "verify")) return null;
+  if (Object.keys(o).length !== 1 || (o.action !== "protect" && o.action !== "verify" && o.action !== "keys" && o.action !== "reseal")) return null;
   return { action: o.action };
 }
 
@@ -112,7 +130,7 @@ async function verifyRows(rows: BackfillRow[], keys: RealmKeys, submit: (a: Prot
   return t;
 }
 
-export async function runRealmBackfill(deps: BackfillDeps, keys: RealmKeys, req: { action: BackfillAction } | null): Promise<BackfillResult> {
+export async function runRealmBackfill(deps: BackfillDeps, keys: RealmKeys, req: { action: BackfillAction | KeyAction } | null): Promise<BackfillResult | KeyResult> {
   let authority: MaintenanceAuthority;
   try { authority = await deps.authorize(); } catch { authority = { ok: false, reason: "unavailable" }; }
   if (!authority.ok) {
@@ -120,6 +138,7 @@ export async function runRealmBackfill(deps: BackfillDeps, keys: RealmKeys, req:
       : authority.reason === "unavailable" ? { status: 503, outcome: "unavailable" } : { status: 401, outcome: "unauthorized" };
   }
   if (!req) return { status: 400, outcome: "invalid_request" };
+  if (req.action === "keys" || req.action === "reseal") return runKeyAction(deps, keys, req.action);
   try {
     const [conns, ops] = [await deps.listConnections(), await deps.listOperations()];
     const connections = req.action === "protect" ? await protectRows(conns, keys, deps.protectConnection) : await verifyRows(conns, keys, deps.verifyConnection);
@@ -127,6 +146,86 @@ export async function runRealmBackfill(deps: BackfillDeps, keys: RealmKeys, req:
     const bad = (t: BackfillTally) => t.unprotected + t.mismatched + t.refused;
     const done = bad(connections) === 0 && bad(operations) === 0;
     return { status: done ? 200 : 409, outcome: done ? "complete" : "incomplete", action: req.action, connections, operations, database: await deps.status() };
+  } catch {
+    return { status: 500, outcome: "failed" };
+  }
+}
+
+// ── key rotation: "keys" (read only) and "reseal" (20261230400000) ──────────────────────────────────────────────────────────────────────────
+export interface KeyTally { total: number; byKey: Record<string, number>; resealed: number; already: number; none: number; stale: number; busy: number; unreadable: number; mismatched: number; refused: number }
+export type KeyResult =
+  | { status: 200 | 409; outcome: "complete" | "incomplete"; action: KeyAction; currentKeyId: string; connectionRealms: KeyTally; refreshTokens: KeyTally; operationRealms: KeyTally; database: Record<string, number> }
+  | { status: 500 | 503; outcome: "failed" | "unavailable" };
+const keyTally = (): KeyTally => ({ total: 0, byKey: {}, resealed: 0, already: 0, none: 0, stale: 0, busy: 0, unreadable: 0, mismatched: 0, refused: 0 });
+const keyIdOf = (envelope: string) => envelope.split(".")[1] ?? "";
+const count = (t: KeyTally, k: string) => { t.byKey[k] = (t.byKey[k] ?? 0) + 1; };
+function tallyOutcome(t: KeyTally, outcome: string): void {
+  if (outcome === "resealed") t.resealed++;
+  else if (outcome === "already_resealed") t.already++;
+  else if (outcome === "stale") t.stale++;
+  else if (outcome === "busy") t.busy++;
+  else if (outcome === "realm_mismatch" || outcome === "index_mismatch") t.mismatched++;
+  else t.refused++;
+}
+
+/** One realm envelope: read (keys) or moved onto the current key (reseal). Returns the opened realm, or null when it could not be read. */
+async function realmStep(row: BackfillRow, keys: RealmKeys, t: KeyTally, action: KeyAction, submit: ((a: ResealArgs) => Promise<string>) | undefined): Promise<string | null> {
+  t.total++;
+  if (!row.realm_envelope || !row.realm_index) { t.unreadable++; return null; }
+  const r = await resolveStoredRealm(row, keys, { allowPlaintext: false });
+  if (!r.ok) { if (r.reason === "mismatch") t.mismatched++; else t.unreadable++; return null; }
+  const from = keyIdOf(row.realm_envelope);
+  count(t, from);
+  if (action === "keys") return r.realmId;
+  if (from === keys.current.id) { t.already++; return r.realmId; }
+  if (!submit || typeof row.realm_id !== "string") { t.refused++; return r.realmId; }   // re-sealing compares with the plaintext the database holds
+  let next: string;
+  try {
+    next = await sealRealm(r.realmId, row.environment, row.company_id, keys.current);
+    if ((await openRealm(next, row.environment, row.company_id, [keys.current])) !== r.realmId) { t.refused++; return r.realmId; }
+  } catch { t.refused++; return r.realmId; }
+  try { tallyOutcome(t, await submit({ p_connection: row.id, p_realm_id: r.realmId, p_expected_envelope: row.realm_envelope, p_new_envelope: next, p_realm_index: row.realm_index })); }
+  catch { t.refused++; }
+  return r.realmId;
+}
+
+/** One live refresh token, opened under its binding (workspace, realm, environment). */
+async function tokenStep(row: BackfillRow, realmId: string | null, keys: RealmKeys, t: KeyTally, action: KeyAction, deps: BackfillDeps): Promise<void> {
+  t.total++;
+  const envelope = row.refresh_token_envelope;
+  if (!envelope) { t.none++; return; }
+  if (realmId === null) { t.unreadable++; return; }   // the binding needs the realm
+  const binding = connectionBinding(row.company_id, realmId, row.environment);
+  let token: string;
+  try { token = await openSecret(envelope, keys.all, binding); } catch { t.unreadable++; return; }
+  const from = keyIdOf(envelope);
+  count(t, from);
+  if (action === "keys") return;
+  if (from === keys.current.id) { t.already++; return; }
+  if (!deps.resealToken) { t.refused++; return; }
+  let next: string;
+  try {
+    next = await sealSecret(token, keys.current, binding);
+    if ((await openSecret(next, [keys.current], binding)) !== token) { t.refused++; return; }
+  } catch { t.refused++; return; }
+  try { tallyOutcome(t, await deps.resealToken({ p_connection: row.id, p_expected_envelope: envelope, p_new_envelope: next })); }
+  catch { t.refused++; }
+}
+
+async function runKeyAction(deps: BackfillDeps, keys: RealmKeys, action: KeyAction): Promise<KeyResult> {
+  if (action === "reseal" && (!deps.resealConnection || !deps.resealOperation || !deps.resealToken)) return { status: 503, outcome: "unavailable" };
+  try {
+    const [conns, ops] = [await deps.listConnections(), await deps.listOperations()];
+    const connectionRealms = keyTally(), refreshTokens = keyTally(), operationRealms = keyTally();
+    for (const row of conns) {
+      const realmId = await realmStep(row, keys, connectionRealms, action, deps.resealConnection);
+      await tokenStep(row, realmId, keys, refreshTokens, action, deps);
+    }
+    for (const row of ops) await realmStep(row, keys, operationRealms, action, deps.resealOperation);
+    const bad = (t: KeyTally) => t.unreadable + t.mismatched + t.refused + t.stale + t.busy;
+    const done = bad(connectionRealms) + bad(refreshTokens) + bad(operationRealms) === 0;
+    const database = deps.coverage ? await deps.coverage() : await deps.status();
+    return { status: done ? 200 : 409, outcome: done ? "complete" : "incomplete", action, currentKeyId: keys.current.id, connectionRealms, refreshTokens, operationRealms, database };
   } catch {
     return { status: 500, outcome: "failed" };
   }
