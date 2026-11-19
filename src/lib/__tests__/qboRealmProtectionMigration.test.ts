@@ -8,8 +8,8 @@
  *
  * Their token-key reseal (20261230400000) was applied on 2026-11-19 as hosted 117 (mirror 0116) in NEITHER registered form: besides the final
  * LF, line 67 of qbo_disconnect_operations_guard() was transcribed with OLD for NEW, a semantic deviation that weakened the guard. It is
- * registered through the reviewed kind release_transcription_variant_repaired, and the forward-only 20261230410000 (authored, PENDING) restores
- * the reviewed body. The tests below pin that entry and prove its validator accepts exactly that one substitution, with the repair present.
+ * registered through the reviewed kind release_transcription_variant_repaired, and the forward-only 20261230410000 restores the reviewed body;
+ * it was applied byte for byte on 2026-11-19 as hosted 118 (mirror 0117, release_verbatim). The tests below pin that entry and prove its validator accepts exactly that one substitution, with the repair present.
  */
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -116,7 +116,7 @@ describe("realmID protection migrations: registered, then applied as hosted 114-
 });
 
 const RESEAL = "20261230400000_qbo_realm_key_reseal.sql", RESEAL_TAG = "0116_qbo_realm_key_reseal";
-const REPAIR = "20261230410000_qbo_reseal_operations_guard_repair.sql";
+const REPAIR = "20261230410000_qbo_reseal_operations_guard_repair.sql", REPAIR_TAG = "0117_qbo_reseal_operations_guard_repair";
 const REVIEWED_BODY = "ab3855f445f5d82b68f29dba324745752853a472ee065befdc207b15162099a0";
 const VARIANT_BODY = "d087625f8ffa333d1d90fb407099abc0461418b0425a9486a63e57d70a6ccd18";
 const LINE_67_SOURCE = "    IF (OLD.realm_envelope IS NOT NULL AND NEW.realm_envelope IS DISTINCT FROM OLD.realm_envelope)";
@@ -124,7 +124,7 @@ const LINE_67_HOSTED = "    IF (OLD.realm_envelope IS NOT NULL AND OLD.realm_env
 /** The dollar-quoted body of qbo_disconnect_operations_guard() in a text: exactly what PostgreSQL stores as prosrc. */
 const guardBody = (t: string) => /CREATE OR REPLACE FUNCTION public\.qbo_disconnect_operations_guard\(\)[\s\S]*?\bAS (\$[A-Za-z_]*\$)([\s\S]*?)\1/.exec(t)?.[2] ?? "";
 
-describe("the token-key reseal: applied as hosted 117 with one transcribed line (2026-11-19), repaired by 20261230410000 (pending)", () => {
+describe("the token-key reseal: applied as hosted 117 with one transcribed line (2026-11-19), repaired by 20261230410000 (applied as hosted 118)", () => {
   it("the mirror is the source with its final LF removed and line 67 transcribed OLD for NEW, nothing else; the repair carries the reviewed body", () => {
     const s = src(RESEAL), m = mirror(RESEAL_TAG);
     expect([s.length, sha(s)]).toEqual([16076, "ee921a7b9043aa382c0da0cb3f7bbf8daa2e43e8ca3039593916010845d6c775"]);
@@ -146,7 +146,7 @@ describe("the token-key reseal: applied as hosted 117 with one transcribed line 
       substitutions: [{ line: 67, from: LINE_67_SOURCE, to: LINE_67_HOSTED }], reviewedBodyDigest: REVIEWED_BODY, variantBodyDigest: VARIANT_BODY, repairedBy: REPAIR });
   });
 
-  it("the repair's two submission forms are its committed bytes; it is reported PENDING and nothing else is", () => {
+  it("the repair's two submission forms are its committed bytes; it is mirrored byte for byte as 0117 and nothing is pending", () => {
     const s = src(REPAIR);
     expect(s[s.length - 1]).toBe(0x0a); expect(s.includes("\r\n")).toBe(false);
     expect(SUBMISSION_FORMS[REPAIR]).toEqual({ identical: { bytes: 6185, sha256: "6e7af318be84e3d58500d642a24e0a36d2a080c3fddf7f2aac7f4a19b37d9d69" },
@@ -156,7 +156,10 @@ describe("the token-key reseal: applied as hosted 117 with one transcribed line 
     expect(submittedForm(REPAIR, s, s.subarray(0, s.length - 1))).toBe("final_lf_removed");
     const r = checkMigrationAuthority(ROOT) as Result & { mirrored: { tag: string; source: string; how: string }[] };
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual([REPAIR]);
+    expect(r.pending).toEqual([]);
+    expect(r.mirrored.filter((x) => x.source === REPAIR)).toEqual([{ tag: REPAIR_TAG, source: REPAIR, how: "release_verbatim" }]);
+    const rm = mirror(REPAIR_TAG); expect([rm.length, sha(rm)]).toEqual([s.length, sha(s)]);   // hosted 118 = the committed file, final LF kept
+    expect(J[REPAIR_TAG]).toEqual({ kind: "release_verbatim", source: REPAIR, bytes: 6185, digest: sha(s), sha256: sha(s) });
     expect(r.mirrored.filter((x) => x.source === RESEAL)).toEqual([{ tag: RESEAL_TAG, source: RESEAL, how: "release_transcription_variant_repaired" }]);
     expect(checkReleaseEntry(RESEAL_TAG, mirror(RESEAL_TAG).toString("utf8"), srcBytes).problems).toEqual([]);
   }, 120_000);
