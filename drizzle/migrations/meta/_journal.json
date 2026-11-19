@@ -820,6 +820,13 @@
       "when": 1795063641534,
       "tag": "0116_qbo_realm_key_reseal",
       "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "7",
+      "when": 1795081948810,
+      "tag": "0117_qbo_reseal_operations_guard_repair",
+      "breakpoints": true
     }
   ]
 }
