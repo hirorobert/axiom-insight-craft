@@ -15828,6 +15828,7 @@ export type Database = {
           pulls: number
         }[]
       }
+      qbo_realm_key_coverage: { Args: never; Returns: Json }
       qbo_realm_protection_status: { Args: never; Returns: Json }
       qbo_record_fiscal_pull_intent: {
         Args: {
@@ -15890,6 +15891,34 @@ export type Database = {
       qbo_release_refresh_lease: {
         Args: { p_connection_id: string; p_lease_id: string }
         Returns: boolean
+      }
+      qbo_reseal_connection_realm: {
+        Args: {
+          p_connection: string
+          p_expected_envelope: string
+          p_new_envelope: string
+          p_realm_id: string
+          p_realm_index: string
+        }
+        Returns: string
+      }
+      qbo_reseal_disconnect_realm: {
+        Args: {
+          p_connection: string
+          p_expected_envelope: string
+          p_new_envelope: string
+          p_realm_id: string
+          p_realm_index: string
+        }
+        Returns: string
+      }
+      qbo_reseal_refresh_token: {
+        Args: {
+          p_connection: string
+          p_expected_envelope: string
+          p_new_envelope: string
+        }
+        Returns: string
       }
       qbo_rotate_leased_token: {
         Args: {
