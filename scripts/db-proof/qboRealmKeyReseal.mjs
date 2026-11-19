@@ -226,6 +226,74 @@ async function main() {
       const again = await store(w.A, w.U.owner, SOLO, KEYS2);
       return b.outcome === "pending" && kid(b.envelope) === "k2" && token === tokens.get(SO) && o.outcome === "revoked" && typeof again === "string" || { b, token, o };
     });
+
+    // ── 20261230410000: hosted journal 117 applied 20261230400000 with one transcribed line in the operation guard
+    //    (NEW.realm_envelope → OLD.realm_envelope). The repair restores the reviewed body and verifies its own digest.
+    r.group("guard repair (20261230410000)");
+    const REPAIR = "20261230410000_qbo_reseal_operations_guard_repair.sql";
+    const GOOD = "ab3855f445f5d82b68f29dba324745752853a472ee065befdc207b15162099a0", BAD = "d087625f8ffa333d1d90fb407099abc0461418b0425a9486a63e57d70a6ccd18";
+    const REVIEWED_LINE = "IF (OLD.realm_envelope IS NOT NULL AND NEW.realm_envelope IS DISTINCT FROM OLD.realm_envelope)\n       OR (OLD.realm_verified_at";
+    const HOSTED_LINE = "IF (OLD.realm_envelope IS NOT NULL AND OLD.realm_envelope IS DISTINCT FROM OLD.realm_envelope)\n       OR (OLD.realm_verified_at";
+    const GUARD_HEAD = "  CREATE OR REPLACE FUNCTION public.qbo_disconnect_operations_guard()";
+    const guardDef = (text) => { const s = text.indexOf(GUARD_HEAD); return text.slice(s, text.indexOf("\n  $g$;\n", s) + 8); };
+    const reviewedGuard = guardDef(migrationText(RESEAL));
+    const hostedGuard = reviewedGuard.replace(REVIEWED_LINE, HOSTED_LINE);
+    const bodySha = async () => (await db.one("select encode(sha256(convert_to(prosrc,'UTF8')),'hex') h from pg_proc where oid='public.qbo_disconnect_operations_guard()'::regprocedure")).h;
+    const errOf = async (sql) => { try { await db.admin.query(sql); return "ok"; } catch (e) { return String(e.message).split("\n")[0]; } };
+    // An envelope-only change (no new verification time) inside a block that always rolls back: "allowed" means the guard let it through.
+    const envelopeOnly = async () => {
+      const m = await errOf(`do $t$ begin update public.qbo_disconnect_operations set realm_envelope = realm_envelope || 'x' where connection_id = '${GO}'; raise exception 'ROLLED_BACK_AFTER_UPDATE'; end $t$`);
+      return m.includes("ROLLED_BACK_AFTER_UPDATE") ? "allowed" : m.includes("QBO_DISCONNECT_IDENTITY_FIXED") ? "refused" : m;
+    };
+    await r.check("the repair is a no-op on a chain that applied 20261230400000 verbatim (reviewed body, envelope-only change refused)", async () => {
+      const s = await snap();
+      const before1 = await bodySha();
+      await db.admin.query(migrationText(REPAIR));
+      return hostedGuard !== reviewedGuard && before1 === GOOD && await bodySha() === GOOD && same(await snap(), s) && await envelopeOnly() === "refused" || { before1, differs: hostedGuard !== reviewedGuard };
+    });
+    await r.check("the hosted variant (digest d087625f…) lets an operation's envelope change without a new verification time", async () => {
+      await db.admin.query(hostedGuard);
+      return await bodySha() === BAD && await envelopeOnly() === "allowed" || { sha: await bodySha(), env: await envelopeOnly() };
+    });
+    await r.check("a transcription error in the repair itself fails its postcondition and changes nothing (the variant stays)", async () => {
+      const mistyped = migrationText(REPAIR).replace(REVIEWED_LINE, REVIEWED_LINE.replace("NEW.realm_envelope IS DISTINCT", "NEW.realm_envelope  IS DISTINCT"));
+      const m = await errOf(mistyped);
+      return mistyped !== migrationText(REPAIR) && m.includes("POSTCONDITION") && await bodySha() === BAD || { m, sha: await bodySha() };
+    });
+    await r.check("an unexpected guard body is refused and left unchanged", async () => {
+      await db.admin.query(hostedGuard.replace("RETURN NEW;", "RETURN NEW; -- other"));
+      const other = await bodySha();
+      const m = await errOf(migrationText(REPAIR));
+      const ok = m.includes("PREFLIGHT_REFUSED: unexpected") && await bodySha() === other && other !== BAD && other !== GOOD;
+      await db.admin.query(hostedGuard);
+      return ok && await bodySha() === BAD || { m, other };
+    });
+    await r.check("the repair restores the reviewed body exactly (digest ab3855f4…), invoker, pinned search_path, trigger attached; no row changes", async () => {
+      const s = await snap();
+      await db.admin.query(migrationText(REPAIR));
+      const p = await db.one("select prosecdef, proconfig from pg_proc where oid='public.qbo_disconnect_operations_guard()'::regprocedure");
+      return await bodySha() === GOOD && p.prosecdef === false && same(p.proconfig, ["search_path=pg_catalog, public"]) && same(await snap(), s) || { sha: await bodySha(), p };
+    });
+    await r.check("after the repair an envelope-only change is refused again, and replaying the repair changes nothing", async () => {
+      const s = await snap();
+      const env = await envelopeOnly();
+      await db.admin.query(migrationText(REPAIR));
+      return env === "refused" && await bodySha() === GOOD && same(await snap(), s) || env;
+    });
+    await r.check("the reseal path still works after the repair: an operation moves to a further key k3 through qbo_reseal_disconnect_realm", async () => {
+      const K3 = key("k3"), KEYS3 = { current: K3, all: [K3, K2, K1], index: IDX };
+      const o = await db.one("select company_id, realm_id, realm_envelope, realm_index from public.qbo_disconnect_operations where connection_id=$1", [GO]);
+      const p = await RP.protectRealm(o.realm_id, "sandbox", o.company_id, KEYS3);
+      const out = (await svc("select public.qbo_reseal_disconnect_realm($1,$2,$3,$4,$5) o", [GO, o.realm_id, o.realm_envelope, p.envelope, o.realm_index])).o;
+      const after = await db.one("select realm_envelope, realm_index from public.qbo_disconnect_operations where connection_id=$1", [GO]);
+      return p.index === o.realm_index && out === "resealed" && kid(after.realm_envelope) === "k3" && after.realm_index === o.realm_index || { out, sameIndex: p.index === o.realm_index };
+    });
+    await r.check("the repair refuses when the reseal migration is absent (nothing changed)", async () => {
+      await db.admin.query("alter function public.qbo_realm_key_coverage() rename to qbo_realm_key_coverage_hidden");
+      const m = await errOf(migrationText(REPAIR));
+      await db.admin.query("alter function public.qbo_realm_key_coverage_hidden() rename to qbo_realm_key_coverage");
+      return m.includes("PREFLIGHT_REFUSED: the token-key reseal") && await bodySha() === GOOD || m;
+    });
   } catch (e) {
     crashed = true;
     console.error("CRASH", e?.stack ?? e);

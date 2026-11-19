@@ -125,7 +125,7 @@ async function main() {
   group(ABSENT ? "Migration chain WITHOUT the migration (regression run)" : "Migration chain");
   await check(`every migration before ${MIGRATION} applies`, async () => { if (cut < 0) return "missing"; for (const f of files.slice(0, cut)) await applyMigration(f); return true; });
   // Reviewed later additions that follow it (each its own reviewed, registered migration): the QuickBooks realmID protection (Intuit case 00232331) and its token-key reseal.
-  const REVIEWED_LATER = ["20261230100000_qbo_realm_protection_schema.sql", "20261230200000_qbo_realm_protection_connect.sql", "20261230300000_qbo_realm_protection_evidence.sql", "20261230400000_qbo_realm_key_reseal.sql"];
+  const REVIEWED_LATER = ["20261230100000_qbo_realm_protection_schema.sql", "20261230200000_qbo_realm_protection_connect.sql", "20261230300000_qbo_realm_protection_evidence.sql", "20261230400000_qbo_realm_key_reseal.sql", "20261230410000_qbo_reseal_operations_guard_repair.sql"];
   await check(`${MIGRATION} follows the consolidated release tail; only the reviewed later additions follow it`, async () =>
     JSON.stringify(files.slice(cut + 1)) === JSON.stringify(REVIEWED_LATER) ? true : files.slice(cut + 1));
   if (!ABSENT) {

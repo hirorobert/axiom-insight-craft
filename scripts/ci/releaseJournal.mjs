@@ -459,6 +459,29 @@ export const RELEASE_JOURNAL = {
     digest: "2855b8f8c2328868e0881b03804badc5a5f5cc3bf0f1e676cf77d17f53582837",
     submittedBytes: 16318, variantLines: Object.freeze([60]),
     sha256: "b58065bb05c99b33c11bf6aa1888360d104185f7600b400130c9fb0b0e78dfea" },
+  // The token-key reseal (PR #284, 20261230400000, merged in main a47ef14), applied 2026-11-19 by Lovable's native migrator as hosted 117
+  // (mirror commit d37b721). It was NOT submitted as either registered form. Besides removing the final LF, the migrator TRANSCRIBED LINE 67
+  // DIFFERENTLY — a SEMANTIC deviation, not whitespace — inside qbo_disconnect_operations_guard()'s PL/pgSQL body:
+  //   source: "IF (OLD.realm_envelope IS NOT NULL AND NEW.realm_envelope IS DISTINCT FROM OLD.realm_envelope)"
+  //   mirror: "IF (OLD.realm_envelope IS NOT NULL AND OLD.realm_envelope IS DISTINCT FROM OLD.realm_envelope)"
+  // The applied condition is always false, so it WEAKENED the operation guard: an operation's realm envelope could change without a new
+  // verification time (refused unconditionally before 20261230400000). Nothing else differs (16,075 bytes, d7938aff…). Confirmed read-only
+  // on hosted on 2026-11-19: the applied qbo_disconnect_operations_guard() body digest is d087625f… instead of the reviewed ab3855f4…; the
+  // other five function bodies are identical; no row changed. The forward-only migration 20261230410000 (authored, PENDING) restores the
+  // reviewed body byte for byte and verifies it by that digest. Reviewed as a repaired transcription variant: the validator below accepts
+  // exactly this one listed line, exactly this from -> to, inside that function's body, with both body digests pinned and the repair present.
+  "0116_qbo_realm_key_reseal": { kind: "release_transcription_variant_repaired",
+    source: "20261230400000_qbo_realm_key_reseal.sql", bytes: 16076,
+    digest: "ee921a7b9043aa382c0da0cb3f7bbf8daa2e43e8ca3039593916010845d6c775",
+    submittedBytes: 16075, finalLfRemoved: true,
+    sha256: "d7938affaa0a63a930e82a534ca20e428e1245adfa3001439fbb04bace1110c0",
+    function: "public.qbo_disconnect_operations_guard",
+    substitutions: Object.freeze([Object.freeze({ line: 67,
+      from: "    IF (OLD.realm_envelope IS NOT NULL AND NEW.realm_envelope IS DISTINCT FROM OLD.realm_envelope)",
+      to: "    IF (OLD.realm_envelope IS NOT NULL AND OLD.realm_envelope IS DISTINCT FROM OLD.realm_envelope)" })]),
+    reviewedBodyDigest: "ab3855f445f5d82b68f29dba324745752853a472ee065befdc207b15162099a0",
+    variantBodyDigest: "d087625f8ffa333d1d90fb407099abc0461418b0425a9486a63e57d70a6ccd18",
+    repairedBy: "20261230410000_qbo_reseal_operations_guard_repair.sql" },
 };
 
 /**
@@ -502,10 +525,17 @@ export const SUBMISSION_FORMS = Object.freeze({
     identical: Object.freeze({ bytes: 16317, sha256: "2855b8f8c2328868e0881b03804badc5a5f5cc3bf0f1e676cf77d17f53582837" }),
     finalLfRemoved: Object.freeze({ bytes: 16316, sha256: "41a9646912b23dbc19f20e0657ea52c00ca157345b4acff4e3cf0f4ff68583f4" }),
   }),
-  // ...and its token-key reseal (20261230400000): authored, NOT applied; reported PENDING. Digests computed from the committed LF blob (git show).
+  // ...and its token-key reseal (20261230400000): registered before application; applied 2026-11-19 as hosted 117 in NEITHER form (mirror 0116,
+  // see RELEASE_JOURNAL: a reviewed transcription variant, repaired by 20261230410000). Digests computed from the committed LF blob (git show).
   "20261230400000_qbo_realm_key_reseal.sql": Object.freeze({
     identical: Object.freeze({ bytes: 16076, sha256: "ee921a7b9043aa382c0da0cb3f7bbf8daa2e43e8ca3039593916010845d6c775" }),
     finalLfRemoved: Object.freeze({ bytes: 16075, sha256: "b62254a14dd7cf12ae25bea2289610af579937349c5e933e59f66a98c55eb65b" }),
+  }),
+  // ...and the repair of hosted 117's transcribed operation guard (20261230410000): authored, NOT applied; reported PENDING. Digests computed
+  // from the committed LF blob (git show), not the working tree.
+  "20261230410000_qbo_reseal_operations_guard_repair.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 6185, sha256: "6e7af318be84e3d58500d642a24e0a36d2a080c3fddf7f2aac7f4a19b37d9d69" }),
+    finalLfRemoved: Object.freeze({ bytes: 6184, sha256: "55a0ccf244193dcc0d792805fe070ed84ce1392157f06aaf8350792d4d22015a" }),
   }),
   // QBO readiness r2: promoted atomic envelope, NOT applied; exact registered bytes only.
   "20261214100000_qbo_readiness_controls.sql": Object.freeze({
@@ -1023,6 +1053,77 @@ export function checkReleaseEntry(tag, text, srcBytes) {
       }
     }
     return { covers: entry.source, how: "release_whitespace_variant", outOfOrder: false, problems };
+  }
+  if (entry.kind === "release_transcription_variant_repaired") {
+    // A hosted mirror that is NOT its source: the migrator transcribed the listed lines (1-based) differently, a SEMANTIC deviation inside
+    // one function body, which a separate forward-only migration in this repository (repairedBy) restores. Everything is pinned: the
+    // source digest and bytes and its registered identical form; the mirror's bytes and SHA-256 (checked above) and its final-LF form;
+    // the same line count; every unlisted line byte-identical; each listed line exactly `from` in the source and exactly `to` in the
+    // mirror, inside the named function's dollar-quoted body; that body's SHA-256 in the source (reviewed) and in the mirror (variant);
+    // and a repairedBy migration that sorts after the source, carries the reviewed body byte for byte, and names both body digests.
+    const src = srcBytes(entry.source);
+    if (!src) return { problems: [...problems, `${tag} applies an unknown migration ${entry.source}`] };
+    const hosted = Buffer.from(text, "utf8");
+    const HEX = /^[0-9a-f]{64}$/;
+    if (sha256(src) !== entry.digest) problems.push(`${tag}: the pinned digest does not match ${entry.source} in this repository`);
+    if (src.length !== entry.bytes) problems.push(`${tag}: the pinned byte count ${entry.bytes} does not match ${entry.source} (${src.length})`);
+    if (hosted.length !== entry.submittedBytes) problems.push(`${tag}: has ${hosted.length} bytes, expected ${entry.submittedBytes}`);
+    if (SUBMISSION_FORMS[entry.source]?.identical?.sha256 !== entry.digest) problems.push(`${tag}: ${entry.source} has no registered identical form with this digest (SUBMISSION_FORMS)`);
+    if (typeof entry.finalLfRemoved !== "boolean") problems.push(`${tag}: a transcription variant must state whether its final LF was removed`);
+    const srcText = src.toString("utf8");
+    if (!srcText.endsWith("\n") || srcText.endsWith("\n\n")) problems.push(`${tag}: ${entry.source} must end with exactly one LF`);
+    if (entry.finalLfRemoved === true && text.endsWith("\n")) problems.push(`${tag}: the final LF of ${entry.source} was not removed`);
+    if (entry.finalLfRemoved === false && !text.endsWith("\n")) problems.push(`${tag}: the final LF of ${entry.source} is missing`);
+    const subs = Array.isArray(entry.substitutions) ? entry.substitutions : [];
+    if (subs.length === 0) problems.push(`${tag}: a transcription variant must list its reviewed line substitutions`);
+    const byLine = new Map();
+    for (const s of subs) {
+      if (!s || !Number.isInteger(s.line) || s.line < 1 || typeof s.from !== "string" || typeof s.to !== "string" || s.from === s.to || byLine.has(s.line)) {
+        problems.push(`${tag}: a reviewed substitution must name one distinct line and two different texts (${JSON.stringify(s)})`);
+      } else byLine.set(s.line, s);
+    }
+    // The function the substitutions transcribed: its dollar-quoted body (exactly what PostgreSQL stores as prosrc) and that body's lines.
+    const fn = typeof entry.function === "string" && /^[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*$/.test(entry.function) ? entry.function : null;
+    const bodyOf = (t) => {
+      if (!fn) return null;
+      const re = new RegExp(`CREATE OR REPLACE FUNCTION ${fn.replace(".", "\\.")}\\([^)]*\\)[\\s\\S]*?\\bAS (\\$[A-Za-z_]*\\$)([\\s\\S]*?)\\1`, "g");
+      const all = [...t.matchAll(re)];
+      if (all.length !== 1) return null;
+      const start = all[0].index + all[0][0].length - all[0][1].length - all[0][2].length;
+      return { body: all[0][2], first: t.slice(0, start).split("\n").length, last: t.slice(0, start + all[0][2].length).split("\n").length };
+    };
+    if (!fn) problems.push(`${tag}: a transcription variant must name the function it transcribed (schema.name)`);
+    if (!HEX.test(entry.reviewedBodyDigest ?? "") || !HEX.test(entry.variantBodyDigest ?? "") || entry.reviewedBodyDigest === entry.variantBodyDigest) {
+      problems.push(`${tag}: a transcription variant must pin two different body digests (reviewed and variant)`);
+    }
+    const srcBody = bodyOf(srcText), hostedBody = bodyOf(text);
+    if (fn && !srcBody) problems.push(`${tag}: ${entry.source} does not define ${fn} exactly once`);
+    if (fn && !hostedBody) problems.push(`${tag}: the mirror does not define ${fn} exactly once`);
+    if (srcBody && sha256(Buffer.from(srcBody.body, "utf8")) !== entry.reviewedBodyDigest) problems.push(`${tag}: the body of ${fn} in ${entry.source} is not the reviewed body digest`);
+    if (hostedBody && sha256(Buffer.from(hostedBody.body, "utf8")) !== entry.variantBodyDigest) problems.push(`${tag}: the body of ${fn} in the mirror is not the reviewed variant body digest`);
+    const a = srcText.split("\n"), b = (entry.finalLfRemoved === true ? `${text}\n` : text).split("\n");
+    if (a.length !== b.length) problems.push(`${tag}: has ${b.length} lines, ${entry.source} has ${a.length}`);
+    else {
+      for (let i = 0; i < a.length; i++) {
+        const n = i + 1, s = byLine.get(n);
+        if (!s) { if (a[i] !== b[i]) problems.push(`${tag}: line ${n} differs from ${entry.source} and is not a reviewed substitution`); continue; }
+        if (a[i] !== s.from) problems.push(`${tag}: reviewed line ${n} of ${entry.source} is not the reviewed source text`);
+        if (b[i] !== s.to) problems.push(`${tag}: reviewed line ${n} of the mirror is not the reviewed transcribed text`);
+        if (srcBody && (n <= srcBody.first || n >= srcBody.last)) problems.push(`${tag}: reviewed line ${n} is outside the body of ${fn}`);
+      }
+      for (const n of byLine.keys()) if (n > a.length) problems.push(`${tag}: reviewed line ${n} does not exist in ${entry.source}`);
+    }
+    // The repair: a later migration in this repository that installs the reviewed body byte for byte and names both digests.
+    const fix = typeof entry.repairedBy === "string" ? srcBytes(entry.repairedBy) : null;
+    if (!fix) problems.push(`${tag}: the repairing migration ${entry.repairedBy} does not exist in this repository`);
+    else {
+      const fixText = fix.toString("utf8"), fixBody = bodyOf(fixText);
+      if (!(entry.repairedBy > entry.source)) problems.push(`${tag}: the repairing migration ${entry.repairedBy} must sort after ${entry.source}`);
+      if (!fixBody || sha256(Buffer.from(fixBody.body, "utf8")) !== entry.reviewedBodyDigest) problems.push(`${tag}: ${entry.repairedBy} does not install the reviewed body of ${fn}`);
+      if (!HEX.test(entry.reviewedBodyDigest ?? "") || !fixText.includes(entry.reviewedBodyDigest)) problems.push(`${tag}: ${entry.repairedBy} does not name the reviewed body digest`);
+      if (!HEX.test(entry.variantBodyDigest ?? "") || !fixText.includes(entry.variantBodyDigest)) problems.push(`${tag}: ${entry.repairedBy} does not name the variant body digest`);
+    }
+    return { covers: entry.source, how: "release_transcription_variant_repaired", outOfOrder: false, problems };
   }
   if (entry.kind === "release_self_checking_wrapper") {
     // A hosted mirror of a registered self-checking wrapper: the reviewed entry pins the source (digest, bytes), the
