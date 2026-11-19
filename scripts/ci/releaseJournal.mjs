@@ -467,7 +467,7 @@ export const RELEASE_JOURNAL = {
   // The applied condition is always false, so it WEAKENED the operation guard: an operation's realm envelope could change without a new
   // verification time (refused unconditionally before 20261230400000). Nothing else differs (16,075 bytes, d7938aff…). Confirmed read-only
   // on hosted on 2026-11-19: the applied qbo_disconnect_operations_guard() body digest is d087625f… instead of the reviewed ab3855f4…; the
-  // other five function bodies are identical; no row changed. The forward-only migration 20261230410000 (authored, PENDING) restores the
+  // other five function bodies are identical; no row changed. The forward-only migration 20261230410000 (applied as hosted 118) restores the
   // reviewed body byte for byte and verifies it by that digest. Reviewed as a repaired transcription variant: the validator below accepts
   // exactly this one listed line, exactly this from -> to, inside that function's body, with both body digests pinned and the repair present.
   "0116_qbo_realm_key_reseal": { kind: "release_transcription_variant_repaired",
@@ -482,6 +482,14 @@ export const RELEASE_JOURNAL = {
     reviewedBodyDigest: "ab3855f445f5d82b68f29dba324745752853a472ee065befdc207b15162099a0",
     variantBodyDigest: "d087625f8ffa333d1d90fb407099abc0461418b0425a9486a63e57d70a6ccd18",
     repairedBy: "20261230410000_qbo_reseal_operations_guard_repair.sql" },
+  // The repair of hosted 117's transcribed operation guard (PR #285, 20261230410000, merged in main bf466b2), applied 2026-11-19 by Lovable's
+  // native migrator as hosted 118, owner-authorized, byte for byte INCLUDING the final LF (6,185 bytes, 6e7af318…; mirror commit 78b4292).
+  // Confirmed read-only on hosted the same day: journal 118 = 6e7af318…, qbo_disconnect_operations_guard() body digest ab3855f4… (the
+  // reviewed body), line 67 reads NEW again, trigger attached and enabled, every QuickBooks and commercial fingerprint unchanged.
+  "0117_qbo_reseal_operations_guard_repair": { kind: "release_verbatim",
+    source: "20261230410000_qbo_reseal_operations_guard_repair.sql", bytes: 6185,
+    digest: "6e7af318be84e3d58500d642a24e0a36d2a080c3fddf7f2aac7f4a19b37d9d69",
+    sha256: "6e7af318be84e3d58500d642a24e0a36d2a080c3fddf7f2aac7f4a19b37d9d69" },
 };
 
 /**
@@ -531,8 +539,8 @@ export const SUBMISSION_FORMS = Object.freeze({
     identical: Object.freeze({ bytes: 16076, sha256: "ee921a7b9043aa382c0da0cb3f7bbf8daa2e43e8ca3039593916010845d6c775" }),
     finalLfRemoved: Object.freeze({ bytes: 16075, sha256: "b62254a14dd7cf12ae25bea2289610af579937349c5e933e59f66a98c55eb65b" }),
   }),
-  // ...and the repair of hosted 117's transcribed operation guard (20261230410000): authored, NOT applied; reported PENDING. Digests computed
-  // from the committed LF blob (git show), not the working tree.
+  // ...and the repair of hosted 117's transcribed operation guard (20261230410000): registered before application; applied 2026-11-19 as
+  // hosted 118 byte for byte (mirror 0117, see RELEASE_JOURNAL). Digests computed from the committed LF blob (git show), not the working tree.
   "20261230410000_qbo_reseal_operations_guard_repair.sql": Object.freeze({
     identical: Object.freeze({ bytes: 6185, sha256: "6e7af318be84e3d58500d642a24e0a36d2a080c3fddf7f2aac7f4a19b37d9d69" }),
     finalLfRemoved: Object.freeze({ bytes: 6184, sha256: "55a0ccf244193dcc0d792805fe070ed84ce1392157f06aaf8350792d4d22015a" }),
