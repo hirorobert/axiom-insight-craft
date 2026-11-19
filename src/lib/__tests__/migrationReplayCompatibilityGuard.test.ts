@@ -304,7 +304,9 @@ describe("migration directory integrity", () => {
     // 221 -> 224: the QuickBooks realmID protection (Intuit case 00232331): 20261230100000 additive schema, 20261230200000 connect dual write,
     //   20261230300000 disconnect and import evidence dual write. Authored and not applied.
     // 224 -> 225: the token-key reseal (20261230400000): service-only re-seals of live envelopes onto a new key. Authored and not applied.
-    expect(files.length).toBe(225);
+    // 225 -> 226: the operation-guard repair (20261230410000): restores the reviewed qbo_disconnect_operations_guard() body that hosted 117
+    //   applied with one transcribed line. Authored and not applied.
+    expect(files.length).toBe(226);
   });
 });
 

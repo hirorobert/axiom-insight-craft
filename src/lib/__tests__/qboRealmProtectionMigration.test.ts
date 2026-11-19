@@ -5,6 +5,11 @@
  * release entries, prove the variant validator accepts exactly that one indentation change and nothing else, and hold the static properties
  * the release record promises: Lovable-migrator size, one atomic DO block each, no transaction control, append-only guards and RLS untouched,
  * every new or replaced writer service-role only, and no realm in anything a member can execute.
+ *
+ * Their token-key reseal (20261230400000) was applied on 2026-11-19 as hosted 117 (mirror 0116) in NEITHER registered form: besides the final
+ * LF, line 67 of qbo_disconnect_operations_guard() was transcribed with OLD for NEW, a semantic deviation that weakened the guard. It is
+ * registered through the reviewed kind release_transcription_variant_repaired, and the forward-only 20261230410000 (authored, PENDING) restores
+ * the reviewed body. The tests below pin that entry and prove its validator accepts exactly that one substitution, with the repair present.
  */
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -42,7 +47,7 @@ describe("realmID protection migrations: registered, then applied as hosted 114-
       expect(submittedForm(n, s, s.subarray(0, s.length - 1))).toBe("final_lf_removed");
       expect(submittedForm(n, s, Buffer.concat([s, Buffer.from("\n")]))).toBeNull();
     }
-    expect(Object.keys(RELEASE_JOURNAL).filter((k) => /realm/.test(k))).toEqual(TAGS);
+    expect(Object.keys(RELEASE_JOURNAL).filter((k) => /realm/.test(k))).toEqual([...TAGS, RESEAL_TAG]);
     // Hosted 114 and 115: the committed files byte for byte (journal hashes read in the hosted SQL editor).
     expect(sha(mirror(TAGS[0]))).toBe(sha(src(NAMES[0]))); expect(sha(mirror(TAGS[0]))).toBe("7b310469b5b5919786295f7709f8d9532e604abf2acaea7689df642037885598");
     expect(sha(mirror(TAGS[1]))).toBe(sha(src(NAMES[1]))); expect(sha(mirror(TAGS[1]))).toBe("578a4bafc9e38fe793c1c8f88628ac613300a5e13b7d648c4d209d18213e1f82");
@@ -106,6 +111,136 @@ describe("realmID protection migrations: registered, then applied as hosted 114-
       let out: string[] = [];
       withEntry(TAGS[2], {}, () => { out = checkReleaseEntry(TAGS[2], text() + " ", srcBytes).problems; });
       expect(out.join("\n")).toMatch(/differs from its reviewed content|has 16319 bytes/);
+    });
+  });
+});
+
+const RESEAL = "20261230400000_qbo_realm_key_reseal.sql", RESEAL_TAG = "0116_qbo_realm_key_reseal";
+const REPAIR = "20261230410000_qbo_reseal_operations_guard_repair.sql";
+const REVIEWED_BODY = "ab3855f445f5d82b68f29dba324745752853a472ee065befdc207b15162099a0";
+const VARIANT_BODY = "d087625f8ffa333d1d90fb407099abc0461418b0425a9486a63e57d70a6ccd18";
+const LINE_67_SOURCE = "    IF (OLD.realm_envelope IS NOT NULL AND NEW.realm_envelope IS DISTINCT FROM OLD.realm_envelope)";
+const LINE_67_HOSTED = "    IF (OLD.realm_envelope IS NOT NULL AND OLD.realm_envelope IS DISTINCT FROM OLD.realm_envelope)";
+/** The dollar-quoted body of qbo_disconnect_operations_guard() in a text: exactly what PostgreSQL stores as prosrc. */
+const guardBody = (t: string) => /CREATE OR REPLACE FUNCTION public\.qbo_disconnect_operations_guard\(\)[\s\S]*?\bAS (\$[A-Za-z_]*\$)([\s\S]*?)\1/.exec(t)?.[2] ?? "";
+
+describe("the token-key reseal: applied as hosted 117 with one transcribed line (2026-11-19), repaired by 20261230410000 (pending)", () => {
+  it("the mirror is the source with its final LF removed and line 67 transcribed OLD for NEW, nothing else; the repair carries the reviewed body", () => {
+    const s = src(RESEAL), m = mirror(RESEAL_TAG);
+    expect([s.length, sha(s)]).toEqual([16076, "ee921a7b9043aa382c0da0cb3f7bbf8daa2e43e8ca3039593916010845d6c775"]);
+    expect([m.length, sha(m)]).toEqual([16075, "d7938affaa0a63a930e82a534ca20e428e1245adfa3001439fbb04bace1110c0"]);
+    expect(submittedForm(RESEAL, s, m)).toBeNull();   // neither registered form
+    const a = s.toString("utf8").split("\n"), b = `${m.toString("utf8")}\n`.split("\n");
+    expect(m[m.length - 1]).not.toBe(0x0a);
+    expect(b.length).toBe(a.length);
+    expect(a.map((x, i) => (x === b[i] ? null : i + 1)).filter((x) => x !== null)).toEqual([67]);
+    expect([a[66], b[66]]).toEqual([LINE_67_SOURCE, LINE_67_HOSTED]);
+    expect(sha(Buffer.from(guardBody(s.toString("utf8")), "utf8"))).toBe(REVIEWED_BODY);
+    expect(sha(Buffer.from(guardBody(m.toString("utf8")), "utf8"))).toBe(VARIANT_BODY);
+    const r = src(REPAIR);
+    expect(sha(Buffer.from(guardBody(r.toString("utf8")), "utf8"))).toBe(REVIEWED_BODY);
+    expect(r.toString("utf8")).toContain(REVIEWED_BODY); expect(r.toString("utf8")).toContain(VARIANT_BODY);
+    expect(J[RESEAL_TAG]).toEqual({ kind: "release_transcription_variant_repaired", source: RESEAL, bytes: 16076,
+      digest: "ee921a7b9043aa382c0da0cb3f7bbf8daa2e43e8ca3039593916010845d6c775", submittedBytes: 16075, finalLfRemoved: true,
+      sha256: "d7938affaa0a63a930e82a534ca20e428e1245adfa3001439fbb04bace1110c0", function: "public.qbo_disconnect_operations_guard",
+      substitutions: [{ line: 67, from: LINE_67_SOURCE, to: LINE_67_HOSTED }], reviewedBodyDigest: REVIEWED_BODY, variantBodyDigest: VARIANT_BODY, repairedBy: REPAIR });
+  });
+
+  it("the repair's two submission forms are its committed bytes; it is reported PENDING and nothing else is", () => {
+    const s = src(REPAIR);
+    expect(s[s.length - 1]).toBe(0x0a); expect(s.includes("\r\n")).toBe(false);
+    expect(SUBMISSION_FORMS[REPAIR]).toEqual({ identical: { bytes: 6185, sha256: "6e7af318be84e3d58500d642a24e0a36d2a080c3fddf7f2aac7f4a19b37d9d69" },
+      finalLfRemoved: { bytes: 6184, sha256: "55a0ccf244193dcc0d792805fe070ed84ce1392157f06aaf8350792d4d22015a" } });
+    expect(SUBMISSION_FORMS[REPAIR]).toEqual({ identical: { bytes: s.length, sha256: sha(s) }, finalLfRemoved: { bytes: s.length - 1, sha256: sha(s.subarray(0, s.length - 1)) } });
+    expect(submittedForm(REPAIR, s, s)).toBe("identical");
+    expect(submittedForm(REPAIR, s, s.subarray(0, s.length - 1))).toBe("final_lf_removed");
+    const r = checkMigrationAuthority(ROOT) as Result & { mirrored: { tag: string; source: string; how: string }[] };
+    expect(r.errors).toEqual([]);
+    expect(r.pending).toEqual([REPAIR]);
+    expect(r.mirrored.filter((x) => x.source === RESEAL)).toEqual([{ tag: RESEAL_TAG, source: RESEAL, how: "release_transcription_variant_repaired" }]);
+    expect(checkReleaseEntry(RESEAL_TAG, mirror(RESEAL_TAG).toString("utf8"), srcBytes).problems).toEqual([]);
+  }, 120_000);
+
+  describe("the transcription-variant entry accepts exactly the reviewed substitution, with the repair present, and nothing else", () => {
+    const text = () => mirror(RESEAL_TAG).toString("utf8");
+    const lines = () => text().split("\n");
+    const problems = (t: string, patch: Record<string, unknown> = {}, bytes: (n: string) => Buffer | null = srcBytes) => {
+      let out: string[] = [];
+      withEntry(RESEAL_TAG, { sha256: sha(Buffer.from(t, "utf8")), submittedBytes: Buffer.byteLength(t), ...patch }, () => { out = checkReleaseEntry(RESEAL_TAG, t, bytes).problems; });
+      return out.join("\n");
+    };
+    it("the source itself under this tag is refused, in either registered form: the reviewed line is not transcribed", () => {
+      const s = src(RESEAL).toString("utf8");
+      expect(problems(s)).toMatch(/final LF of .* was not removed/);
+      expect(problems(s)).toMatch(/body of public.qbo_disconnect_operations_guard in the mirror is not the reviewed variant body digest/);
+      expect(problems(s.slice(0, -1))).toMatch(/reviewed line 67 of the mirror is not the reviewed transcribed text/);
+      expect(problems(s.slice(0, -1))).toMatch(/body of public\.qbo_disconnect_operations_guard in the mirror is not the reviewed variant body digest/);
+    });
+    it("a different change on the reviewed line is refused", () => {
+      const l = lines(); l[66] = l[66].replace("IS DISTINCT FROM", "IS NOT DISTINCT FROM");
+      expect(problems(l.join("\n"))).toMatch(/reviewed line 67 of the mirror is not the reviewed transcribed text/);
+      const m = lines(); m[66] = ` ${m[66]}`;
+      expect(problems(m.join("\n"))).toMatch(/reviewed line 67 of the mirror is not the reviewed transcribed text/);
+    });
+    it("a listed line whose source text is not exactly `from`, or a substitution that changes nothing or repeats a line, is refused", () => {
+      expect(problems(text(), { substitutions: [{ line: 67, from: LINE_67_SOURCE.trim(), to: LINE_67_HOSTED }] })).toMatch(/reviewed line 67 of .* is not the reviewed source text/);
+      expect(problems(text(), { substitutions: [{ line: 67, from: LINE_67_SOURCE, to: LINE_67_HOSTED.trim() }] })).toMatch(/reviewed line 67 of the mirror is not the reviewed transcribed text/);
+      expect(problems(text(), { substitutions: [{ line: 67, from: LINE_67_HOSTED, to: LINE_67_HOSTED }] })).toMatch(/must name one distinct line and two different texts/);
+      expect(problems(text(), { substitutions: [{ line: 67, from: LINE_67_SOURCE, to: LINE_67_HOSTED }, { line: 67, from: LINE_67_SOURCE, to: LINE_67_HOSTED }] })).toMatch(/must name one distinct line/);
+    });
+    it("any other changed line, even whitespace-only, is refused; so is a listed line outside the transcribed function's body", () => {
+      const l = lines(); l[10] = ` ${l[10]}`;
+      expect(problems(l.join("\n"))).toMatch(/line 11 differs from .* and is not a reviewed substitution/);
+      const a = src(RESEAL).toString("utf8").split("\n");
+      expect(problems(l.join("\n"), { substitutions: [{ line: 67, from: LINE_67_SOURCE, to: LINE_67_HOSTED }, { line: 11, from: a[10], to: ` ${a[10]}` }] }))
+        .toMatch(/reviewed line 11 is outside the body of public\.qbo_disconnect_operations_guard/);
+    });
+    it("an added or removed line, or a final LF left in place, is refused", () => {
+      expect(problems(`${text()}\n-- appended`)).toMatch(/lines/);
+      const l = lines(); l.splice(5, 1);
+      expect(problems(l.join("\n"))).toMatch(/lines/);
+      expect(problems(`${text()}\n`)).toMatch(/final LF of .* was not removed/);
+      expect(problems(text(), { finalLfRemoved: undefined })).toMatch(/must state whether its final LF was removed/);
+    });
+    it("an entry without listed substitutions, a wrong source digest or bytes, or a mirror other than pinned is refused", () => {
+      expect(problems(text(), { substitutions: [] })).toMatch(/must list its reviewed line substitutions/);
+      expect(problems(text(), { substitutions: [] })).toMatch(/line 67 differs from .* and is not a reviewed substitution/);
+      expect(problems(text(), { digest: "0".repeat(64) })).toMatch(/pinned digest does not match/);
+      expect(problems(text(), { bytes: 16075 })).toMatch(/pinned byte count 16075 does not match/);
+      let out: string[] = [];
+      withEntry(RESEAL_TAG, {}, () => { out = checkReleaseEntry(RESEAL_TAG, `${text()} `, srcBytes).problems; });
+      expect(out.join("\n")).toMatch(/differs from its reviewed content/);
+      expect(out.join("\n")).toMatch(/has 16076 bytes, expected 16075/);
+    });
+    it("wrong, equal or missing body digests, or no named function, are refused", () => {
+      expect(problems(text(), { reviewedBodyDigest: "0".repeat(64) })).toMatch(/body of .* in .* is not the reviewed body digest/);
+      expect(problems(text(), { variantBodyDigest: "0".repeat(64) })).toMatch(/in the mirror is not the reviewed variant body digest/);
+      expect(problems(text(), { variantBodyDigest: REVIEWED_BODY })).toMatch(/must pin two different body digests/);
+      expect(problems(text(), { function: undefined })).toMatch(/must name the function it transcribed/);
+      expect(problems(text(), { function: "public.qbo_begin_disconnect" })).toMatch(/does not define public\.qbo_begin_disconnect exactly once/);
+    });
+    it("a repairing migration that does not exist, sorts first, or does not carry the reviewed body and both digests is refused", () => {
+      expect(problems(text(), { repairedBy: "20261230420000_not_in_this_repository.sql" })).toMatch(/repairing migration 20261230420000_not_in_this_repository\.sql does not exist in this repository/);
+      expect(problems(text(), { repairedBy: undefined })).toMatch(/does not exist in this repository/);
+      const before = problems(text(), { repairedBy: NAMES[2] });
+      expect(before).toMatch(/must sort after/); expect(before).toMatch(/does not install the reviewed body/); expect(before).toMatch(/does not name the reviewed body digest/);
+      const fix = src(REPAIR).toString("utf8");
+      const withRepair = (t: string) => (n: string) => (n === REPAIR ? Buffer.from(t, "utf8") : srcBytes(n));
+      expect(problems(text(), {}, withRepair(fix.replace(LINE_67_SOURCE, LINE_67_HOSTED)))).toMatch(/does not install the reviewed body of public\.qbo_disconnect_operations_guard/);
+      expect(problems(text(), {}, withRepair(fix.split(VARIANT_BODY).join("0".repeat(64))))).toMatch(/does not name the variant body digest/);
+      expect(problems(text(), {}, withRepair(fix.split(REVIEWED_BODY).join("0".repeat(64))))).toMatch(/does not name the reviewed body digest/);
+      expect(problems(text(), {}, withRepair(fix))).toBe("");
+    });
+    it("the same mirror is never accepted as a whitespace variant, nor without a reviewed entry", () => {
+      const ws = { kind: "release_whitespace_variant", source: RESEAL, bytes: 16076, digest: "ee921a7b9043aa382c0da0cb3f7bbf8daa2e43e8ca3039593916010845d6c775", submittedBytes: 16075,
+        variantLines: [67], sha256: "d7938affaa0a63a930e82a534ca20e428e1245adfa3001439fbb04bace1110c0" };
+      let out: string[] = [];
+      const saved = J[RESEAL_TAG]; J[RESEAL_TAG] = ws;
+      try { out = checkReleaseEntry(RESEAL_TAG, text(), srcBytes).problems; } finally { J[RESEAL_TAG] = saved; }
+      expect(out.join("\n")).toMatch(/lines|differs in more than its leading indentation/);
+      delete J[RESEAL_TAG];
+      try { out = checkReleaseEntry(RESEAL_TAG, text(), srcBytes).problems; } finally { J[RESEAL_TAG] = saved; }
+      expect(out.join("\n")).toMatch(/has not been reviewed/);
     });
   });
 });

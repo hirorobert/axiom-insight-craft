@@ -705,6 +705,10 @@ describe("database inertness — schema and functions", () => {
     added.add("supabase/migrations/20261230400000_qbo_realm_key_reseal.sql");
     // The reseal edits qboEnv.ts (reviewed above as modified) and the realm module's users added by Phases A and B (reviewed above as additions): exact files.
     for (const f of ["supabase/functions/_shared/qboRealmBackfill.ts", "supabase/functions/qbo-realm-protect/index.ts"]) modified.add(f);
+    // ...and the repair of hosted 117 (20261230410000): one forward-only, self-verifying migration that replaces qbo_disconnect_operations_guard()
+    // with the reviewed body of 20261230400000 byte for byte (hosted 117 applied it with line 67 transcribed; see RELEASE_JOURNAL 0116). Changes no
+    // row, no grant, no RLS. AUTHORED, NOT APPLIED.
+    added.add("supabase/migrations/20261230410000_qbo_reseal_operations_guard_repair.sql");
     expect(unreviewedChanges(changed, { added, modified, removed })).toEqual([]);
   });
 
