@@ -60,6 +60,25 @@ describe("key rotation answers", () => {
   });
 });
 
+describe("index key rotation answers", () => {
+  const it2 = (o: Record<string, unknown>) => ({ total: 0, byKey: {}, reindexed: 0, already: 0, stale: 0, unreadable: 0, mismatched: 0, refused: 0, ...o });
+  it("index_keys: success shows counts by index key id only", () => {
+    const r = describeMaintenanceAnswer("index_keys", 200, { outcome: "complete", currentIndexKeyId: "idx2", connectionIndexes: it2({ total: 3, byKey: { idx1: 3 } }), operationIndexes: it2({ total: 3, byKey: { idx1: 3 } }) });
+    expect(r).toEqual({ ok: true, text: "Index key check complete. Index key: idx2. Connections: 3 indexes by key (idx1: 3). Disconnect records: 3 indexes by key (idx1: 3)." });
+  });
+  it("reindex: complete only with nothing stale or unreadable; a 503 is never success", () => {
+    expect(describeMaintenanceAnswer("reindex", 200, { outcome: "complete", currentIndexKeyId: "idx2", connectionIndexes: it2({ total: 3, reindexed: 3 }), operationIndexes: it2({ total: 3, reindexed: 3 }) }))
+      .toEqual({ ok: true, text: "Move to new index key complete. Moved to idx2: connections 3 now, 0 already; disconnect records 3 now, 0 already." });
+    const r = describeMaintenanceAnswer("reindex", 409, { outcome: "incomplete", currentIndexKeyId: "idx2", connectionIndexes: it2({ total: 3, reindexed: 2, stale: 1 }), operationIndexes: it2({ total: 3, reindexed: 3 }) });
+    expect(r.ok).toBe(false); expect(r.text).toContain("1 record(s) need attention");
+    expect(describeMaintenanceAnswer("reindex", 503, { outcome: "unavailable" })).toEqual({ ok: false, text: expect.stringContaining("index key move is not installed") });
+  });
+  it("never shows an index value or a malformed key name", () => {
+    const r = describeMaintenanceAnswer("index_keys", 200, { outcome: "complete", currentIndexKeyId: "h1.idx2.abc", connectionIndexes: it2({ total: 1, byKey: { "h1.idx1.deadbeef": 1, idx1: 1 } }), operationIndexes: it2({}) });
+    expect(r.text).not.toContain("deadbeef"); expect(r.text).toContain("Index key: unknown");
+  });
+});
+
 describe("the control", () => {
   it("sends exactly the chosen action, one at a time, and shows the result", async () => {
     let release: (v: { status: number; body: unknown }) => void = () => {};

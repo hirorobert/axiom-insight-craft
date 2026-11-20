@@ -29,8 +29,19 @@ export class RealmProtectionError extends Error {
   constructor(message: string) { super(message); this.name = "RealmProtectionError"; }
 }
 
-/** The token key ring (envelopes) and the separate index key. All three come from Edge Function secrets, never from the database. */
-export interface RealmKeys { current: EnvelopeKey; all: readonly EnvelopeKey[]; index: EnvelopeKey }
+/**
+ * The token key ring (envelopes) and the separate index key, all from Edge Function secrets, never from the database. `index` computes every
+ * new index; `indexAll` (index-key rotation, 20261230500000) also holds the retiring index key, used ONLY to recognise an index it made
+ * (an index names its key: "h1.<keyId>.…"). Absent, it is just `[index]`.
+ */
+export interface RealmKeys { current: EnvelopeKey; all: readonly EnvelopeKey[]; index: EnvelopeKey; indexAll?: readonly EnvelopeKey[] }
+
+/** The index key that made a stored index (by the key id the index names), or null when no configured index key has that id. */
+export function indexKeyFor(storedIndex: string, keys: RealmKeys): EnvelopeKey | null {
+  if (!REALM_INDEX_SHAPE.test(storedIndex)) return null;
+  const id = storedIndex.split(".")[1];
+  return (keys.indexAll ?? [keys.index]).find((k) => k.id === id) ?? null;
+}
 
 /** The binding of a STORED realm: its workspace and environment, under a purpose no refresh token or code uses. */
 export function realmBinding(companyId: string, environment: QboEnvironment): EnvelopeBinding {
@@ -118,8 +129,8 @@ export type RealmResolution =
 
 /**
  * The realm of a stored row, read by OPENING its envelope. The envelope must open for the row's own workspace and environment; where the
- * plaintext still exists (before the cutover) it must equal what opened; the stored index must equal the index recomputed with the current
- * index key. A row without an envelope resolves to its plaintext only when `allowPlaintext` (the dual-write phase, before the backfill has
+ * plaintext still exists (before the cutover) it must equal what opened; the stored index must equal the index recomputed with the index key
+ * it names (the current one, or during an index-key rotation the retiring one; an index naming no configured key is a mismatch). A row without an envelope resolves to its plaintext only when `allowPlaintext` (the dual-write phase, before the backfill has
  * reached it); otherwise it is refused. Nothing here says WHICH realm a failure concerned.
  */
 export async function resolveStoredRealm(row: StoredRealm, keys: RealmKeys, opts: { allowPlaintext: boolean }): Promise<RealmResolution> {
@@ -130,7 +141,9 @@ export async function resolveStoredRealm(row: StoredRealm, keys: RealmKeys, opts
   let opened: string;
   try { opened = await openRealm(row.realm_envelope, row.environment, row.company_id, keys.all); } catch { return { ok: false, reason: "unreadable" }; }
   if (row.realm_id !== null && row.realm_id !== undefined && row.realm_id !== opened) return { ok: false, reason: "mismatch" };
-  if (row.realm_index === null || row.realm_index === undefined || row.realm_index !== await realmIndex(opened, row.environment, keys.index)) return { ok: false, reason: "mismatch" };
+  // The stored index must be the one its own (named) index key makes for what opened: the current key, or the retiring one during a rotation.
+  const indexKey = row.realm_index === null || row.realm_index === undefined ? null : indexKeyFor(row.realm_index, keys);
+  if (indexKey === null || row.realm_index !== await realmIndex(opened, row.environment, indexKey)) return { ok: false, reason: "mismatch" };
   return { ok: true, realmId: opened, protected: true };
 }
 

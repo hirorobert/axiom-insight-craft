@@ -33,13 +33,23 @@
  *            qbo_reseal_refresh_token. A row changed meanwhile answers 'stale' and a row under an import's lease answers 'busy': nothing is
  *            overwritten and the next run finishes it. Rows already under the current key are left alone, so it is safe to repeat.
  *
+ *   index_keys  READ ONLY (20261230500000): resolves every live connection's and every disconnect operation's realm (envelope opened, equal
+ *            to the plaintext, stored index recognised by the index key it names) and counts the stored indexes by index key id;
+ *            qbo_realm_index_coverage() adds the stored counts, historical rows included. Nothing is written.
+ *   reindex  moves every such row whose index was made by an older index key onto the current one (QBO_REALM_INDEX_KEY_NEXT_* once
+ *            configured): the old index is recognised first, the new one computed from the same opened realm, and both are submitted by
+ *            compare-and-swap through qbo_reindex_connection_realm / qbo_reindex_disconnect_realm (envelope and plaintext unchanged). A row
+ *            changed meanwhile answers 'stale'; nothing is overwritten; rows already on the current key are left alone, so it is safe to repeat.
+ *            Historical rows (terminal connections, import intents and pulls, consumed OAuth states) keep their index: no comparison reads it.
+ *
  * The answer and every log line carry COUNTS only: never a realm, an envelope, an index, a key or a row id.
  */
-import { openRealm, protectExistingRealm, resolveStoredRealm, sealRealm, PROTECTED_OUTCOMES, type ProtectArgs, type RealmKeys, type StoredRealm } from "./qboRealmProtection.ts";
+import { openRealm, protectExistingRealm, realmIndex, resolveStoredRealm, sealRealm, PROTECTED_OUTCOMES, type ProtectArgs, type RealmKeys, type StoredRealm } from "./qboRealmProtection.ts";
 import { connectionBinding, openSecret, sealSecret } from "./qboTokenEnvelope.ts";
 
 export type BackfillAction = "protect" | "verify";
 export type KeyAction = "keys" | "reseal";
+export type IndexAction = "index_keys" | "reindex";
 /** A connection, or a disconnect operation (whose id is its connection id). */
 export interface BackfillRow extends StoredRealm { id: string; refresh_token_envelope?: string | null }
 export interface BackfillTally { total: number; protected: number; already: number; verified: number; unprotected: number; mismatched: number; refused: number }
@@ -63,17 +73,23 @@ export interface BackfillDeps {
   resealOperation?(args: ResealArgs): Promise<string>;
   resealToken?(args: { p_connection: string; p_expected_envelope: string; p_new_envelope: string }): Promise<string>;
   coverage?(): Promise<Record<string, number>>;
+  /** 20261230500000: compare-and-swap re-indexes and the stored index counts by index key id (absent before that migration). */
+  reindexConnection?(args: ReindexArgs): Promise<string>;
+  reindexOperation?(args: ReindexArgs): Promise<string>;
+  indexCoverage?(): Promise<Record<string, number>>;
 }
 export interface ResealArgs { p_connection: string; p_realm_id: string; p_expected_envelope: string; p_new_envelope: string; p_realm_index: string }
+export interface ReindexArgs { p_connection: string; p_realm_id: string; p_realm_envelope: string; p_expected_index: string; p_new_index: string }
 export type BackfillResult =
   | { status: 200 | 409; outcome: "complete" | "incomplete"; action: BackfillAction; connections: BackfillTally; operations: BackfillTally; database: Record<string, number> }
   | { status: 400 | 401 | 403 | 500 | 503; outcome: "invalid_request" | "unauthorized" | "forbidden" | "failed" | "unavailable" };
 
-export function parseBackfillRequest(body: unknown): { action: BackfillAction | KeyAction } | null {
+const ACTIONS: ReadonlySet<unknown> = new Set(["protect", "verify", "keys", "reseal", "index_keys", "reindex"]);
+export function parseBackfillRequest(body: unknown): { action: BackfillAction | KeyAction | IndexAction } | null {
   if (!body || typeof body !== "object" || Array.isArray(body)) return null;
   const o = body as Record<string, unknown>;
-  if (Object.keys(o).length !== 1 || (o.action !== "protect" && o.action !== "verify" && o.action !== "keys" && o.action !== "reseal")) return null;
-  return { action: o.action };
+  if (Object.keys(o).length !== 1 || !ACTIONS.has(o.action)) return null;
+  return { action: o.action as BackfillAction | KeyAction | IndexAction };
 }
 
 const BEARER_JWT = /^Bearer ([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/;
@@ -130,7 +146,7 @@ async function verifyRows(rows: BackfillRow[], keys: RealmKeys, submit: (a: Prot
   return t;
 }
 
-export async function runRealmBackfill(deps: BackfillDeps, keys: RealmKeys, req: { action: BackfillAction | KeyAction } | null): Promise<BackfillResult | KeyResult> {
+export async function runRealmBackfill(deps: BackfillDeps, keys: RealmKeys, req: { action: BackfillAction | KeyAction | IndexAction } | null): Promise<BackfillResult | KeyResult | IndexResult> {
   let authority: MaintenanceAuthority;
   try { authority = await deps.authorize(); } catch { authority = { ok: false, reason: "unavailable" }; }
   if (!authority.ok) {
@@ -139,6 +155,7 @@ export async function runRealmBackfill(deps: BackfillDeps, keys: RealmKeys, req:
   }
   if (!req) return { status: 400, outcome: "invalid_request" };
   if (req.action === "keys" || req.action === "reseal") return runKeyAction(deps, keys, req.action);
+  if (req.action === "index_keys" || req.action === "reindex") return runIndexAction(deps, keys, req.action);
   try {
     const [conns, ops] = [await deps.listConnections(), await deps.listOperations()];
     const connections = req.action === "protect" ? await protectRows(conns, keys, deps.protectConnection) : await verifyRows(conns, keys, deps.verifyConnection);
@@ -226,6 +243,53 @@ async function runKeyAction(deps: BackfillDeps, keys: RealmKeys, action: KeyActi
     const done = bad(connectionRealms) + bad(refreshTokens) + bad(operationRealms) === 0;
     const database = deps.coverage ? await deps.coverage() : await deps.status();
     return { status: done ? 200 : 409, outcome: done ? "complete" : "incomplete", action, currentKeyId: keys.current.id, connectionRealms, refreshTokens, operationRealms, database };
+  } catch {
+    return { status: 500, outcome: "failed" };
+  }
+}
+
+// ── index-key rotation: "index_keys" (read only) and "reindex" (20261230500000) ─────────────────────────────────────────────────────────────
+export interface IndexTally { total: number; byKey: Record<string, number>; reindexed: number; already: number; stale: number; unreadable: number; mismatched: number; refused: number }
+export type IndexResult =
+  | { status: 200 | 409; outcome: "complete" | "incomplete"; action: IndexAction; currentIndexKeyId: string; connectionIndexes: IndexTally; operationIndexes: IndexTally; database: Record<string, number> }
+  | { status: 500 | 503; outcome: "failed" | "unavailable" };
+const indexTally = (): IndexTally => ({ total: 0, byKey: {}, reindexed: 0, already: 0, stale: 0, unreadable: 0, mismatched: 0, refused: 0 });
+
+/** One stored index: counted by the key that made it (index_keys), or moved onto the current index key (reindex). */
+async function indexStep(row: BackfillRow, keys: RealmKeys, t: IndexTally, action: IndexAction, submit: ((a: ReindexArgs) => Promise<string>) | undefined): Promise<void> {
+  t.total++;
+  if (!row.realm_envelope || !row.realm_index) { t.unreadable++; return; }
+  // Opened, equal to the plaintext, and the stored index recognised by the index key it names: only then is the row's realm known.
+  const r = await resolveStoredRealm(row, keys, { allowPlaintext: false });
+  if (!r.ok) { if (r.reason === "mismatch") t.mismatched++; else t.unreadable++; return; }
+  const from = row.realm_index.split(".")[1] ?? "";
+  t.byKey[from] = (t.byKey[from] ?? 0) + 1;
+  if (action === "index_keys") return;
+  if (from === keys.index.id) { t.already++; return; }
+  if (!submit || typeof row.realm_id !== "string") { t.refused++; return; }   // re-indexing compares with the plaintext the database holds
+  let next: string;
+  try { next = await realmIndex(r.realmId, row.environment, keys.index); } catch { t.refused++; return; }
+  let outcome: string;
+  try { outcome = await submit({ p_connection: row.id, p_realm_id: r.realmId, p_realm_envelope: row.realm_envelope, p_expected_index: row.realm_index, p_new_index: next }); }
+  catch { t.refused++; return; }
+  if (outcome === "reindexed") t.reindexed++;
+  else if (outcome === "already_reindexed") t.already++;
+  else if (outcome === "stale") t.stale++;
+  else if (outcome === "realm_mismatch" || outcome === "envelope_mismatch") t.mismatched++;
+  else t.refused++;
+}
+
+async function runIndexAction(deps: BackfillDeps, keys: RealmKeys, action: IndexAction): Promise<IndexResult> {
+  if (action === "reindex" && (!deps.reindexConnection || !deps.reindexOperation)) return { status: 503, outcome: "unavailable" };
+  try {
+    const [conns, ops] = [await deps.listConnections(), await deps.listOperations()];
+    const connectionIndexes = indexTally(), operationIndexes = indexTally();
+    for (const row of conns) await indexStep(row, keys, connectionIndexes, action, deps.reindexConnection);
+    for (const row of ops) await indexStep(row, keys, operationIndexes, action, deps.reindexOperation);
+    const bad = (t: IndexTally) => t.unreadable + t.mismatched + t.refused + t.stale;
+    const done = bad(connectionIndexes) + bad(operationIndexes) === 0;
+    const database = deps.indexCoverage ? await deps.indexCoverage() : await deps.status();
+    return { status: done ? 200 : 409, outcome: done ? "complete" : "incomplete", action, currentIndexKeyId: keys.index.id, connectionIndexes, operationIndexes, database };
   } catch {
     return { status: 500, outcome: "failed" };
   }

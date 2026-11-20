@@ -123,7 +123,40 @@ describe("configuration: the index key is its own secret", () => {
     ["an index key equal to a token key", { ...BASE, QBO_REALM_INDEX_KEY_B64: b64(2) }],
     ["an index key equal to the previous token key", { ...BASE, QBO_TOKEN_KEY_PREV_ID: "k1", QBO_TOKEN_KEY_PREV_B64: b64(9) }],
     ["no token key", { ...BASE, QBO_TOKEN_KEY_B64: undefined }],
+    ["half a NEXT index key pair (id only)", { ...BASE, QBO_REALM_INDEX_KEY_NEXT_ID: "idx2" }],
+    ["half a NEXT index key pair (value only)", { ...BASE, QBO_REALM_INDEX_KEY_NEXT_B64: b64(8) }],
+    ["a NEXT index key named like the configured one", { ...BASE, QBO_REALM_INDEX_KEY_NEXT_ID: "idx1", QBO_REALM_INDEX_KEY_NEXT_B64: b64(8) }],
+    ["a NEXT index key equal to the configured one", { ...BASE, QBO_REALM_INDEX_KEY_NEXT_ID: "idx2", QBO_REALM_INDEX_KEY_NEXT_B64: b64(9) }],
+    ["a NEXT index key named like a token key", { ...BASE, QBO_REALM_INDEX_KEY_NEXT_ID: "k2", QBO_REALM_INDEX_KEY_NEXT_B64: b64(8) }],
+    ["a NEXT index key equal to a token key", { ...BASE, QBO_REALM_INDEX_KEY_NEXT_ID: "idx2", QBO_REALM_INDEX_KEY_NEXT_B64: b64(2) }],
+    ["a NEXT index key that is not 32 bytes", { ...BASE, QBO_REALM_INDEX_KEY_NEXT_ID: "idx2", QBO_REALM_INDEX_KEY_NEXT_B64: btoa("short") }],
   ])("nothing with %s (the functions then answer not configured)", (_l, o) => { expect(env(o).realmKeys()).toBeNull(); });
+  it("a NEXT index key makes every new index while the configured one only recognises; the configured value is never re-entered", () => {
+    const k = env({ ...BASE, QBO_REALM_INDEX_KEY_NEXT_ID: "idx2", QBO_REALM_INDEX_KEY_NEXT_B64: b64(8) }).realmKeys();
+    expect(k?.index.id).toBe("idx2"); expect(k?.indexAll?.map((x) => x.id)).toEqual(["idx2", "idx1"]);
+    expect(Array.from(k!.indexAll![1].bytes)).toEqual(Array.from(new Uint8Array(32).fill(9)));
+    expect(env(BASE).realmKeys()?.indexAll?.map((x) => x.id)).toEqual(["idx1"]);
+  });
+});
+
+describe("index-key rotation: a stored index is recognised by the key it names", () => {
+  const IDX2 = key("idx2", 8);
+  const NEXT: RealmKeys = { ...KEYS, index: IDX2, indexAll: [IDX2, KEYS.index] };
+  const NEWONLY: RealmKeys = { ...KEYS, index: IDX2 };
+  it("an idx1 index resolves while idx1 is in the ring, and not once it is gone; an idx2 index resolves under idx2 alone", async () => {
+    const p = await protectRealm(REALM, "sandbox", A, KEYS);
+    const row = { company_id: A, environment: "sandbox" as const, realm_id: REALM, realm_envelope: p.envelope, realm_index: p.index };
+    expect(await resolveStoredRealm(row, NEXT, { allowPlaintext: false })).toEqual({ ok: true, realmId: REALM, protected: true });
+    expect(await resolveStoredRealm(row, NEWONLY, { allowPlaintext: false })).toEqual({ ok: false, reason: "mismatch" });
+    const moved = { ...row, realm_index: await realmIndex(REALM, "sandbox", IDX2) };
+    expect(await resolveStoredRealm(moved, NEWONLY, { allowPlaintext: false })).toEqual({ ok: true, realmId: REALM, protected: true });
+    // A forged index under a recognised key name, or one naming no configured key, never resolves.
+    expect(await resolveStoredRealm({ ...row, realm_index: "h1.idx2." + "0".repeat(64) }, NEXT, { allowPlaintext: false })).toEqual({ ok: false, reason: "mismatch" });
+    expect(await resolveStoredRealm({ ...row, realm_index: "h1.idx9." + p.index.split(".")[2] }, NEXT, { allowPlaintext: false })).toEqual({ ok: false, reason: "mismatch" });
+  });
+  it("new indexes always use the NEXT key", async () => {
+    expect((await protectRealm(REALM, "sandbox", A, NEXT)).index.startsWith("h1.idx2.")).toBe(true);
+  });
 });
 
 describe("the one-off backfill (platform owner only)", () => {
@@ -151,8 +184,28 @@ describe("the one-off backfill (platform owner only)", () => {
   it("exactly { action }", async () => {
     expect(await runRealmBackfill(deps(), KEYS, null)).toEqual({ status: 400, outcome: "invalid_request" });
     for (const bad of [null, {}, [], "protect", { action: "drop" }, { action: "protect", realmId: REALM }, { action: "verify", sql: "select 1" }]) expect(parseBackfillRequest(bad)).toBeNull();
-    for (const action of ["keys", "reseal"]) expect(parseBackfillRequest({ action })).toEqual({ action });
-    for (const bad of [{ action: "reseal", keyId: "k1" }, { action: "keys", key: "x" }, { action: "rotate" }]) expect(parseBackfillRequest(bad)).toBeNull();
+    for (const action of ["keys", "reseal", "index_keys", "reindex"]) expect(parseBackfillRequest({ action })).toEqual({ action });
+    for (const bad of [{ action: "reseal", keyId: "k1" }, { action: "keys", key: "x" }, { action: "rotate" }, { action: "reindex", indexKey: "idx2" }, { action: "index" }]) expect(parseBackfillRequest(bad)).toBeNull();
+  });
+  it("index_keys and reindex: refused callers read nothing; reindex without the 20261230500000 database functions is unavailable, never partial", async () => {
+    const d = deps({ authorize: async () => ({ ok: false, reason: "forbidden" }), listConnections: vi.fn(rows), listOperations: vi.fn(async () => []) });
+    for (const action of ["index_keys", "reindex"] as const) expect(await runRealmBackfill(d, KEYS, { action })).toEqual({ status: 403, outcome: "forbidden" });
+    expect(d.listConnections).not.toHaveBeenCalled();
+    const old = deps({ listConnections: vi.fn(rows) });
+    expect(await runRealmBackfill(old, KEYS, { action: "reindex" })).toEqual({ status: 503, outcome: "unavailable" });
+    expect(old.listConnections).not.toHaveBeenCalled();
+  });
+  it("reindex: recognises the old index first, submits the new one by compare-and-swap with the unchanged envelope; counts only", async () => {
+    const IDX2 = key("idx2", 8);
+    const NEXT: RealmKeys = { ...KEYS, index: IDX2, indexAll: [IDX2, KEYS.index] };
+    const all = await rows();
+    const submit = vi.fn(async () => "reindexed");
+    const res = await runRealmBackfill(deps({ listConnections: async () => all, reindexConnection: submit, reindexOperation: vi.fn(async () => "reindexed") }), NEXT, { action: "reindex" });
+    expect(res).toMatchObject({ status: 409, outcome: "incomplete", currentIndexKeyId: "idx2", connectionIndexes: { total: 2, reindexed: 1, unreadable: 1 } });
+    const a = (submit.mock.calls[0] as unknown[])[0] as Record<string, string>;
+    expect(a.p_expected_index).toBe(all[1].realm_index); expect(a.p_realm_envelope).toBe(all[1].realm_envelope);
+    expect(a.p_new_index).toBe(await realmIndex("9130350000000002", "production", IDX2));
+    expect(JSON.stringify(res)).not.toContain("9130350000000002");
   });
   it("keys and reseal: refused callers read nothing; reseal without the 20261230400000 database functions is unavailable, never partial", async () => {
     const d = deps({ authorize: async () => ({ ok: false, reason: "forbidden" }), listConnections: vi.fn(rows), listOperations: vi.fn(async () => []) });

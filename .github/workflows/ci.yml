@@ -778,6 +778,14 @@ jobs:
           createdb qbo_realm_key_reseal
           bun scripts/db-proof/qboRealmKeyReseal.mjs
 
+      - name: QuickBooks realm index-key rotation proof (20261230500000 after the reseal and its guard repair - live connection and operation indexes made by the retiring index key moved onto the new one through the real orchestration; envelopes, tokens and plaintext unchanged; self-verifying guard bodies; service-only)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/qbo_realm_index_rotation
+        run: |
+          createdb qbo_realm_index_rotation
+          bun scripts/db-proof/qboRealmIndexRotation.mjs
+
       - name: Internal beta activation controls proof (20261203100000 — only an active commercial administrator reads the beta state or opens/closes reporting; opening is one transaction that makes the allowlist exactly the chosen companies and releases the master switch last, refusals change nothing; closing engages the master switch first; synthetic scope recorded from the database's own composition hash; open/close races never deadlock; full chain, real certification engine, on the same throwaway container)
         env:
           DB_PROOF_MODE: external
