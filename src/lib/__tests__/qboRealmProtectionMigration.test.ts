@@ -47,7 +47,7 @@ describe("realmID protection migrations: registered, then applied as hosted 114-
       expect(submittedForm(n, s, s.subarray(0, s.length - 1))).toBe("final_lf_removed");
       expect(submittedForm(n, s, Buffer.concat([s, Buffer.from("\n")]))).toBeNull();
     }
-    expect(Object.keys(RELEASE_JOURNAL).filter((k) => /realm/.test(k))).toEqual([...TAGS, RESEAL_TAG]);
+    expect(Object.keys(RELEASE_JOURNAL).filter((k) => /realm/.test(k))).toEqual([...TAGS, RESEAL_TAG, "0118_qbo_realm_index_rotation"]);   // + 2026-11-20: the index-key rotation (hosted 119)
     // Hosted 114 and 115: the committed files byte for byte (journal hashes read in the hosted SQL editor).
     expect(sha(mirror(TAGS[0]))).toBe(sha(src(NAMES[0]))); expect(sha(mirror(TAGS[0]))).toBe("7b310469b5b5919786295f7709f8d9532e604abf2acaea7689df642037885598");
     expect(sha(mirror(TAGS[1]))).toBe(sha(src(NAMES[1]))); expect(sha(mirror(TAGS[1]))).toBe("578a4bafc9e38fe793c1c8f88628ac613300a5e13b7d648c4d209d18213e1f82");
@@ -156,10 +156,15 @@ describe("the token-key reseal: applied as hosted 117 with one transcribed line 
     expect(submittedForm(REPAIR, s, s.subarray(0, s.length - 1))).toBe("final_lf_removed");
     const r = checkMigrationAuthority(ROOT) as Result & { mirrored: { tag: string; source: string; how: string }[] };
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual(["20261230500000_qbo_realm_index_rotation.sql"]); // 2026-11-20: the realm index-key rotation (20261230500000), authored, not applied
+    expect(r.pending).toEqual([]); // 2026-11-20: the realm index-key rotation (20261230500000) applied byte for byte as hosted 119 (mirror 0118, release_verbatim); nothing is pending. 2026-11-20: the realm index-key rotation (20261230500000), authored, not applied
     expect(r.mirrored.filter((x) => x.source === REPAIR)).toEqual([{ tag: REPAIR_TAG, source: REPAIR, how: "release_verbatim" }]);
     const rm = mirror(REPAIR_TAG); expect([rm.length, sha(rm)]).toEqual([s.length, sha(s)]);   // hosted 118 = the committed file, final LF kept
     expect(J[REPAIR_TAG]).toEqual({ kind: "release_verbatim", source: REPAIR, bytes: 6185, digest: sha(s), sha256: sha(s) });
+    // The realm index-key rotation (20261230500000): hosted 119 = the committed file byte for byte, final LF kept (mirror 0118).
+    const ROT = "20261230500000_qbo_realm_index_rotation.sql", ROT_TAG = "0118_qbo_realm_index_rotation", rs = src(ROT), rot = mirror(ROT_TAG);
+    expect([rs.length, sha(rs)]).toEqual([18452, "9d44bf0c73989b4bf5487ed3c864f66190c962e969fadf657cbe09eb3a6d20bf"]); expect([rot.length, sha(rot)]).toEqual([rs.length, sha(rs)]);
+    expect(r.mirrored.filter((x) => x.source === ROT)).toEqual([{ tag: ROT_TAG, source: ROT, how: "release_verbatim" }]);
+    expect(J[ROT_TAG]).toEqual({ kind: "release_verbatim", source: ROT, bytes: 18452, digest: sha(rs), sha256: sha(rs) });
     expect(r.mirrored.filter((x) => x.source === RESEAL)).toEqual([{ tag: RESEAL_TAG, source: RESEAL, how: "release_transcription_variant_repaired" }]);
     expect(checkReleaseEntry(RESEAL_TAG, mirror(RESEAL_TAG).toString("utf8"), srcBytes).problems).toEqual([]);
   }, 120_000);

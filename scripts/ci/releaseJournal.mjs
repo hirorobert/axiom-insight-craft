@@ -490,6 +490,14 @@ export const RELEASE_JOURNAL = {
     source: "20261230410000_qbo_reseal_operations_guard_repair.sql", bytes: 6185,
     digest: "6e7af318be84e3d58500d642a24e0a36d2a080c3fddf7f2aac7f4a19b37d9d69",
     sha256: "6e7af318be84e3d58500d642a24e0a36d2a080c3fddf7f2aac7f4a19b37d9d69" },
+  // The realm index-key rotation (PR #287, 20261230500000, merged in main 9ffb399), applied 2026-11-20 by Lovable's native migrator as hosted 119,
+  // owner-authorized, byte for byte INCLUDING the final LF (18,452 bytes, 9d44bf0c…; mirror commit 2dfaa0e). Confirmed read-only on hosted the
+  // same day: journal 119 = 9d44bf0c…, all five installed bodies equal the digests pinned in the migration (guards db305b36…/819623c9…,
+  // re-index functions cf5083bb…/eb59609f…, coverage ac498844…), service role only, every QuickBooks and commercial fingerprint unchanged.
+  "0118_qbo_realm_index_rotation": { kind: "release_verbatim",
+    source: "20261230500000_qbo_realm_index_rotation.sql", bytes: 18452,
+    digest: "9d44bf0c73989b4bf5487ed3c864f66190c962e969fadf657cbe09eb3a6d20bf",
+    sha256: "9d44bf0c73989b4bf5487ed3c864f66190c962e969fadf657cbe09eb3a6d20bf" },
 };
 
 /**
@@ -545,8 +553,8 @@ export const SUBMISSION_FORMS = Object.freeze({
     identical: Object.freeze({ bytes: 6185, sha256: "6e7af318be84e3d58500d642a24e0a36d2a080c3fddf7f2aac7f4a19b37d9d69" }),
     finalLfRemoved: Object.freeze({ bytes: 6184, sha256: "55a0ccf244193dcc0d792805fe070ed84ce1392157f06aaf8350792d4d22015a" }),
   }),
-  // ...and the realm index-key rotation (20261230500000): authored, NOT applied; reported PENDING. Digests computed from the committed LF
-  // blob (git show), not the working tree.
+  // ...and the realm index-key rotation (20261230500000): registered before application; applied 2026-11-20 as hosted 119 byte for byte
+  // (mirror 0118, see RELEASE_JOURNAL). Digests computed from the committed LF blob (git show), not the working tree.
   "20261230500000_qbo_realm_index_rotation.sql": Object.freeze({
     identical: Object.freeze({ bytes: 18452, sha256: "9d44bf0c73989b4bf5487ed3c864f66190c962e969fadf657cbe09eb3a6d20bf" }),
     finalLfRemoved: Object.freeze({ bytes: 18451, sha256: "f75aea588ac1f0c243bdc87aeb63195bcb59a9a1c7bb37723bae5dc4bbb2af2b" }),
