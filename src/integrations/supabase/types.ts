@@ -15828,6 +15828,7 @@ export type Database = {
           pulls: number
         }[]
       }
+      qbo_realm_index_coverage: { Args: never; Returns: Json }
       qbo_realm_key_coverage: { Args: never; Returns: Json }
       qbo_realm_protection_status: { Args: never; Returns: Json }
       qbo_record_fiscal_pull_intent: {
@@ -15885,6 +15886,26 @@ export type Database = {
           p_reservation_id: string
           p_result_sha256: string
           p_start_date: string
+        }
+        Returns: string
+      }
+      qbo_reindex_connection_realm: {
+        Args: {
+          p_connection: string
+          p_expected_index: string
+          p_new_index: string
+          p_realm_envelope: string
+          p_realm_id: string
+        }
+        Returns: string
+      }
+      qbo_reindex_disconnect_realm: {
+        Args: {
+          p_connection: string
+          p_expected_index: string
+          p_new_index: string
+          p_realm_envelope: string
+          p_realm_id: string
         }
         Returns: string
       }

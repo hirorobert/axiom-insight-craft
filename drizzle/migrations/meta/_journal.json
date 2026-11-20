@@ -827,6 +827,13 @@
       "when": 1795081948810,
       "tag": "0117_qbo_reseal_operations_guard_repair",
       "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1795195004109,
+      "tag": "0118_qbo_realm_index_rotation",
+      "breakpoints": true
     }
   ]
 }
