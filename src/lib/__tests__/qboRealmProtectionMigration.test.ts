@@ -146,7 +146,7 @@ describe("the token-key reseal: applied as hosted 117 with one transcribed line 
       substitutions: [{ line: 67, from: LINE_67_SOURCE, to: LINE_67_HOSTED }], reviewedBodyDigest: REVIEWED_BODY, variantBodyDigest: VARIANT_BODY, repairedBy: REPAIR });
   });
 
-  it("the repair's two submission forms are its committed bytes; it is mirrored byte for byte as 0117 and nothing is pending", () => {
+  it("the repair's two submission forms are its committed bytes; it is mirrored byte for byte as 0117 and nothing of the reseal is pending", () => {
     const s = src(REPAIR);
     expect(s[s.length - 1]).toBe(0x0a); expect(s.includes("\r\n")).toBe(false);
     expect(SUBMISSION_FORMS[REPAIR]).toEqual({ identical: { bytes: 6185, sha256: "6e7af318be84e3d58500d642a24e0a36d2a080c3fddf7f2aac7f4a19b37d9d69" },
@@ -156,7 +156,7 @@ describe("the token-key reseal: applied as hosted 117 with one transcribed line 
     expect(submittedForm(REPAIR, s, s.subarray(0, s.length - 1))).toBe("final_lf_removed");
     const r = checkMigrationAuthority(ROOT) as Result & { mirrored: { tag: string; source: string; how: string }[] };
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual([]);
+    expect(r.pending).toEqual(["20261230500000_qbo_realm_index_rotation.sql"]); // 2026-11-20: the realm index-key rotation (20261230500000), authored, not applied
     expect(r.mirrored.filter((x) => x.source === REPAIR)).toEqual([{ tag: REPAIR_TAG, source: REPAIR, how: "release_verbatim" }]);
     const rm = mirror(REPAIR_TAG); expect([rm.length, sha(rm)]).toEqual([s.length, sha(s)]);   // hosted 118 = the committed file, final LF kept
     expect(J[REPAIR_TAG]).toEqual({ kind: "release_verbatim", source: REPAIR, bytes: 6185, digest: sha(s), sha256: sha(s) });

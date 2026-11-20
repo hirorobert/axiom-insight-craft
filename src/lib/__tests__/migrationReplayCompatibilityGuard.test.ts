@@ -306,7 +306,9 @@ describe("migration directory integrity", () => {
     // 224 -> 225: the token-key reseal (20261230400000): service-only re-seals of live envelopes onto a new key. Authored and not applied.
     // 225 -> 226: the operation-guard repair (20261230410000): restores the reviewed qbo_disconnect_operations_guard() body that hosted 117
     //   applied with one transcribed line. Authored and not applied.
-    expect(files.length).toBe(226);
+    // 226 -> 227: the realm index-key rotation (20261230500000): service-only re-index of live rows onto a new index key by
+    //   compare-and-swap, one guarded re-index transition on both realm guards. Authored and not applied.
+    expect(files.length).toBe(227);
   });
 });
 

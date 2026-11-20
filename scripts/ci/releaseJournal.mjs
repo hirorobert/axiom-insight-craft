@@ -545,6 +545,12 @@ export const SUBMISSION_FORMS = Object.freeze({
     identical: Object.freeze({ bytes: 6185, sha256: "6e7af318be84e3d58500d642a24e0a36d2a080c3fddf7f2aac7f4a19b37d9d69" }),
     finalLfRemoved: Object.freeze({ bytes: 6184, sha256: "55a0ccf244193dcc0d792805fe070ed84ce1392157f06aaf8350792d4d22015a" }),
   }),
+  // ...and the realm index-key rotation (20261230500000): authored, NOT applied; reported PENDING. Digests computed from the committed LF
+  // blob (git show), not the working tree.
+  "20261230500000_qbo_realm_index_rotation.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 18452, sha256: "9d44bf0c73989b4bf5487ed3c864f66190c962e969fadf657cbe09eb3a6d20bf" }),
+    finalLfRemoved: Object.freeze({ bytes: 18451, sha256: "f75aea588ac1f0c243bdc87aeb63195bcb59a9a1c7bb37723bae5dc4bbb2af2b" }),
+  }),
   // QBO readiness r2: promoted atomic envelope, NOT applied; exact registered bytes only.
   "20261214100000_qbo_readiness_controls.sql": Object.freeze({
     identical: Object.freeze({ bytes: 20040, sha256: "6ac1c74c46171138915d936191beff45d26ca92abb6f7a820d0d73aadf0ddcd8" }),

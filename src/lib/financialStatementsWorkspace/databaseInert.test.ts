@@ -709,6 +709,12 @@ describe("database inertness — schema and functions", () => {
     // with the reviewed body of 20261230400000 byte for byte (hosted 117 applied it with line 67 transcribed; see RELEASE_JOURNAL 0116). Changes no
     // row, no grant, no RLS. AUTHORED, NOT APPLIED.
     added.add("supabase/migrations/20261230410000_qbo_reseal_operations_guard_repair.sql");
+    // ...and the realm index-key rotation (20261230500000): one forward-only, self-verifying migration that replaces the two QuickBooks realm guards
+    // with bodies allowing one guarded re-index transition, and adds two service-only re-index functions and an index coverage function. Changes no
+    // row; not financial-statement data. AUTHORED, NOT APPLIED.
+    added.add("supabase/migrations/20261230500000_qbo_realm_index_rotation.sql");
+    // The rotation edits qboEnv.ts, qboRealmBackfill.ts and qbo-realm-protect/index.ts (reviewed above as modified) and the realm module: exact files.
+    modified.add("supabase/functions/_shared/qboRealmProtection.ts");
     expect(unreviewedChanges(changed, { added, modified, removed })).toEqual([]);
   });
 
@@ -1040,7 +1046,8 @@ describe("database inertness — schema and functions", () => {
     // QuickBooks realmID protection r1: the loopback-only disposable-database proof that replaces the inert candidate's (removed), its CI step, the
     // registered submission forms, and the three proofs whose reviewed migration-tail lists name the new migrations. No hosted access, no deploy.
     for (const file of ["scripts/db-proof/qboRealmProtection.mjs", "scripts/db-proof/qboRealmProtectionCandidate.mjs", ".github/workflows/ci.yml", "scripts/ci/releaseJournal.mjs",
-      "scripts/db-proof/serviceWithholding.mjs", "scripts/db-proof/trackAHardening.mjs", "scripts/db-proof/firstPeriodGovernedReview.mjs", "scripts/db-proof/qboRealmKeyReseal.mjs"]) allowed.add(file);
+      "scripts/db-proof/serviceWithholding.mjs", "scripts/db-proof/trackAHardening.mjs", "scripts/db-proof/firstPeriodGovernedReview.mjs", "scripts/db-proof/qboRealmKeyReseal.mjs",
+      "scripts/db-proof/qboRealmIndexRotation.mjs"]) allowed.add(file);
     // SheetJS 0.20.3 vendored (vendor/sheetjs/PROVENANCE.md): the offline CI guard that pins the vendored files and refuses any
     // externally hosted spreadsheet code (reads files only), and the manual re-verification script (never run by CI; downloads
     // the publisher's tarball and tagged files into memory and compares hashes). Neither deploys, applies or touches a database.
