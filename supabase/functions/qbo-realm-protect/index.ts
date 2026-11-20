@@ -7,8 +7,11 @@
 // operation's realm and submits it; POST { "action": "verify" } opens every envelope, compares it with the stored plaintext and the index, and
 // marks the row verified. POST { "action": "keys" } (read only) opens every live realm envelope and refresh token and every operation's realm
 // envelope and counts them by key id; POST { "action": "reseal" } moves every live row still sealed with an older token key onto the current
-// sealing key (QBO_TOKEN_KEY_NEXT_*), by compare-and-swap (20261230400000). Repeating, running concurrently or resuming after an interruption
-// is safe (see _shared/qboRealmBackfill.ts). The answer and the log carry COUNTS only: never a realm, an envelope, an index, a key or a row id.
+// sealing key (QBO_TOKEN_KEY_NEXT_*), by compare-and-swap (20261230400000). POST { "action": "index_keys" } (read only) counts every live
+// connection's and operation's stored index by index key id; POST { "action": "reindex" } moves every such index made by an older index key
+// onto the current one (QBO_REALM_INDEX_KEY_NEXT_*), by compare-and-swap (20261230500000). Repeating, running concurrently or resuming after an
+// interruption is safe (see _shared/qboRealmBackfill.ts). The answer and the log carry COUNTS only: never a realm, an envelope, an index, a
+// key or a row id.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, validateAuth } from "../_shared/auth.ts";
@@ -77,12 +80,20 @@ Deno.serve(async (req) => {
       if (error) throw error;
       return (data ?? {}) as Record<string, number>;
     },
+    reindexConnection: (a) => rpc("qbo_reindex_connection_realm", { ...a }),
+    reindexOperation: (a) => rpc("qbo_reindex_disconnect_realm", { ...a }),
+    indexCoverage: async () => {
+      const { data, error } = await service.rpc("qbo_realm_index_coverage");
+      if (error) throw error;
+      return (data ?? {}) as Record<string, number>;
+    },
   }, realmKeys, parseBackfillRequest(await req.json().catch(() => null))).catch(() => ({ status: 500 as const, outcome: "failed" as const }));
 
   // OPERATIONAL LOG: who ran it (a user id, never a credential), the outcome and counts only.
   console.log(JSON.stringify({ event: "qbo.realm_protect", status: result.status, outcome: result.outcome, actor: authority.ok ? authority.actor : null,
     ...("connections" in result ? { action: result.action, connections: result.connections, operations: result.operations } : {}),
-    ...("refreshTokens" in result ? { action: result.action, currentKeyId: result.currentKeyId, connectionRealms: result.connectionRealms, refreshTokens: result.refreshTokens, operationRealms: result.operationRealms } : {}) }));
+    ...("refreshTokens" in result ? { action: result.action, currentKeyId: result.currentKeyId, connectionRealms: result.connectionRealms, refreshTokens: result.refreshTokens, operationRealms: result.operationRealms } : {}),
+    ...("connectionIndexes" in result ? { action: result.action, currentIndexKeyId: result.currentIndexKeyId, connectionIndexes: result.connectionIndexes, operationIndexes: result.operationIndexes } : {}) }));
   const { status, ...body } = result;
   return json(status, body);
 });

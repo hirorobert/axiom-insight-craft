@@ -1,14 +1,15 @@
 /**
  * Platform-owner maintenance control for the one-off QuickBooks company-ID (realmID) encryption backfill (Intuit case 00232331;
  * docs/release/qbo-realm-protection-r1/README.md), and the token-key rotation (20261230400000: "Check keys" is read only; "Move to new key"
- * re-seals live rows onto QBO_TOKEN_KEY_NEXT_*). It only asks the qbo-realm-protect Edge Function to run one of its four fixed actions with
+ * re-seals live rows onto QBO_TOKEN_KEY_NEXT_*), and the index-key rotation (20261230500000: "Check index key" is read only; "Move to new
+ * index key" re-indexes live rows with QBO_REALM_INDEX_KEY_NEXT_*). It only asks the qbo-realm-protect Edge Function to run one of its six fixed actions with
  * the signed-in session; the function and the database decide authority (an active platform owner) and do all the work. Nothing here sees a
  * company ID, an envelope or a key: the answer is counts only. Shown only inside the platform-owner rehearsal page; showing it confers nothing.
  */
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 
-export type MaintenanceAction = "protect" | "verify" | "keys" | "reseal";
+export type MaintenanceAction = "protect" | "verify" | "keys" | "reseal" | "index_keys" | "reindex";
 type Tally = { total?: number; protected?: number; already?: number; verified?: number; unprotected?: number; mismatched?: number; refused?: number };
 const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 type KeyTally = { total?: number; byKey?: Record<string, unknown>; resealed?: number; already?: number; none?: number; stale?: number; busy?: number; unreadable?: number; mismatched?: number; refused?: number };
@@ -18,6 +19,8 @@ const byKey = (t: KeyTally) => {
   return parts.length ? parts.join(", ") : "none";
 };
 const keyProblems = (t: KeyTally) => n(t.unreadable) + n(t.mismatched) + n(t.refused) + n(t.stale) + n(t.busy);
+type IndexTally = { total?: number; byKey?: Record<string, unknown>; reindexed?: number; already?: number; stale?: number; unreadable?: number; mismatched?: number; refused?: number };
+const indexProblems = (t: IndexTally) => n(t.unreadable) + n(t.mismatched) + n(t.refused) + n(t.stale);
 
 /** Plain-language result for one run, from the function's status and counts-only answer. Never assumes success. */
 export function describeMaintenanceAnswer(action: MaintenanceAction, status: number | null, body: unknown): { ok: boolean; text: string } {
@@ -26,6 +29,7 @@ export function describeMaintenanceAnswer(action: MaintenanceAction, status: num
   if (status === 403) return { ok: false, text: "Only the platform owner can run this. Nothing was changed." };
   if (status === 503 && b.outcome === "not_configured") return { ok: false, text: "The encryption keys are not configured on the server yet. Nothing was changed." };
   if (status === 503 && action === "reseal" && b.outcome === "unavailable") return { ok: false, text: "The key move is not installed on the server yet, or your access could not be checked. Nothing was changed." };
+  if (status === 503 && action === "reindex" && b.outcome === "unavailable") return { ok: false, text: "The index key move is not installed on the server yet, or your access could not be checked. Nothing was changed." };
   if (status === 503) return { ok: false, text: "Your access could not be checked right now. Nothing was changed; try again." };
   const k = (body && typeof body === "object" ? body : {}) as { currentKeyId?: unknown; connectionRealms?: KeyTally; refreshTokens?: KeyTally; operationRealms?: KeyTally };
   if ((action === "keys" || action === "reseal") && (status === 200 || status === 409) && k.connectionRealms && k.refreshTokens && k.operationRealms) {
@@ -36,6 +40,17 @@ export function describeMaintenanceAnswer(action: MaintenanceAction, status: num
       ? `Sealing key: ${current}. Connections: ${n(c.total)} company IDs readable by key (${byKey(c)}); ${n(t.total) - n(t.none)} sign-in tokens readable by key (${byKey(t)}). Disconnect records: ${n(o.total)} readable by key (${byKey(o)}).`
       : `Moved to ${current}: connections ${n(c.resealed)} now, ${n(c.already)} already; sign-in tokens ${n(t.resealed)} now, ${n(t.already)} already; disconnect records ${n(o.resealed)} now, ${n(o.already)} already.`;
     if (status === 200 && b.outcome === "complete" && problems === 0) return { ok: true, text: `${action === "keys" ? "Key check" : "Move to new key"} complete. ${head}` };
+    return { ok: false, text: `Not complete: ${problems} record(s) need attention. ${head} Finished records stay finished; run it again, and if the count does not fall, stop and investigate.` };
+  }
+  const x = (body && typeof body === "object" ? body : {}) as { currentIndexKeyId?: unknown; connectionIndexes?: IndexTally; operationIndexes?: IndexTally };
+  if ((action === "index_keys" || action === "reindex") && (status === 200 || status === 409) && x.connectionIndexes && x.operationIndexes) {
+    const c = x.connectionIndexes, o = x.operationIndexes;
+    const current = typeof x.currentIndexKeyId === "string" && KEY_ID.test(x.currentIndexKeyId) ? x.currentIndexKeyId : "unknown";
+    const problems = indexProblems(c) + indexProblems(o);
+    const head = action === "index_keys"
+      ? `Index key: ${current}. Connections: ${n(c.total)} indexes by key (${byKey(c)}). Disconnect records: ${n(o.total)} indexes by key (${byKey(o)}).`
+      : `Moved to ${current}: connections ${n(c.reindexed)} now, ${n(c.already)} already; disconnect records ${n(o.reindexed)} now, ${n(o.already)} already.`;
+    if (status === 200 && b.outcome === "complete" && problems === 0) return { ok: true, text: `${action === "index_keys" ? "Index key check" : "Move to new index key"} complete. ${head}` };
     return { ok: false, text: `Not complete: ${problems} record(s) need attention. ${head} Finished records stay finished; run it again, and if the count does not fall, stop and investigate.` };
   }
   if ((status === 200 || status === 409) && b.connections && b.operations) {
@@ -81,6 +96,11 @@ export default function RealmProtectionPanel({ run = invoke }: { run?: (action: 
     <div className="flex flex-wrap gap-2">
       <Button variant="outline" onClick={() => void go("keys")} disabled={busy !== null}>{busy === "keys" ? "Checking keys…" : "Check keys"}</Button>
       <Button variant="outline" onClick={() => void go("reseal")} disabled={busy !== null}>{busy === "reseal" ? "Moving…" : "Move to new key"}</Button>
+    </div>
+    <p>Index key rotation: "Check index key" only reads, and shows which index key each live item's index was made with. "Move to new index key" re-indexes live items with the new index key once it is configured; it is safe to repeat. Pause QuickBooks connects, imports and disconnects until it reports complete.</p>
+    <div className="flex flex-wrap gap-2">
+      <Button variant="outline" onClick={() => void go("index_keys")} disabled={busy !== null}>{busy === "index_keys" ? "Checking index key…" : "Check index key"}</Button>
+      <Button variant="outline" onClick={() => void go("reindex")} disabled={busy !== null}>{busy === "reindex" ? "Moving…" : "Move to new index key"}</Button>
     </div>
     {result && <p role={result.ok ? "status" : "alert"}>{result.text}</p>}
   </section>;

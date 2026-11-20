@@ -97,6 +97,7 @@ describe("migration hygiene", () => {
       "20261230100000_qbo_realm_protection_schema.sql", "20261230200000_qbo_realm_protection_connect.sql", "20261230300000_qbo_realm_protection_evidence.sql",
       "20261230400000_qbo_realm_key_reseal.sql",
       "20261230410000_qbo_reseal_operations_guard_repair.sql",
+      "20261230500000_qbo_realm_index_rotation.sql",
     ]);
     expect(RAW.includes("\u0000")).toBe(false);
     expect(RAW).not.toMatch(/^(<{7}|={7}|>{7})/m);

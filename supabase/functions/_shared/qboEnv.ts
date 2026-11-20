@@ -14,6 +14,10 @@
  *                       refused (not configured), never ignored. Its id and bytes must differ from every other key's.
  *   QBO_REALM_INDEX_KEY_ID / QBO_REALM_INDEX_KEY_B64  the realmID INDEX key (exactly 32 bytes, base64; its own key, never a token key): the keyed
  *                       equality index of a QuickBooks company (qboRealmProtection.ts). Without it no function that stores a realm runs.
+ *   QBO_REALM_INDEX_KEY_NEXT_ID / QBO_REALM_INDEX_KEY_NEXT_B64  an optional NEXT index key (index-key rotation, 20261230500000): when BOTH are
+ *                       set it computes every new index, and the configured index key stays only to RECOGNISE indexes it made, until
+ *                       qbo-realm-protect "reindex" has moved every live row. A half-configured pair is refused (not configured), never
+ *                       ignored. Its id and bytes must differ from the configured index key's and from every token key's.
  *   QBO_MINOR_VERSION   the API minor version to ask for (default 75, the one the recorded samples were requested with)
  */
 import { keyFromBase64, type EnvelopeKey } from "./qboTokenEnvelope.ts";
@@ -74,10 +78,16 @@ export function readQboEnv(get: Get): QboEnvConfig {
     const id = get("QBO_REALM_INDEX_KEY_ID"), b64 = get("QBO_REALM_INDEX_KEY_B64");
     if (!ring || !present(id) || !present(b64)) return null;
     try {
-      const index = keyFromBase64(id.trim(), b64);
-      // Its own key: never a token key's name or bytes (rotating the token key must never change equality, and one leaked key must not open both).
-      if (ring.all.some((k) => k.id === index.id || sameBytes(k.bytes, index.bytes))) return null;
-      return { current: ring.current, all: ring.all, index };
+      const configured = keyFromBase64(id.trim(), b64);
+      const nid = get("QBO_REALM_INDEX_KEY_NEXT_ID"), nb64 = get("QBO_REALM_INDEX_KEY_NEXT_B64");
+      if (present(nid) !== present(nb64)) return null; // half an index key pair is a configuration error, never silently ignored
+      const index = present(nid) && present(nb64) ? keyFromBase64(nid.trim(), nb64) : configured;
+      const indexAll = index === configured ? [configured] : [index, configured];
+      // Its own keys: never a token key's name or bytes (rotating the token key must never change equality, and one leaked key must not open
+      // both), and the two index keys never share a name or bytes (a name chooses the key that recognises an index).
+      if (indexAll.some((x) => ring.all.some((k) => k.id === x.id || sameBytes(k.bytes, x.bytes)))) return null;
+      if (indexAll.length === 2 && (indexAll[0].id === indexAll[1].id || sameBytes(indexAll[0].bytes, indexAll[1].bytes))) return null;
+      return { current: ring.current, all: ring.all, index, indexAll };
     } catch { return null; }
   };
   return {
