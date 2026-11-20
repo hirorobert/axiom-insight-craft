@@ -18,6 +18,10 @@
  *   · Complete lineage. Every physical row of the source gets exactly one disposition (header, preamble, blank,
  *     heading, total, zero balance, account, rejected) with its 1-based row number, so the counts always add up to
  *     the rows read.
+ *   · Detected vendor adapters, never global relaxations. A QuickBooks Desktop export (heading-less name column,
+ *     TOTAL label outside it) and a Tally (TallyPrime) export (group subtotal lines above indented ledgers, Indian
+ *     grouping, Dr/Cr suffix, Grand Total) are each read only when positively detected, and the detection is recorded
+ *     in `columns`; a file that is not detected is read exactly as before.
  *
  * Issues are "blocking" (the trial balance cannot be accepted until the file is corrected) or "review" (recorded for
  * the reviewer). Messages name the rows and say what to change.
@@ -26,7 +30,7 @@
 import { CURRENCY_REGISTRY } from "./currencyRegistry.ts";
 import { PRINTED_FOOTER_RULES, footerRuleFor, isStandalonePageNumber } from "./printedReportMetadata.ts";
 
-export const TB_INGESTION_VERSION = "tb-ingest-3.3.0";
+export const TB_INGESTION_VERSION = "tb-ingest-3.4.0";
 
 export type Cell = string | number | boolean | null | undefined;
 
@@ -231,16 +235,20 @@ export function minorToNumber(minor: bigint, exponent: number): number {
 
 export type DecodeResult = { ok: true; text: string } | { ok: false; issue: IngestIssue };
 
-/** Strict UTF-8 (a UTF-8 byte-order mark is removed). Anything else is refused rather than decoded with U+FFFD. */
-export function decodeCsvBytes(bytes: Uint8Array): DecodeResult {
+/**
+ * Strict UTF-8 (a UTF-8 byte-order mark is removed). Anything else is refused rather than decoded with U+FFFD. The same
+ * rule reads a Tally XML export (`kind: "XML"`); only the refusal's wording differs.
+ */
+export function decodeCsvBytes(bytes: Uint8Array, kind: "CSV" | "XML" = "CSV"): DecodeResult {
+  const fix = kind === "CSV" ? "Save it as “CSV UTF-8 (Comma delimited)” and upload it again." : "Save it as UTF-8 text and upload it again.";
   if ((bytes[0] === 0xff && bytes[1] === 0xfe) || (bytes[0] === 0xfe && bytes[1] === 0xff)) {
-    return { ok: false, issue: { code: "ENCODING_NOT_UTF8", severity: "blocking", message: "The CSV is saved as UTF-16. Save it as “CSV UTF-8 (Comma delimited)” and upload it again." } };
+    return { ok: false, issue: { code: "ENCODING_NOT_UTF8", severity: "blocking", message: `The ${kind} is saved as UTF-16. ${fix}` } };
   }
   let text: string;
   try {
     text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {
-    return { ok: false, issue: { code: "ENCODING_NOT_UTF8", severity: "blocking", message: "The CSV is not UTF-8 text. Save it as “CSV UTF-8 (Comma delimited)” and upload it again." } };
+    return { ok: false, issue: { code: "ENCODING_NOT_UTF8", severity: "blocking", message: `The ${kind} is not UTF-8 text. ${fix}` } };
   }
   if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
   return { ok: true, text };
@@ -734,6 +742,319 @@ function cellString(c: Cell): string {
   return String(c).replace(/ /g, " ").trim();
 }
 
+// ── Tally (TallyPrime) export adapter ────────────────────────────────────────────────────────────────────────────────
+//
+// TallyPrime's Trial Balance export (docs/release/tally-export-r1/README.md) has no account codes, a "Particulars"
+// column, group lines whose own subtotal sits above their indented ledgers, Indian lakh grouping ("1,00,000.00"),
+// Tally's "(-)" negative, a "Dr"/"Cr" suffix in a single Closing Balance column, and a Grand Total. The generic path
+// reads none of that — a group line would be summed with its ledgers and the file would still balance. The adapter is
+// applied only when the file is POSITIVELY detected (a "Trial Balance" title and a Tally period line above a
+// "Particulars" header, detectTallyGrid) or when the rows came from the Tally XML reader (tallyXmlExport.ts), and the
+// detection is recorded in `columns.source`. Under it:
+//   · a group line (a named row followed by deeper-indented rows) is excluded exactly once and must equal, exactly, the
+//     gross debit and credit totals of the ledgers beneath it or their net on one side ("Nett Debit/Credit Balances for
+//     Reporting" is a per-group Tally option); anything else refuses the file (TOTAL_ROW_MISMATCH);
+//   · a group line without its ledgers is refused, never read as an account: a depth-0 leaf other than Tally's
+//     predefined "Profit & Loss A/c" ledger, or a leaf named as one of Tally's 28 predefined groups (UNSUPPORTED_LAYOUT);
+//   · the Grand Total is required for a grid export and must equal the ledgers exactly;
+//   · the amount grammar extensions apply to the detected file only — the generic path is byte-for-byte unchanged.
+
+export type TallyAmountMode = "debit_credit" | "closing_drcr";
+export type AmountField = "debit" | "credit" | "balance";
+
+/** Tally's 28 predefined groups (help.tallysolutions.com, Pre-Defined Groups), in identity-normalised form. */
+export const TALLY_PREDEFINED_GROUPS: ReadonlySet<string> = new Set([
+  "Branch / Divisions", "Capital Account", "Current Assets", "Current Liabilities", "Direct Expenses", "Direct Incomes",
+  "Fixed Assets", "Indirect Expenses", "Indirect Incomes", "Investments", "Loans (Liability)", "Misc. Expenses (ASSET)",
+  "Purchase Accounts", "Sales Accounts", "Suspense A/c",
+  "Bank Accounts", "Bank OD A/c", "Cash-in-hand", "Deposits (Asset)", "Duties & Taxes", "Loans & Advances (Asset)",
+  "Provisions", "Reserves & Surplus", "Secured Loans", "Stock-in-hand", "Sundry Creditors", "Sundry Debtors", "Unsecured Loans",
+].map(normalizeIdentityName));
+/** Tally's predefined ledger that sits directly under Primary, so it is the one legitimate top-level leaf line. */
+const TALLY_PL_LEDGER = normalizeIdentityName("Profit & Loss A/c");
+const TALLY_DIFFERENCE_LINE = /^difference in opening balances?$/i;
+const TALLY_GRAND_TOTAL = /^grand\s+total$/i;
+/** Tally's period line, d-Mon-yyyy to d-Mon-yyyy (the date style of Tally's own XML samples). */
+const TALLY_PERIOD_LINE = /^\d{1,2}-[A-Za-z]{3}-\d{4}\s+to\s+\d{1,2}-[A-Za-z]{3}-\d{4}$/;
+/** Plain digits, international grouping, or Indian grouping (groups of two before a final group of three). */
+const TALLY_AMOUNT_BODY = /^(\d+|\d{1,3}(?:,\d{3})+|\d{1,2}(?:,\d{2})+,\d{3})(?:\.(\d+))?$/;
+
+/**
+ * One amount cell of a detected Tally grid export. Number cells are read exactly as the generic path reads them. Text
+ * is read in Tally's own writing: plain, international or Indian grouping; "(-)" or "-" for a negative; and, in the
+ * single Closing Balance column only, a required "Dr"/"Cr" suffix (a Debit or Credit column carries none).
+ */
+export function parseTallyAmount(cell: Cell, exponent: number, mode: TallyAmountMode, field?: AmountField): ParsedAmount {
+  if (typeof cell !== "string") return parseAmount(cell, exponent);
+  const text = cell.replace(/[  ]/g, " ").trim();
+  if (text === "" || DASH_ONLY.test(text)) return { kind: "blank" };
+  const suffix = /^(.*?)\s*(dr|cr)\.?$/i.exec(text);
+  let body = suffix ? suffix[1].trim() : text;
+  const side = suffix ? (suffix[2].toLowerCase() === "dr" ? "Dr" : "Cr") : null;
+  if ((mode === "closing_drcr" && field === "balance") !== (side !== null)) return { kind: "malformed", text };
+  let negative = false;
+  if (body.startsWith("(-)")) { negative = true; body = body.slice(3).trim(); }
+  else if (body.startsWith("-")) { negative = true; body = body.slice(1).trim(); }
+  // A negative amount with a side suffix is contradictory; refused rather than resolved.
+  if (negative && side) return { kind: "malformed", text };
+  const m = TALLY_AMOUNT_BODY.exec(body);
+  if (!m) return { kind: "malformed", text };
+  const p = parseAmount(`${negative ? "-" : ""}${m[1].replace(/,/g, "")}${m[2] !== undefined ? `.${m[2]}` : ""}`, exponent);
+  if (p.kind !== "amount") return p.kind === "blank" ? p : { ...p, text };
+  return side === "Cr" ? { kind: "amount", minor: -p.minor } : p;
+}
+
+/**
+ * One amount of a Tally XML export, as the XML reader hands it over (plain text, Tally's sign): a closing debit is
+ * written negative (or empty) and a closing credit positive (or empty) — the only documented sample. The opposite sign
+ * contradicts it and is refused, never flipped.
+ */
+export function parseTallyXmlAmount(cell: Cell, exponent: number, field?: AmountField): ParsedAmount {
+  const p = parseAmount(cell, exponent);
+  if (p.kind !== "amount") return p;
+  if (field === "debit") return p.minor > 0n ? { kind: "malformed", text: cellString(cell) } : { kind: "amount", minor: -p.minor };
+  if (field === "credit" && p.minor < 0n) return { kind: "malformed", text: cellString(cell) };
+  return p;
+}
+
+export interface TallyAdapter {
+  kind: "grid" | "xml";
+  mode: TallyAmountMode;
+  map: ColumnMap;
+  /** The second row of a two-row Tally header ("Closing Balance" over "Debit" / "Credit"), as a row index; else null. */
+  headerContinuation: number | null;
+  detected: Record<string, string>;
+  parse: (cell: Cell, exponent: number, field?: AmountField) => ParsedAmount;
+}
+
+/**
+ * Positive detection of a Tally grid export: no account-code column, the name column headed exactly "Particulars", and
+ * above it both a "Trial Balance" title cell and a Tally period line. Amounts are Debit and Credit columns (on the header
+ * row, or on the row beneath a "Closing Balance" header) or one "Closing Balance" column read with Dr/Cr. Anything else
+ * returns null and the file is read by the generic path exactly as before.
+ */
+export function detectTallyGrid(rows: SourceRow[], detection: ColumnDetection): TallyAdapter | null {
+  const map = detection.map;
+  if (!map || map.account_code !== null || map.account_name === null || map.dimensions.length > 0) return null;
+  if (headerText(map.headers[map.account_name]) !== "particulars") return null;
+  let title = false;
+  let period = false;
+  for (const row of rows.slice(0, map.headerIndex)) {
+    for (const c of row.cells) {
+      if (typeof c !== "string") continue;
+      const t = c.replace(/[  ]/g, " ").replace(/\s+/g, " ").trim();
+      if (/^trial balance$/i.test(t)) title = true;
+      if (TALLY_PERIOD_LINE.test(t)) period = true;
+    }
+  }
+  if (!title || !period) return null;
+  const detected = { ...detection.detected };
+  if (map.debit !== null && map.credit !== null && map.balance === null) {
+    detected.source = "Tally trial balance export (Debit / Credit columns)";
+    return { kind: "grid", mode: "debit_credit", map, headerContinuation: null, detected, parse: (c, e, f) => parseTallyAmount(c, e, "debit_credit", f) };
+  }
+  if (map.balance !== null && map.debit === null && map.credit === null && /^closing balance$/i.test(headerText(map.headers[map.balance]))) {
+    // A two-row header: "Closing Balance" over "Debit" and "Credit" on the next row, with nothing else on that row.
+    const next = rows[map.headerIndex + 1];
+    if (next && next.cells.length > 0) {
+      const roles = next.cells.map((c) => ({ text: cellString(c), role: roleOf(headerText(c)) }));
+      const debit = roles.flatMap((r, i) => (r.role === "debit" ? [i] : []));
+      const credit = roles.flatMap((r, i) => (r.role === "credit" ? [i] : []));
+      const other = roles.some((r, i) => r.text !== "" && !debit.includes(i) && !credit.includes(i));
+      if (debit.length === 1 && credit.length === 1 && !other) {
+        const headers = map.headers.slice();
+        while (headers.length <= Math.max(debit[0], credit[0])) headers.push("");
+        headers[debit[0]] = roles[debit[0]].text;
+        headers[credit[0]] = roles[credit[0]].text;
+        const twoRow: ColumnMap = { ...map, debit: debit[0], credit: credit[0], balance: null, headers };
+        delete detected.balance;
+        detected.debit = headers[debit[0]];
+        detected.credit = headers[credit[0]];
+        detected.source = "Tally trial balance export (Closing Balance: Debit / Credit columns)";
+        return { kind: "grid", mode: "debit_credit", map: twoRow, headerContinuation: map.headerIndex + 1, detected, parse: (c, e, f) => parseTallyAmount(c, e, "debit_credit", f) };
+      }
+    }
+    detected.source = "Tally trial balance export (Closing Balance with Dr/Cr)";
+    return { kind: "grid", mode: "closing_drcr", map, headerContinuation: null, detected, parse: (c, e, f) => parseTallyAmount(c, e, "closing_drcr", f) };
+  }
+  return null;
+}
+
+/** What the Tally adapter decided about one named row of the body. Ledger rows then take the generic account path. */
+export interface TallyRole {
+  kind: "group" | "ledger" | "grand_total" | "refused";
+  reason: string;
+  debitMinor?: bigint;
+  creditMinor?: bigint;
+}
+
+/**
+ * The structural pass of the Tally adapter, before any row is classified: which named rows are group lines (excluded,
+ * each checked against its own ledgers), which are ledgers, which is the Grand Total (checked against all ledgers), and
+ * which cannot be resolved and refuse the file. Every amount is parsed here with the adapter's own parser; a row whose
+ * amount cannot be read leaves its group "not checked" (the main pass refuses the file for that amount anyway).
+ */
+export function analyseTallyRows(rows: SourceRow[], adapter: TallyAdapter, exponent: number, requireGrandTotal: boolean): { roles: Map<number, TallyRole>; issues: IngestIssue[] } {
+  const { map, mode } = adapter;
+  const nameCol = map.account_name as number;
+  const roles = new Map<number, TallyRole>();
+  const issues: IngestIssue[] = [];
+  const fmt = (m: bigint) => formatMinor(m, exponent);
+  interface Line { i: number; row: number; name: string; key: string; indent: number; debit: bigint; credit: bigint; readable: boolean }
+  const readAmount = (row: SourceRow, col: number | null, field: AmountField): { ok: boolean; minor: bigint | null } => {
+    if (col === null) return { ok: true, minor: null };
+    const p = adapter.parse(row.cells[col], exponent, field);
+    if (p.kind === "blank") return { ok: true, minor: null };
+    if (p.kind === "amount") return { ok: true, minor: p.minor };
+    return { ok: false, minor: null };
+  };
+  const lines: Line[] = [];
+  for (let i = map.headerIndex + 1; i < rows.length; i++) {
+    if (i === adapter.headerContinuation) continue;
+    const row = rows[i];
+    if (row.cells.length === 0) continue;
+    const raw = row.cells[nameCol];
+    const rawText = typeof raw === "string" ? raw.replace(/[  ]/g, " ").replace(/[\r\n\t]+/g, " ") : cellString(raw);
+    const name = rawText.trim();
+    if (!name) continue; // nameless rows (currency labels, stray amounts) keep their generic treatment
+    const indent = rawText.length - rawText.trimStart().length;
+    let debit = 0n, credit = 0n, readable = true;
+    if (mode === "debit_credit") {
+      const d = readAmount(row, map.debit, "debit");
+      const c = readAmount(row, map.credit, "credit");
+      readable = d.ok && c.ok;
+      debit = d.minor ?? 0n;
+      credit = c.minor ?? 0n;
+    } else {
+      const b = readAmount(row, map.balance, "balance");
+      readable = b.ok;
+      const bal = b.minor ?? 0n;
+      debit = bal > 0n ? bal : 0n;
+      credit = bal < 0n ? -bal : 0n;
+    }
+    lines.push({ i, row: row.rowNumber, name, key: normalizeIdentityName(name), indent, debit, credit, readable });
+  }
+  const grand = lines.filter((l) => TALLY_GRAND_TOTAL.test(l.name));
+  const body = lines.filter((l) => !TALLY_GRAND_TOTAL.test(l.name));
+
+  let ledgerDebit = 0n, ledgerCredit = 0n, topDebit = 0n, topCredit = 0n, ledgerCount = 0;
+  const condensed: Line[] = [];      // predefined group lines in a file without any indentation (group-wise, not ledger-wise)
+  const unexpanded: Line[] = [];     // group lines whose ledgers are not beneath them
+  const badIndent: Line[] = [];
+  const difference: Line[] = [];
+  const mismatch: { line: Line; ledgers: number; ledgerDebit: bigint; ledgerCredit: bigint }[] = [];
+  const asLedger = (l: Line) => { roles.set(l.i, { kind: "ledger", reason: "Tally ledger line" }); ledgerDebit += l.debit; ledgerCredit += l.credit; ledgerCount++; };
+  const refuse = (l: Line, reason: string) => roles.set(l.i, { kind: "refused", reason, ...(l.readable ? { debitMinor: l.debit, creditMinor: l.credit } : {}) });
+
+  if (!body.some((l) => l.indent > 0)) {
+    // No indentation anywhere: a ledger-wise export, every line a ledger — unless a line names a predefined group, which
+    // proves a group-wise (condensed) export whose ledgers are not in the file.
+    for (const l of body) {
+      if (TALLY_PREDEFINED_GROUPS.has(l.key)) { condensed.push(l); refuse(l, `Tally group line “${l.name}” in a file without ledger indentation`); continue; }
+      if (TALLY_DIFFERENCE_LINE.test(l.name)) { difference.push(l); refuse(l, "Tally “Difference in opening balances” line"); continue; }
+      asLedger(l);
+      topDebit += l.debit; topCredit += l.credit;
+    }
+  } else {
+    interface Group { line: Line; childIndent: number | null; ledgers: number; debit: bigint; credit: bigint; unreadable: boolean }
+    const stack: Group[] = [];
+    const isGroup = (idx: number) => idx + 1 < body.length && body[idx + 1].indent > body[idx].indent;
+    const finalize = (g: Group) => {
+      const l = g.line;
+      const label = `Tally group subtotal “${l.name}”`;
+      if (g.unreadable) { roles.set(l.i, { kind: "group", reason: `${label}: not checked, an amount beneath it could not be read`, debitMinor: l.debit, creditMinor: l.credit }); return; }
+      const net = g.debit - g.credit;
+      const netDebit = net > 0n ? net : 0n;
+      const netCredit = net < 0n ? -net : 0n;
+      const gross = mode === "debit_credit" && l.debit === g.debit && l.credit === g.credit;
+      const netted = l.debit === netDebit && l.credit === netCredit;
+      if (!gross && !netted) mismatch.push({ line: l, ledgers: g.ledgers, ledgerDebit: g.debit, ledgerCredit: g.credit });
+      const how = gross && netted ? "the total" : gross ? "the gross debit and credit totals" : netted ? "the net balance" : "neither the gross totals nor the net balance";
+      roles.set(l.i, { kind: "group", reason: `${label}: ${gross || netted ? "equals" : "does not equal"} ${how} of its ${g.ledgers} ledger${g.ledgers === 1 ? "" : "s"}; excluded from the accounts`, debitMinor: l.debit, creditMinor: l.credit });
+    };
+    for (let idx = 0; idx < body.length; idx++) {
+      const l = body[idx];
+      while (stack.length > 0 && stack[stack.length - 1].line.indent >= l.indent) finalize(stack.pop() as Group);
+      const parent = stack.length > 0 ? stack[stack.length - 1] : null;
+      if (parent === null && l.indent > 0) badIndent.push(l);
+      if (parent !== null) {
+        if (parent.childIndent === null) parent.childIndent = l.indent;
+        else if (parent.childIndent !== l.indent) badIndent.push(l);
+      }
+      if (isGroup(idx)) {
+        stack.push({ line: l, childIndent: null, ledgers: 0, debit: 0n, credit: 0n, unreadable: false });
+        if (parent === null) { topDebit += l.debit; topCredit += l.credit; }
+        continue;
+      }
+      if (TALLY_DIFFERENCE_LINE.test(l.name)) { difference.push(l); refuse(l, "Tally “Difference in opening balances” line"); continue; }
+      if (parent === null) {
+        if (l.key === TALLY_PL_LEDGER) { asLedger(l); topDebit += l.debit; topCredit += l.credit; continue; }
+        unexpanded.push(l);
+        refuse(l, `Tally group line “${l.name}” with no ledgers beneath it`);
+        continue;
+      }
+      if (TALLY_PREDEFINED_GROUPS.has(l.key)) { unexpanded.push(l); refuse(l, `Tally predefined group “${l.name}” with no ledgers beneath it`); continue; }
+      asLedger(l);
+      for (const g of stack) { g.ledgers++; g.debit += l.debit; g.credit += l.credit; if (!l.readable) g.unreadable = true; }
+    }
+    while (stack.length > 0) finalize(stack.pop() as Group);
+  }
+
+  const rowsOf = (ls: Line[]) => ls.map((l) => l.row);
+  const namesOf = (ls: Line[]) => ls.slice(0, MAX_LISTED_ROWS).map((l) => `“${l.name}”`).join(", ");
+  if (condensed.length > 0) {
+    const one = condensed.length === 1;
+    issues.push({ code: "UNSUPPORTED_LAYOUT", severity: "blocking", rows: rowsOf(condensed), message: `Row${one ? "" : "s"} ${listRows(rowsOf(condensed))} name${one ? "s" : ""} Tally's predefined group${one ? "" : "s"} ${namesOf(condensed)} with no ledgers indented beneath, so this is a group-wise export, not a list of ledgers. In Tally, open the Trial Balance, press F5 (Ledger-wise) — or Alt+F5 (Detailed) with “Expand all levels in Detailed format” set to Yes — export it again as Excel, and upload that file.` });
+  }
+  if (unexpanded.length > 0) {
+    const one = unexpanded.length === 1;
+    issues.push({ code: "UNSUPPORTED_LAYOUT", severity: "blocking", rows: rowsOf(unexpanded), message: `Row${one ? "" : "s"} ${listRows(rowsOf(unexpanded))} (${namesOf(unexpanded)}) ${one ? "is a Tally group line" : "are Tally group lines"} with no ledgers beneath ${one ? "it" : "them"}, so ${one ? "its" : "their"} ledgers are not in the file. In Tally, set “Expand all levels in Detailed format” to Yes (and “Group behaves like a sub-ledger” to No for those groups), export the Trial Balance again, and upload that file.` });
+  }
+  if (badIndent.length > 0) {
+    issues.push({ code: "UNSUPPORTED_LAYOUT", severity: "blocking", rows: rowsOf(badIndent), message: `Row${badIndent.length === 1 ? "" : "s"} ${listRows(rowsOf(badIndent))} ${badIndent.length === 1 ? "is" : "are"} indented in a way that does not line up with a group above, so the groups and ledgers cannot be told apart. Export the Trial Balance again from Tally without editing the file.` });
+  }
+  if (difference.length > 0) {
+    issues.push({ code: "TRIAL_BALANCE_IMBALANCE", severity: "blocking", rows: rowsOf(difference), message: `Row${difference.length === 1 ? "" : "s"} ${listRows(rowsOf(difference))} ${difference.length === 1 ? "is" : "are"} Tally's “Difference in opening balances” line: the ledgers' opening balances do not balance. Correct the opening balances in Tally (F12 > Show Opening Balance shows which), export the Trial Balance again, and upload it.` });
+  }
+  for (const m of mismatch) {
+    const l = m.line;
+    const net = m.ledgerDebit - m.ledgerCredit;
+    issues.push({
+      code: "TOTAL_ROW_MISMATCH", severity: "blocking", rows: [l.row],
+      message: `The Tally group “${l.name}” on row ${l.row} shows debit ${fmt(l.debit)}, credit ${fmt(l.credit)}, but the ${m.ledgers} ledger${m.ledgers === 1 ? "" : "s"} beneath it total debit ${fmt(m.ledgerDebit)}, credit ${fmt(m.ledgerCredit)} (net ${fmt(net < 0n ? -net : net)} ${net < 0n ? "Cr" : "Dr"}). A ledger may be missing, hidden or edited — export the Trial Balance again from Tally with all levels expanded and upload that file.`,
+    });
+  }
+  if (grand.length === 0 && requireGrandTotal) {
+    issues.push({ code: "UNSUPPORTED_LAYOUT", severity: "blocking", message: "This Tally export has no Grand Total row, so its ledgers cannot be checked against Tally's own total. Export the Trial Balance again from Tally without removing rows, and upload that file." });
+  }
+  if (grand.length > 1) {
+    issues.push({ code: "UNSUPPORTED_LAYOUT", severity: "blocking", rows: rowsOf(grand), message: `Rows ${listRows(rowsOf(grand))} are all labelled Grand Total. A Tally Trial Balance export has one; upload one export at a time.` });
+  }
+  for (const g of grand) {
+    const after = body.filter((l) => l.i > g.i);
+    if (after.length > 0) {
+      issues.push({ code: "UNSUPPORTED_LAYOUT", severity: "blocking", rows: rowsOf(after), message: `Row${after.length === 1 ? "" : "s"} ${listRows(rowsOf(after))} come${after.length === 1 ? "s" : ""} after the Grand Total on row ${g.row}. A Tally export ends with its Grand Total; upload one export at a time, unedited.` });
+    }
+    if (!g.readable) { roles.set(g.i, { kind: "grand_total", reason: "Tally Grand Total: not checked, its amount could not be read" }); continue; }
+    // With a line that could not be resolved the ledger sums are partial and the file is already refused above; the
+    // Grand Total is then recorded, not compared. The top-level reading is valid only when every group passed its check.
+    if (condensed.length + unexpanded.length + badIndent.length + difference.length > 0) {
+      roles.set(g.i, { kind: "grand_total", reason: "Tally Grand Total: not checked, a line above it could not be resolved", debitMinor: g.debit, creditMinor: g.credit });
+      continue;
+    }
+    const byLedgers = mode === "debit_credit" ? g.debit === ledgerDebit && g.credit === ledgerCredit : g.debit - g.credit === ledgerDebit - ledgerCredit;
+    const byTop = mismatch.length === 0 && (mode === "debit_credit" ? g.debit === topDebit && g.credit === topCredit : g.debit - g.credit === topDebit - topCredit);
+    if (!byLedgers && !byTop) {
+      issues.push({
+        code: "TOTAL_ROW_MISMATCH", severity: "blocking", rows: [g.row],
+        message: `The Grand Total on row ${g.row} (debit ${fmt(g.debit)}, credit ${fmt(g.credit)}) does not equal the ${ledgerCount} ledger lines (debit ${fmt(ledgerDebit)}, credit ${fmt(ledgerCredit)}) nor the top-level lines (debit ${fmt(topDebit)}, credit ${fmt(topCredit)}). A row may be missing, duplicated or hidden — export the Trial Balance again from Tally and upload that file.`,
+      });
+    }
+    roles.set(g.i, { kind: "grand_total", reason: `Tally Grand Total: ${byLedgers ? "equals the ledger lines" : byTop ? "equals the top-level lines (groups reported net)" : "does not equal the ledger lines"}; checked, excluded from the accounts`, debitMinor: g.debit, creditMinor: g.credit });
+  }
+  return { roles, issues };
+}
+
 export interface IngestInput {
   rows: SourceRow[];
   sheetName: string | null;
@@ -748,6 +1069,11 @@ export interface IngestInput {
    * as before — column detection and the default amount grammar.
    */
   layout?: IngestLayout;
+  /**
+   * "tally_xml": the rows were produced by the Tally XML reader (tallyXmlExport.ts) — Particulars / Debit / Credit with
+   * Tally's signs — and are read by the Tally adapter as a ledger-wise export. Absent for every file read from a grid.
+   */
+  source?: "tally_xml";
 }
 
 /** The columns and amount reading a confirmed layout fixes for one file (built only by layoutProfile.ts). */
@@ -756,7 +1082,7 @@ export interface IngestLayout {
   map: ColumnMap | null;
   detected: Record<string, string>;
   issues: IngestIssue[];
-  parse: (cell: Cell, exponent: number) => ParsedAmount;
+  parse: (cell: Cell, exponent: number, field?: AmountField) => ParsedAmount;
   /** A single Balance column whose positive values are credits. */
   creditPositiveBalance: boolean;
   /** The declared number format, as an example ("1.234.567,89"), for messages. */
@@ -804,10 +1130,42 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
     : detectColumns(rows, periodYear);
   issues.push(...detection.issues);
   if (!detection.map || detection.issues.some((i) => i.severity === "blocking")) return result({ columns: detection.detected });
-  const map = detection.map;
+  // The Tally adapter: only for rows from the Tally XML reader, or a positively detected Tally grid; never under a
+  // confirmed layout (the layout is the authority there) and never for any other file.
+  let tally: TallyAdapter | null = null;
+  if (!input.layout && input.source === "tally_xml") {
+    const m = detection.map;
+    if (m.account_name !== null && m.debit !== null && m.credit !== null) {
+      tally = { kind: "xml", mode: "debit_credit", map: m, headerContinuation: null, detected: { ...detection.detected, source: "Tally XML export (Trial Balance envelope), read as a ledger-wise export" }, parse: parseTallyXmlAmount };
+    }
+  } else if (!input.layout) {
+    tally = detectTallyGrid(rows, detection);
+  }
+  const map = tally ? tally.map : detection.map;
+  const columns = tally ? tally.detected : detection.detected;
   issues.push(...periodAndCurrencyIssues(rows, map, periodYear as number, currency as string));
   // Title-block evidence (§3.3, §3.4): the entity text, period text and currency labels, with their locations.
   const titleBlock = readTitleBlockEvidence(rows, map.headerIndex);
+  if (tally?.kind === "grid") {
+    // Tally's period line ("1-Apr-2025 to 31-Mar-2026") names no period word, so the generic check above does not read
+    // it; under the adapter it is period evidence and must name the selected year.
+    const periodCells: EvidenceCell[] = [];
+    for (const row of rows.slice(0, map.headerIndex)) {
+      row.cells.forEach((c, col) => {
+        if (typeof c !== "string") return;
+        const t = c.replace(/[  ]/g, " ").replace(/\s+/g, " ").trim();
+        if (TALLY_PERIOD_LINE.test(t)) periodCells.push({ text: t, row: row.rowNumber, column: columnLetter(col) });
+      });
+    }
+    titleBlock.period.push(...periodCells.filter((p) => !titleBlock.period.some((e) => e.row === p.row && e.column === p.column)));
+    const years = new Set(periodCells.flatMap((p) => yearsIn(p.text)));
+    if (years.size > 0 && !years.has(periodYear as number) && !issues.some((i) => i.code === "PERIOD_MISMATCH")) {
+      issues.push({
+        code: "PERIOD_MISMATCH", severity: "blocking", rows: periodCells.map((p) => p.row),
+        message: `The Tally export is for ${periodCells[0].text}, but this trial balance is being uploaded for ${periodYear}. Upload the ${periodYear} export, or open the workspace for the year the file belongs to.`,
+      });
+    }
+  }
   const currencyLabels: TitleBlockEvidence["currencyLabels"] = [];
   for (const col of [map.debit, map.credit, map.balance]) {
     if (col === null) continue;
@@ -824,7 +1182,11 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
   const precision: { row: number; field: string; text: string; decimals: number }[] = [];
   const range: { row: number; field: string; text: string }[] = [];
   const formatMismatch: { row: number; field: string; text: string }[] = [];
-  const parse = input.layout ? input.layout.parse : parseAmount;
+  const parse: (cell: Cell, exponent: number, field?: AmountField) => ParsedAmount = input.layout ? input.layout.parse : tally ? tally.parse : parseAmount;
+  // The Tally structural pass (group lines, Grand Total) runs before any row is classified; its findings are reported
+  // after the row findings below.
+  const tallyAnalysis = tally ? analyseTallyRows(rows, tally, exp, tally.kind === "grid") : null;
+  const tallyRoles = tallyAnalysis?.roles ?? new Map<number, TallyRole>();
   const balanceMismatch: number[] = [];
   const missingCode: number[] = [];
   const exampleRows: number[] = [];
@@ -870,6 +1232,20 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
     if (i === map.headerIndex) { lineage.push({ rowNumber: row.rowNumber, disposition: "header" }); continue; }
     if (row.cells.length === 0) { lineage.push({ rowNumber: row.rowNumber, disposition: "blank" }); continue; }
 
+    if (tally) {
+      if (i === tally.headerContinuation) { lineage.push({ rowNumber: row.rowNumber, disposition: "header" }); continue; }
+      const role = tallyRoles.get(i);
+      // Group subtotal and Grand Total lines are excluded exactly once (checked in analyseTallyRows); an unresolved line is
+      // rejected, never read as an account. Ledger lines fall through to the generic account path.
+      if (role && role.kind !== "ledger") {
+        lineage.push({
+          rowNumber: row.rowNumber, disposition: role.kind === "refused" ? "rejected" : "total", reason: role.reason,
+          ...(role.debitMinor !== undefined ? { debitMinor: role.debitMinor, creditMinor: role.creditMinor } : {}),
+        });
+        continue;
+      }
+    }
+
     if (i > lastSubstantive) {
       const rules = trailingFooterRules(row);
       if (rules && rules.length === 0) { lineage.push({ rowNumber: row.rowNumber, disposition: "blank" }); continue; }
@@ -888,9 +1264,9 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
     }
     const code = hasCodeColumn ? cellString(row.cells[map.account_code as number]) : "";
     const name = map.account_name !== null ? cellString(row.cells[map.account_name]) : "";
-    const read = (col: number | null, field: string): bigint | null | "bad" => {
+    const read = (col: number | null, field: AmountField): bigint | null | "bad" => {
       if (col === null) return null;
-      const p = parse(row.cells[col], exp);
+      const p = parse(row.cells[col], exp, field);
       if (p.kind === "blank") return null;
       if (p.kind === "amount") return p.minor;
       if (p.kind === "malformed") malformed.push({ row: row.rowNumber, field, text: p.text });
@@ -940,7 +1316,8 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
     }
     const allBlank = (useDebitCredit ? d === null && c === null : true) && b === null;
 
-    if (!code) {
+    // A Tally ledger line is a ledger whatever its name says (the structural pass settled totals and groups).
+    if (!code && tallyRoles.get(i)?.kind !== "ledger") {
       const looksTotal = TOTAL_NAME_PATTERNS.some((p) => p.test(name));
       if (looksTotal) {
         if (GRAND_TOTAL_PATTERN.test(name) && !allBlank) {
@@ -979,7 +1356,14 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
     list.slice(0, MAX_LISTED_ROWS).map((x) => `row ${x.row} ${x.field} “${x.text}”`).join("; ") + (list.length > MAX_LISTED_ROWS ? `; and ${list.length - MAX_LISTED_ROWS} more` : "");
 
   if (malformed.length > 0) {
-    issues.push({ code: "MALFORMED_NUMERIC_VALUE", severity: "blocking", rows: malformed.map((x) => x.row), message: `Some amounts are not numbers: ${describe(malformed)}. Use plain numbers such as 1234.50 or 1,234.50 — no currency symbols or letters — and leave a cell empty (or “-”) for zero.` });
+    const fix = tally?.kind === "xml"
+      ? "In a Tally XML export a closing debit is written as a negative amount and a closing credit as a positive one; an amount on the other side cannot be read. Export the Trial Balance again from Tally and upload that file."
+      : tally?.mode === "closing_drcr"
+        ? "In a Tally Closing Balance column each amount carries its side, for example 1,00,000.00 Dr or 25,000.00 Cr; an amount without Dr/Cr, or a negative one, cannot be read."
+        : tally
+          ? "Tally amounts are read as plain digits, 1,00,000.00 or 100,000.00, with (-) or - for a negative and no currency symbol."
+          : "Use plain numbers such as 1234.50 or 1,234.50 — no currency symbols or letters — and leave a cell empty (or “-”) for zero.";
+    issues.push({ code: "MALFORMED_NUMERIC_VALUE", severity: "blocking", rows: malformed.map((x) => x.row), message: `Some amounts are not numbers: ${describe(malformed)}. ${fix}` });
   }
   if (formatMismatch.length > 0) {
     issues.push({ code: "LAYOUT_NUMBER_FORMAT_MISMATCH", severity: "blocking", rows: formatMismatch.map((x) => x.row), message: `The confirmed layout reads amounts written like ${input.layout?.formatLabel ?? "the declared format"}, but ${describe(formatMismatch)} ${formatMismatch.length === 1 ? "is" : "are"} written in another number format. Check the file, or confirm the layout again with the right number format.` });
@@ -1024,6 +1408,7 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
       });
     }
   }
+  if (tallyAnalysis) issues.push(...tallyAnalysis.issues);
   if (unrecognisedTrailing.length > 0) {
     const one = unrecognisedTrailing.length === 1;
     issues.push({ code: "UNRECOGNISED_TRAILING_TEXT", severity: "review", rows: unrecognisedTrailing, subject: `rows:${[...unrecognisedTrailing].sort((a, b) => a - b).join(",")}`, message: `Row${one ? "" : "s"} ${listRows(unrecognisedTrailing)} after the last account contain${one ? "s" : ""} text that is not a recognised report footer and no amounts. Confirm ${one ? "it is" : "they are"} not part of the trial balance.` });
@@ -1096,7 +1481,7 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
     reviewChecks.push({ id: "opening_and_movement_columns", label: "Opening and movement content", outcome: "passed", reason: "The file does not combine opening balances with movements." });
   }
 
-  return result({ columns: detection.detected, accounts, lineage, totals, suspectedTotalRows, evidence, reviewChecks });
+  return result({ columns, accounts, lineage, totals, suspectedTotalRows, evidence, reviewChecks });
 }
 
 // ── Classification review policy ─────────────────────────────────────────────────────────────────────────────────────

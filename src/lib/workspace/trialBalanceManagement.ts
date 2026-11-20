@@ -185,13 +185,13 @@ export function buildManageTrialBalanceRoute(companyId: string, periodYear: numb
 }
 
 /** The same file types the uploader accepts (TrialBalanceUpload). */
-export const TRIAL_BALANCE_FILE_TYPES = [".csv", ".xlsx", ".xls"] as const;
+export const TRIAL_BALANCE_FILE_TYPES = [".csv", ".xlsx", ".xls", ".xml"] as const;
 
 /** Checks a picked replacement BEFORE anything is uploaded or changed. null = acceptable. */
 export function validateReplacementFile(file: { name: string; size: number } | null | undefined): string | null {
   if (!file) return "No file was selected.";
   const lower = file.name.toLowerCase();
-  if (!TRIAL_BALANCE_FILE_TYPES.some((ext) => lower.endsWith(ext))) return "Choose a CSV or Excel (.xlsx, .xls) Trial Balance file.";
+  if (!TRIAL_BALANCE_FILE_TYPES.some((ext) => lower.endsWith(ext))) return "Choose a CSV or Excel (.xlsx, .xls) Trial Balance file, or a Tally .xml export.";
   if (!Number.isFinite(file.size) || file.size <= 0) return "The selected file is empty.";
   // The shared upload policy's raw-size limit, before anything is uploaded or swapped in (the server still enforces it).
   const tooLarge = fileTooLarge(file);

@@ -7,13 +7,13 @@
  * PROVISIONAL limits (owner decision pending; set from the Deno/V8 heap-capped probe, see uploadPolicy.ts and roadmap.md).
  */
 export const TB_UPLOAD_POLICY = Object.freeze({
-  version: "tb-upload-policy-3",
-  extensions: Object.freeze([".csv", ".xlsx", ".xls"] as const),
+  version: "tb-upload-policy-4",
+  extensions: Object.freeze([".csv", ".xlsx", ".xls", ".xml"] as const),
   maxFileBytes: 10_485_760,
 });
 
-/** "CSV or Excel (.csv, .xlsx, .xls), up to 10 MB." */
-export const UPLOAD_LIMITS_TEXT = `CSV or Excel (${TB_UPLOAD_POLICY.extensions.join(", ")}), up to ${Math.round(TB_UPLOAD_POLICY.maxFileBytes / 1_048_576)} MB.`;
+/** "CSV, Excel or Tally XML (.csv, .xlsx, .xls, .xml), up to 10 MB." */
+export const UPLOAD_LIMITS_TEXT = `CSV, Excel or Tally XML (${TB_UPLOAD_POLICY.extensions.join(", ")}), up to ${Math.round(TB_UPLOAD_POLICY.maxFileBytes / 1_048_576)} MB.`;
 
 /** The same refusal the server gives for an over-size file (uploadPolicy.checkSourceBytes), or null. */
 export function fileTooLarge(file: { name: string; size: number }): string | null {

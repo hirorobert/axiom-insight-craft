@@ -304,6 +304,9 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/_shared/tbSource.ts",
       // ...and the one configurable printed-report footer rule set it uses (tb-ingest-3.2.0). Pure; no schema.
       "supabase/functions/_shared/printedReportMetadata.ts",
+      // ...and the Tally (TallyPrime) Trial Balance XML reader (tally-export-r1, tb-ingest-3.4.0): a strict tokenizer for
+      // Tally's documented ENVELOPE shape, feeding the same ingestion core. Pure module; no schema, no new Edge Function.
+      "supabase/functions/_shared/tallyXmlExport.ts",
       // ...and its Deno function-path tests: the real handler with only the network edges (Supabase client, std serve)
       // replaced by in-memory doubles through an import map used by the tests alone. Never deployed (not under a
       // function's entry point), no schema.
@@ -533,6 +536,9 @@ describe("database inertness — schema and functions", () => {
       // I1-A A1: the ingestion core reads its exponents from currency-registry/1 (every previously supported currency keeps
       // its exponent; characterization-tested).
       "supabase/functions/_shared/tbIngestion.ts",
+      // tally-export-r1: the upload policy accepts .xml for exactly one shape, TallyPrime's Trial Balance export (read by
+      // tbSource → tallyXmlExport; any other XML refused); limits unchanged (tb-upload-policy-4). Pure; no schema.
+      "supabase/functions/_shared/uploadPolicy.ts",
       "supabase/functions/_shared/serviceEnquiryContract.ts",
       "supabase/functions/_shared/serviceEnquiryEmail.ts",
       "supabase/functions/_shared/serviceEnquiryHandler.ts",

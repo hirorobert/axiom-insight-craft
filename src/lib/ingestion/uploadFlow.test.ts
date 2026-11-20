@@ -94,7 +94,8 @@ describe("idempotent retries keep the identities already obtained", () => {
 
 describe("actionable errors", () => {
   it("refuses a wrong or empty file before anything is sent, naming the file and the fix", () => {
-    expect(validateFileChoice({ name: "tb.pdf", size: 10 })).toBe("“tb.pdf” is not a spreadsheet. Upload the trial balance as .xlsx, .xls or .csv.");
+    expect(validateFileChoice({ name: "tb.pdf", size: 10 })).toBe("“tb.pdf” is not a spreadsheet or a Tally export. Upload the trial balance as .xlsx, .xls or .csv, or as a Tally .xml export.");
+    expect(validateFileChoice({ name: "TrialBalance.XML", size: 1 })).toBeNull();
     expect(validateFileChoice({ name: "tb.csv", size: 0 })).toMatch(/is empty/);
     expect(validateFileChoice({ name: "TB.XLSX", size: 1 })).toBeNull();
     expect(ALL_STATES[12]).toMatchObject({ phase: "empty", choiceError: expect.stringMatching(/not a spreadsheet/) });

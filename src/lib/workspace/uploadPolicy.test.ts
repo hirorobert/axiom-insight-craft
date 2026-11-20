@@ -57,7 +57,7 @@ describe("one policy, one set of numbers", () => {
     expect(new Set(limits)).toEqual(new Set([SERVER.maxFileBytes]));
   });
   it("the visible limits text is derived from the policy", () => {
-    expect(UPLOAD_LIMITS_TEXT).toBe("CSV or Excel (.csv, .xlsx, .xls), up to 10 MB.");
+    expect(UPLOAD_LIMITS_TEXT).toBe("CSV, Excel or Tally XML (.csv, .xlsx, .xls, .xml), up to 10 MB.");
     expect(fileTooLarge({ name: "a.xlsx", size: SERVER.maxFileBytes })).toBeNull();
     expect(fileTooLarge({ name: "a.xlsx", size: SERVER.maxFileBytes + 1 })).toMatch(/larger than 10 MB/);
   });
