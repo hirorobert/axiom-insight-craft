@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Real-PostgreSQL proof of the QuickBooks realmID protection release (Intuit case 00232331; docs/release/qbo-realm-protection-r1/README.md):
-// 20261230100000 (Phase A, additive schema), 20261230200000 + 20261230300000 (Phase B, dual write) and, when present in the chain, the cutover.
+// 20261230100000 (Phase A, additive schema), 20261230200000 + 20261230300000 (Phase B, dual write) and, when present in the chain, the cutover
+// (20261231100000-20261231300000, scripts/db-proof/qboRealmProtectionCutover.mjs).
 //
 //   bun scripts/db-proof/qboRealmProtection.mjs                                     (CI: DB_PROOF_MODE=external DB_PROOF_CONN=<loopback db>)
 //   DB_PROOF_MODULES_DIR=<dir with embedded-postgres + pg> node scripts/db-proof/qboRealmProtection.mjs   (local; Node >= 22.6 strips types)
@@ -17,7 +18,7 @@ const RP = await import("../../supabase/functions/_shared/qboRealmProtection.ts"
 const { runRealmBackfill, decideMaintenanceAuthority } = await import("../../supabase/functions/_shared/qboRealmBackfill.ts");
 const PHASE_A = "20261230100000_qbo_realm_protection_schema.sql";
 const PHASE_B = ["20261230200000_qbo_realm_protection_connect.sql", "20261230300000_qbo_realm_protection_evidence.sql"];
-const CUTOVER = "20261231100000_qbo_realm_protection_cutover.sql";
+const CUTOVER_FIRST = "20261231100000_qbo_realm_protection_cutover_schema.sql";
 const key = (id) => ({ id, bytes: new Uint8Array(crypto.randomBytes(32)) });
 const K1 = key("k1"), K0 = key("k0"), IDX = key("idx1");
 const KEYS = { current: K1, all: [K1, K0], index: IDX };
@@ -272,9 +273,9 @@ async function main() {
       try { await storeNew(w.B, w.U.ownerB, OTHER, "production", env("m"), await RP.protectRealm(OTHER, "production", w.B, KEYS)); return "stored"; } catch (e) { return /QBO_REVOKE_PENDING/.test(e.message) || e.message; }
     });
 
-    if (chainFiles().includes(CUTOVER)) {
+    if (chainFiles().includes(CUTOVER_FIRST)) {
       const { cutoverChecks } = await import("./qboRealmProtectionCutover.mjs");
-      await cutoverChecks({ db, r, w, RP, KEYS, key, svc, env, sha, rnd, backfillDeps, runRealmBackfill, ids: { A1, B1, A2, AG, N1 }, realms: { SHARED, OTHER, GONE, NEWR }, prot, before, snapshot, importOnce, CUTOVER });
+      await cutoverChecks({ db, r, w, RP, KEYS, key, svc, env, sha, rnd, backfillDeps, runRealmBackfill, ids: { A1, B1, A2, AG, N1 }, realms: { SHARED, OTHER, GONE, NEWR }, prot, before, snapshot, importOnce });
     }
   } catch (e) {
     crashed = true;

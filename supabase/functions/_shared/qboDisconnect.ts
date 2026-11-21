@@ -12,8 +12,7 @@ export interface DisconnectDeps {
   authenticate(): Promise<string | null>;
   begin(connectionId: string, actor: string, requestId: string): Promise<BeginAnswer>;
   /**
-   * The realm of the disconnect operation, read by opening its envelope (bound to the workspace and environment); an operation recorded from a connection
-   * the backfill had not reached yet is protected here, after begin has judged the person (qboRealmProtection.realmForOperation).
+   * The realm of the disconnect operation, read ONLY by opening its envelope (bound to the workspace and environment; qboRealmProtection.realmForOperation).
    */
   realm(connectionId: string, answer: BeginAnswer): Promise<RealmResolution>;
   open(envelope: string, binding: EnvelopeBinding): Promise<string | null>;
@@ -27,7 +26,8 @@ export async function runQboDisconnect(d: DisconnectDeps, request: ReturnType<ty
   if (!request) return { status: 400, outcome: "invalid_request" };
   const b = await d.begin(request.connectionId, actor, request.requestId);
   if (b.outcome === "forbidden") return { status: 403, outcome: "forbidden" };
-  if (b.outcome === "busy" || b.outcome === "revocation_busy" || b.outcome === "request_conflict" || b.outcome === "shared_connection") return { status: 409, outcome: b.outcome };
+  if (b.outcome === "busy" || b.outcome === "revocation_busy" || b.outcome === "request_conflict" || b.outcome === "shared_connection"
+      || b.outcome === "rotation_in_progress") return { status: 409, outcome: b.outcome };   // an index-key rotation is running: retry the same request
   if (b.outcome === "revoked") return { status: 200, outcome: "disconnected" };
   if (b.outcome === "local_only") return { status: 202, outcome: "local_only" };
   if (b.outcome !== "pending" || !b.leaseId || !b.envelope || !b.companyId || !b.environment) return { status: 503, outcome: "disconnect_unconfirmed" };

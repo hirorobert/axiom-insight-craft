@@ -715,6 +715,11 @@ describe("database inertness — schema and functions", () => {
     added.add("supabase/migrations/20261230500000_qbo_realm_index_rotation.sql");
     // The rotation edits qboEnv.ts, qboRealmBackfill.ts and qbo-realm-protect/index.ts (reviewed above as modified) and the realm module: exact files.
     modified.add("supabase/functions/_shared/qboRealmProtection.ts");
+    // ...and realmID protection Phase C v2 (supersedes PR #282): four forward-only, self-verifying migrations (schema with forward-only key-version
+    // guards, functions on the keyed index with index-key homogeneity, post-redaction reseal/reindex, and the redaction, IRREVERSIBLE for the
+    // plaintext). QuickBooks tables only; not financial-statement data. AUTHORED, NOT APPLIED. The edge edits are to files reviewed above as modified.
+    for (const f of ["20261231100000_qbo_realm_protection_cutover_schema.sql", "20261231200000_qbo_realm_protection_cutover_functions.sql",
+      "20261231250000_qbo_realm_rotation_post_redaction.sql", "20261231300000_qbo_realm_protection_cutover_redaction.sql"]) added.add(`supabase/migrations/${f}`);
     expect(unreviewedChanges(changed, { added, modified, removed })).toEqual([]);
   });
 
@@ -1048,6 +1053,11 @@ describe("database inertness — schema and functions", () => {
     for (const file of ["scripts/db-proof/qboRealmProtection.mjs", "scripts/db-proof/qboRealmProtectionCandidate.mjs", ".github/workflows/ci.yml", "scripts/ci/releaseJournal.mjs",
       "scripts/db-proof/serviceWithholding.mjs", "scripts/db-proof/trackAHardening.mjs", "scripts/db-proof/firstPeriodGovernedReview.mjs", "scripts/db-proof/qboRealmKeyReseal.mjs",
       "scripts/db-proof/qboRealmIndexRotation.mjs"]) allowed.add(file);
+    // ...and Phase C v2: its loopback-only adversarial proof, the cutover checks the realm proof runs, the local-stack PostgREST journey (loopback
+    // only, refuses any non-local stack), and the generator that writes the four migrations from reviewed text (reads git, writes files; no deploy).
+    for (const file of ["scripts/db-proof/qboRealmCutoverRotation.mjs", "scripts/db-proof/qboRealmProtectionCutover.mjs", "scripts/e2e/qboRotationStackJourney.mjs",
+      "scripts/release/genQboCutoverV2.mjs", "scripts/db-proof/checkoutTermsAcceptance.mjs",
+      "scripts/db-proof/lib/qboRedactionReplay.mjs"]) allowed.add(file);   // the shared, rolled-back redaction replay both of them run
     // SheetJS 0.20.3 vendored (vendor/sheetjs/PROVENANCE.md): the offline CI guard that pins the vendored files and refuses any
     // externally hosted spreadsheet code (reads files only), and the manual re-verification script (never run by CI; downloads
     // the publisher's tarball and tagged files into memory and compares hashes). Neither deploys, applies or touches a database.

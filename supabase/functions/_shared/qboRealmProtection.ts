@@ -36,6 +36,21 @@ export class RealmProtectionError extends Error {
  */
 export interface RealmKeys { current: EnvelopeKey; all: readonly EnvelopeKey[]; index: EnvelopeKey; indexAll?: readonly EnvelopeKey[] }
 
+/**
+ * Key versions (Phase C v2): a token key id is "k<N>" and an index key id is "idx<N>", N = 1 … 999999999. A key is moved onto only a strictly
+ * higher version of the same kind; anything unversioned, of the other kind, or equal or lower is refused (no downgrade, no same-key "move").
+ * The database enforces the same rule (public.qbo_key_version); this is the application-side half.
+ */
+const VERSIONED = /^(k|idx)([1-9][0-9]{0,8})$/;
+export function keyVersion(id: string): { kind: "k" | "idx"; version: number } | null {
+  const m = VERSIONED.exec(id);
+  return m ? { kind: m[1] as "k" | "idx", version: Number(m[2]) } : null;
+}
+export function isUpgrade(fromId: string, toId: string): boolean {
+  const a = keyVersion(fromId), b = keyVersion(toId);
+  return a !== null && b !== null && a.kind === b.kind && b.version > a.version;
+}
+
 /** The index key that made a stored index (by the key id the index names), or null when no configured index key has that id. */
 export function indexKeyFor(storedIndex: string, keys: RealmKeys): EnvelopeKey | null {
   if (!REALM_INDEX_SHAPE.test(storedIndex)) return null;

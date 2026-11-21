@@ -156,7 +156,7 @@ describe("the token-key reseal: applied as hosted 117 with one transcribed line 
     expect(submittedForm(REPAIR, s, s.subarray(0, s.length - 1))).toBe("final_lf_removed");
     const r = checkMigrationAuthority(ROOT) as Result & { mirrored: { tag: string; source: string; how: string }[] };
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual([]); // 2026-11-20: the realm index-key rotation (20261230500000) applied byte for byte as hosted 119 (mirror 0118, release_verbatim); nothing is pending. 2026-11-20: the realm index-key rotation (20261230500000), authored, not applied
+    expect(r.pending).toEqual(["20261231100000_qbo_realm_protection_cutover_schema.sql", "20261231200000_qbo_realm_protection_cutover_functions.sql", "20261231250000_qbo_realm_rotation_post_redaction.sql", "20261231300000_qbo_realm_protection_cutover_redaction.sql"]); // Phase C v2 (supersedes PR #282): the four cutover parts, authored, not applied; // 2026-11-20: the realm index-key rotation (20261230500000) applied byte for byte as hosted 119 (mirror 0118, release_verbatim); nothing is pending. 2026-11-20: the realm index-key rotation (20261230500000), authored, not applied
     expect(r.mirrored.filter((x) => x.source === REPAIR)).toEqual([{ tag: REPAIR_TAG, source: REPAIR, how: "release_verbatim" }]);
     const rm = mirror(REPAIR_TAG); expect([rm.length, sha(rm)]).toEqual([s.length, sha(s)]);   // hosted 118 = the committed file, final LF kept
     expect(J[REPAIR_TAG]).toEqual({ kind: "release_verbatim", source: REPAIR, bytes: 6185, digest: sha(s), sha256: sha(s) });

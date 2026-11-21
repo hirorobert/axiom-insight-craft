@@ -70,6 +70,29 @@ describe("connector configuration", () => {
     expect(env({ ...withIndex, QBO_TOKEN_KEY_NEXT_ID: "k3", QBO_TOKEN_KEY_NEXT_B64: b64(3) }).realmKeys()?.current.id).toBe("k3");
     expect(env({ ...withIndex, QBO_TOKEN_KEY_NEXT_ID: "k3", QBO_TOKEN_KEY_NEXT_B64: b64(9) }).realmKeys()).toBeNull();
   });
+  it("[Phase C v2] token key ids are versioned (k<N>) and the sealing key is the newest: no downgrade by configuration", () => {
+    expect(env({ ...FULL, QBO_TOKEN_KEY_ID: "tokenkey" }).keys()).toBeNull();                       // unversioned
+    expect(env({ ...FULL, QBO_TOKEN_KEY_ID: "idx2" }).keys()).toBeNull();                           // the wrong kind
+    expect(env({ ...FULL, QBO_TOKEN_KEY_ID: "k0" }).keys()).toBeNull();                             // versions start at 1
+    expect(env({ ...FULL, QBO_TOKEN_KEY_ID: "k02" }).keys()).toBeNull();                            // one spelling per version
+    // A NEXT key older than the configured one, or a PREV key newer than the sealing key, is refused rather than sealing backwards.
+    expect(env({ ...FULL, QBO_TOKEN_KEY_NEXT_ID: "k1", QBO_TOKEN_KEY_NEXT_B64: b64(1) }).keys()).toBeNull();
+    expect(env({ ...FULL, QBO_TOKEN_KEY_PREV_ID: "k5", QBO_TOKEN_KEY_PREV_B64: b64(5) }).keys()).toBeNull();
+    expect(env({ ...FULL, QBO_TOKEN_KEY_NEXT_ID: "k3", QBO_TOKEN_KEY_NEXT_B64: b64(3), QBO_TOKEN_KEY_PREV_ID: "k1", QBO_TOKEN_KEY_PREV_B64: b64(1) }).keys()?.current.id).toBe("k3");
+  });
+  it("[Phase C v2] index key ids are versioned (idx<N>); NEXT makes indexes, the configured and an optional PREV key only recognise them", () => {
+    const base = { ...FULL, QBO_REALM_INDEX_KEY_ID: "idx2", QBO_REALM_INDEX_KEY_B64: b64(9) };
+    expect(env(base).realmKeys()?.index.id).toBe("idx2");
+    const r = env({ ...base, QBO_REALM_INDEX_KEY_NEXT_ID: "idx3", QBO_REALM_INDEX_KEY_NEXT_B64: b64(10), QBO_REALM_INDEX_KEY_PREV_ID: "idx1", QBO_REALM_INDEX_KEY_PREV_B64: b64(11) }).realmKeys();
+    expect(r?.index.id).toBe("idx3"); expect(r?.indexAll.map((k) => k.id)).toEqual(["idx3", "idx2", "idx1"]);
+    expect(env({ ...base, QBO_REALM_INDEX_KEY_ID: "realmidx" }).realmKeys()).toBeNull();          // unversioned
+    expect(env({ ...base, QBO_REALM_INDEX_KEY_ID: "k9" }).realmKeys()).toBeNull();                // a token-key name
+    expect(env({ ...base, QBO_REALM_INDEX_KEY_NEXT_ID: "idx1", QBO_REALM_INDEX_KEY_NEXT_B64: b64(10) }).realmKeys()).toBeNull();   // older than configured
+    expect(env({ ...base, QBO_REALM_INDEX_KEY_PREV_ID: "idx7", QBO_REALM_INDEX_KEY_PREV_B64: b64(11) }).realmKeys()).toBeNull();   // newer than the index key
+    expect(env({ ...base, QBO_REALM_INDEX_KEY_PREV_ID: "idx1" }).realmKeys()).toBeNull();                                          // half a pair
+    expect(env({ ...base, QBO_REALM_INDEX_KEY_PREV_ID: "idx1", QBO_REALM_INDEX_KEY_PREV_B64: b64(9) }).realmKeys()).toBeNull();    // shared bytes
+    expect(env({ ...base, QBO_REALM_INDEX_KEY_PREV_ID: "idx1", QBO_REALM_INDEX_KEY_PREV_B64: b64(2) }).realmKeys()).toBeNull();    // a token key's bytes
+  });
   it("the minor version defaults to 75 and refuses nonsense", () => {
     expect(env({ ...FULL, QBO_MINOR_VERSION: "40" }).minorVersion).toBe(40);
     for (const bad of ["abc", "-1", "1000", "7.5"]) expect(env({ ...FULL, QBO_MINOR_VERSION: bad }).minorVersion).toBe(75);

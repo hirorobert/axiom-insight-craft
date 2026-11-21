@@ -108,15 +108,17 @@ describe("a pull that succeeds", () => {
     expect(w.seen.fileName).toBe("quickbooks-sandbox-2026-10-31.csv");
     expect(JSON.stringify(r)).not.toContain(REALM);
   });
-  it("a connection the backfill has not reached is protected FIRST (once), then imported", async () => {
+  it("after the cutover the realm is read only from the envelope: a row without plaintext imports; a row without protection is refused", async () => {
     const w = await world();
-    const submitted: unknown[] = [];
-    const plain = { ...w.realm, realm_envelope: null, realm_index: null };
-    const r = await runQboPull({ ...w.deps, findConnection: async () => ({ id: CONN, status: "active", envelope: w.store.envelope, realm: plain }),
-      resolveRealm: (c) => realmForOperation({ id: c.id, ...c.realm }, REALM_KEYS, async (a) => (submitted.push(a), "protected")) }, REQ);
-    expect(r.outcome).toBe("imported");
-    expect(submitted).toHaveLength(1);
-    expect(submitted[0]).toMatchObject({ p_connection: CONN, p_realm_id: REALM });
+    const sealedOnly = { ...w.realm, realm_id: null };
+    const ok = await runQboPull({ ...w.deps, findConnection: async () => ({ id: CONN, status: "active", envelope: w.store.envelope, realm: sealedOnly }) }, REQ);
+    expect(ok.outcome).toBe("imported");
+    expect(w.seen.fetchRealm).toBe(REALM);
+    const w2 = await world();
+    const plain = { ...w2.realm, realm_envelope: null, realm_index: null };
+    const refused = await runQboPull({ ...w2.deps, findConnection: async () => ({ id: CONN, status: "active", envelope: w2.store.envelope, realm: plain }) }, REQ);
+    expect([refused.status, refused.outcome]).toEqual([500, "realm_unreadable"]);
+    expect(w2.calls).not.toContain("refresh");
   });
   it("uses the NEW access token for the report, stores the NEW refresh token (the old one no longer opens it), and the stored envelope opens only with its binding", async () => {
     const w = await world();
@@ -134,12 +136,14 @@ describe("a pull that succeeds", () => {
     const w = await world();
     await runQboPull(w.deps, REQ);
     const rec = w.seen.recorded as Record<string, unknown>;
-    expect(rec).toMatchObject({ reservationId: "55555555-5555-5555-5555-555555555555", connectionId: CONN, actorUserId: ACTOR, realmId: REALM, environment: "sandbox", startDate: "2026-01-01", endDate: "2026-10-31",
+    expect(rec).toMatchObject({ reservationId: "55555555-5555-5555-5555-555555555555", connectionId: CONN, actorUserId: ACTOR, environment: "sandbox", startDate: "2026-01-01", endDate: "2026-10-31",
       accountingMethod: "Accrual", minorVersion: 75, currency: "GBP", accountCount: 30 });
     expect(rec.rawSha256).toBe(await sha256Hex(GB_TEXT));
     expect(rec.canonicalSha256).toBe(await sha256Hex(w.seen.object));
     for (const k of ["rawSha256", "canonicalSha256", "resultSha256"]) expect(rec[k]).toMatch(/^[0-9a-f]{64}$/);
     noSecrets(rec);
+    expect(rec).not.toHaveProperty("realmId");    // the evidence carries the connection's protection (copied by the database), never the realm
+    expect(JSON.stringify(rec)).not.toContain(REALM);
     expect(rec).not.toHaveProperty("uploadId");   // the upload id is the reservation's own record, never supplied by this function
     expect(rec).not.toHaveProperty("companyId");  // the workspace comes from the reservation, never from here
   });
