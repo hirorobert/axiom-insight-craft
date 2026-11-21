@@ -16,6 +16,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { openDatabase, applyChainBefore, makeWorld, migrationText, reporter } from "./lib/reportingKit.mjs";
+import { replayRedaction } from "./lib/qboRedactionReplay.mjs";
 
 const RP = await import("../../supabase/functions/_shared/qboRealmProtection.ts");
 const TE = await import("../../supabase/functions/_shared/qboTokenEnvelope.ts");
@@ -140,7 +141,7 @@ async function main() {
     await db.admin.query(migrationText(P2));
     await r.check("part 2 applied: the redaction (part 4) is refused while the post-redaction rotation (part 3) is not installed", async () => {
       const m = await errOf(migrationText(P4));
-      return m.includes("PREFLIGHT_REFUSED") && m.includes("rotation") && same(await snap(), before) || m;
+      return m.includes("PREFLIGHT_REFUSED") && m.includes("Phase C v2 functions") && same(await snap(), before) || m;
     });
     const oldReseal = await digest("public.qbo_reseal_connection_realm(uuid,text,text,text,text)");
     await r.check("part 3 with one character changed in a rotation body fails its own postcondition: the previous bodies stay", async () => {
@@ -152,11 +153,36 @@ async function main() {
     await db.admin.query(migrationText(P4));
     await r.check("each of the four parts replayed is a no-op", async () => { const s = await snap(); for (const f of CUTOVER_V2) await db.admin.query(migrationText(f)); return same(await snap(), s); });
 
-    r.group("Redacted: no live plaintext; terminal and historical rows unchanged");
-    await r.check("no live connection or disconnect operation holds a plaintext realm; every protection is unchanged and still opens", async () => {
+    r.group("Redacted: no live plaintext; historical evidence (terminal connections, finished operations) unchanged");
+    await r.check("no live connection and no PENDING disconnect operation holds a plaintext realm; every protection is unchanged and still opens", async () => {
       for (const id of LIVE) { const c = await conn(id), b = before.find((x) => x.t === "c" && x.k === id); if (c.realm_id !== null || c.realm_envelope !== b.realm_envelope || c.realm_index !== b.realm_index) return id; }
-      for (const id of [PO, GO]) if ((await op(id)).realm_id !== null) return `op ${id}`;
-      return true;
+      return (await op(PO)).realm_id === null && (await op(PO)).outcome === "pending" || "pending op";
+    });
+    await r.check("the FINISHED disconnect operation (revoked) is historical evidence: its plaintext and protection are byte-identical", async () => {
+      const o = await op(GO), b = before.find((x) => x.t === "o" && x.k === GO);
+      return o.realm_id === GONE && o.outcome === "revoked" && o.realm_envelope === b.realm_envelope && o.realm_index === b.realm_index || o;
+    });
+    await r.check("the redaction executed in full once more on seeded pre-redaction rows (rolled back): live plaintext removed, history byte-identical", async () => {
+      const s0 = await snap();
+      const c = await db.pool.connect();
+      try {
+        await c.query("BEGIN");
+        const x = await replayRedaction(c, { migrationSql: migrationText(P4), protect: (realm) => RP.protectRealm(realm, "sandbox", w.A, TODAY),
+          sealToken: (realm) => tokenFor(w.A, realm, TODAY), companyId: w.A, actorId: w.U.owner });
+        await c.query("ROLLBACK");
+        return x.ok && same(await snap(), s0) || x.detail;
+      } catch (e) { await c.query("ROLLBACK").catch(() => undefined); throw e; } finally { c.release(); }
+    });
+    await r.check("the redaction refuses when a body it depends on was changed after part 3 (the store function), and changes nothing", async () => {
+      const c = await db.pool.connect();
+      try {
+        await c.query("BEGIN");
+        for (const [t, k] of [["qbo_connections", "chk_qbo_connections_live_no_plaintext"], ["qbo_disconnect_operations", "chk_qbo_disconnect_operations_no_plaintext"], ["qbo_oauth_states", "chk_qbo_oauth_states_no_plaintext"]]) await c.query(`ALTER TABLE public.${t} DROP CONSTRAINT ${k}`);
+        const def = (await c.query("select pg_get_functiondef('public.qbo_store_connection(uuid,uuid,text,text,text,timestamptz,timestamptz,text,text)'::regprocedure) d")).rows[0].d;
+        await c.query(def.replace("QBO_INDEX_ROTATION_IN_PROGRESS: an index-key rotation", "QBO_INDEX_ROTATION_IN_PROGRESS: an index key rotation"));
+        let m = ""; try { await c.query(migrationText(P4)); } catch (e) { m = String(e.message); }
+        return m.includes("PREFLIGHT_REFUSED") || m;
+      } finally { await c.query("ROLLBACK").catch(() => undefined); c.release(); }
     });
     await r.check("the terminal (disconnected) connections keep their plaintext and protection, unchanged", async () => {
       const t = await terminal(), p = await conn(PO);

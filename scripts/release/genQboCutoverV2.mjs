@@ -423,16 +423,53 @@ $qbo_realm_rotation_post_redaction$;
 `;
 
   // ── PART 4 (redaction) ──
+  // [v2] Scope: LIVE rows only (live connections, PENDING disconnect operations, OAuth states, which are transient and housekept). Every row
+  // that is historical evidence (terminal connections, finished disconnect operations, import intents and provenance rows) is left byte for byte
+  // unchanged and the migration proves it: a digest of those rows taken before any change must equal the one taken after.
+  const HISTORY = `encode(sha256(convert_to(concat_ws('|',
+      (SELECT string_agg(ROW(id, realm_id, realm_envelope, realm_index, realm_verified_at, status)::text, ';' ORDER BY id) FROM public.qbo_connections WHERE status = 'disconnected'),
+      (SELECT string_agg(ROW(connection_id, realm_id, realm_envelope, realm_index, realm_verified_at, outcome)::text, ';' ORDER BY connection_id) FROM public.qbo_disconnect_operations WHERE outcome <> 'pending'),
+      (SELECT string_agg(ROW(id, realm_id, realm_envelope, realm_index)::text, ';' ORDER BY id) FROM public.qbo_pull_intents),
+      (SELECT string_agg(ROW(id, realm_id, realm_envelope, realm_index)::text, ';' ORDER BY id) FROM public.qbo_pulls), ''), 'UTF8')), 'hex')`;
+  const pinned4 = [...pinned2, ...pinned2b, [MIXED_F, D.mixed], ["public.qbo_key_version(text,text)", D.keyVersion],
+    ["public.qbo_connections_guard()", D.connGuard], ["public.qbo_disconnect_operations_guard()", D.opsGuard]];
   let p3 = m3v1;
-  p3 = once(p3, "-- PREFLIGHT: parts 1 and 2 installed; a replay is a no-op.", `-- [v2] It also refuses unless parts 1-3 of Phase C v2 are installed exactly as reviewed (post-redaction rotation available, index homogeneity
---   enforced, the guards' rotation rules present), so the plaintext can never be removed while key rotation still depends on it.
+  p3 = once(p3, "part 3 of 3: the plaintext realm is removed.", "part 4 of 4 (v2): the plaintext realm is removed from LIVE rows.");
+  p3 = once(p3, "afterwards no live connection, no disconnect operation and no OAuth state holds a realmID in clear;",
+    "afterwards no live connection, no PENDING disconnect operation and no OAuth state holds a realmID in clear;");
+  p3 = once(p3, "--   (2) realm_id of every live connection and every disconnect operation is set to NULL (the guards permit it only for a verified row);",
+    "--   (2) realm_id of every live connection and every PENDING disconnect operation is set to NULL (the guards permit it only for a verified row);");
+  p3 = once(p3, "--   (3) final rules: a live connection, an operation and a state hold no plaintext and keep their protection;",
+    "--   (3) final rules: a live connection, a pending operation and a state hold no plaintext; every connection and operation keeps its protection;");
+  p3 = once(p3, "--   Disconnected (terminal) connections cannot change and keep their plaintext; historical intents and pulls keep theirs (append-only, unchanged);",
+    "--   [v2] HISTORICAL EVIDENCE IS NOT MODIFIED: disconnected (terminal) connections, FINISHED disconnect operations (revoked, local_only) and every\n" +
+    "--   import intent and provenance row keep their plaintext and protection byte for byte (proven by a digest taken before and after). Whether\n" +
+    "--   that history must also be encrypted is an open compliance question, decided outside this migration;");
+  p3 = once(p3, "-- PREFLIGHT: parts 1 and 2 installed; a replay is a no-op.", `-- [v2] It also refuses unless every function body Phase C v2 installed (parts 1-3) is exactly as reviewed (post-redaction rotation available,
+--   index homogeneity enforced, the guards' rotation rules present), so the plaintext can never be removed while key rotation depends on it.
 -- PREFLIGHT: parts 1, 2 and 3 installed; a replay is a no-op.`);
+  p3 = once(p3, "POSTCONDITION: no plaintext in a live connection, an operation or a state.", "POSTCONDITION: no plaintext in a live connection, a pending operation or a state; history unchanged.");
+  p3 = once(p3, "DECLARE v_conn integer; v_ops integer;\n", `DECLARE v_conn integer; v_ops integer; v_history text;
+${pinsDecl("pin", pinned4)}
+`);
   const p3Pre = `    RAISE EXCEPTION 'PREFLIGHT_REFUSED: realm protection cutover parts 1 and 2 (20261231100000, 20261231200000) are not installed; nothing was changed' USING ERRCODE = 'P0001';
   END IF;`;
   p3 = once(p3, p3Pre, `${p3Pre}
-  IF ${pinsDiffer([...pinned2b, [MIXED_F, D.mixed], ["public.qbo_connections_guard()", D.connGuard], ["public.qbo_disconnect_operations_guard()", D.opsGuard]])} THEN
-    RAISE EXCEPTION 'PREFLIGHT_REFUSED: the Phase C v2 rotation functions and guards are not installed exactly as reviewed; nothing was changed' USING ERRCODE = 'P0001';
+  IF ${pinsVar("pin")} THEN
+    RAISE EXCEPTION 'PREFLIGHT_REFUSED: the Phase C v2 functions and guards are not installed exactly as reviewed; nothing was changed' USING ERRCODE = 'P0001';
   END IF;`);
+  p3 = once(p3, "  -- (1) OAuth states:", `  v_history := ${HISTORY};
+  -- (1) OAuth states:`);
+  p3 = once(p3, "  UPDATE public.qbo_disconnect_operations SET realm_id = NULL WHERE realm_id IS NOT NULL;",
+    "  UPDATE public.qbo_disconnect_operations SET realm_id = NULL WHERE outcome = 'pending' AND realm_id IS NOT NULL;");
+  p3 = once(p3, "CHECK (realm_id IS NULL AND realm_envelope IS NOT NULL AND realm_index IS NOT NULL);",
+    "CHECK (realm_envelope IS NOT NULL AND realm_index IS NOT NULL AND (outcome <> 'pending' OR realm_id IS NULL));");
+  p3 = once(p3, "     OR EXISTS (SELECT 1 FROM public.qbo_disconnect_operations WHERE realm_id IS NOT NULL)",
+    "     OR EXISTS (SELECT 1 FROM public.qbo_disconnect_operations WHERE outcome = 'pending' AND realm_id IS NOT NULL)");
+  p3 = once(p3, "     OR to_regclass('public.uq_qbo_connections_live') IS NOT NULL",
+    `     OR ${HISTORY} IS DISTINCT FROM v_history
+     OR to_regclass('public.uq_qbo_connections_live') IS NOT NULL`);
+  p3 = once(p3, "(part 3, redaction) is not complete", "(part 4, redaction) is not complete or changed historical evidence");
   return { [F1]: p1, [F2]: p2, [F2B]: p2b, [F3]: p3, digests: { ...D, ...S, fiscalBefore: fiscal.before } };
 }
 

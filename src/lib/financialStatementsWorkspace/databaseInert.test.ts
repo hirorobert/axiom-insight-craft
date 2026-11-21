@@ -1056,7 +1056,8 @@ describe("database inertness — schema and functions", () => {
     // ...and Phase C v2: its loopback-only adversarial proof, the cutover checks the realm proof runs, the local-stack PostgREST journey (loopback
     // only, refuses any non-local stack), and the generator that writes the four migrations from reviewed text (reads git, writes files; no deploy).
     for (const file of ["scripts/db-proof/qboRealmCutoverRotation.mjs", "scripts/db-proof/qboRealmProtectionCutover.mjs", "scripts/e2e/qboRotationStackJourney.mjs",
-      "scripts/release/genQboCutoverV2.mjs", "scripts/db-proof/checkoutTermsAcceptance.mjs"]) allowed.add(file);
+      "scripts/release/genQboCutoverV2.mjs", "scripts/db-proof/checkoutTermsAcceptance.mjs",
+      "scripts/db-proof/lib/qboRedactionReplay.mjs"]) allowed.add(file);   // the shared, rolled-back redaction replay both of them run
     // SheetJS 0.20.3 vendored (vendor/sheetjs/PROVENANCE.md): the offline CI guard that pins the vendored files and refuses any
     // externally hosted spreadsheet code (reads files only), and the manual re-verification script (never run by CI; downloads
     // the publisher's tarball and tagged files into memory and compares hashes). Neither deploys, applies or touches a database.

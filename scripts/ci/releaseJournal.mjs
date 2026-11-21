@@ -574,8 +574,8 @@ export const SUBMISSION_FORMS = Object.freeze({
     finalLfRemoved: Object.freeze({ bytes: 15044, sha256: "c06fef91aa4a08cf89a130aa39efeca9ae3f0a122e1a50169801854378c8980f" }),
   }),
   "20261231300000_qbo_realm_protection_cutover_redaction.sql": Object.freeze({
-    identical: Object.freeze({ bytes: 7795, sha256: "7b188c0c1761f7d77b6e64db24a2844ea6f3fe566230283a8b5ae558392f2dbd" }),
-    finalLfRemoved: Object.freeze({ bytes: 7794, sha256: "153c06e48e16b90bfb6332775bb1ae1c8e82b28c67a53d2be8ab760e24c8c529" }),
+    identical: Object.freeze({ bytes: 10742, sha256: "b671d00a042bd7132afaf7066791658482ddb32a8f0a8c51b1a854c2418967c0" }),
+    finalLfRemoved: Object.freeze({ bytes: 10741, sha256: "cb51832b574ad8171aaff4d6b6b9d52810c5d55c9237b5fa51604585ef735a70" }),
   }),
   // QBO readiness r2: promoted atomic envelope, NOT applied; exact registered bytes only.
   "20261214100000_qbo_readiness_controls.sql": Object.freeze({

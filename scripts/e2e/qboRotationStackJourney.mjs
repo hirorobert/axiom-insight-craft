@@ -19,7 +19,9 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
+import pg from "pg";
 import { assertLocalStack } from "./localStackFixtures.mjs";
+import { replayRedaction } from "../db-proof/lib/qboRedactionReplay.mjs";
 
 const RP = await import("../../supabase/functions/_shared/qboRealmProtection.ts");
 const TE = await import("../../supabase/functions/_shared/qboTokenEnvelope.ts");
@@ -164,10 +166,53 @@ await check("anon cannot execute a rotation function or the homogeneity helper",
   return !!r1.error && !!r2.error && !!r3.error || { r1: r1.error?.message, r2: r2.error?.message, r3: r3.error?.message };
 });
 
-fs.writeFileSync(path.join(OUT, "results.json"), JSON.stringify({ results, boundaries: {
-  real: ["PostgREST, its roles and grants, and safeupdate", "every migration installed by supabase start, the four cutover parts included", "the real orchestration and crypto modules"],
+startGroup("The irreversible redaction (20261231300000) under this stack's PostgreSQL with safeupdate loaded (seeded, rolled back)");
+// `supabase start` applied the redaction to EMPTY tables, so none of its UPDATE/DELETE statements touched a row. Here the committed file runs
+// again in full on seeded rows holding a plaintext realm, in one transaction with safeupdate loaded into the session, and is rolled back.
+const dbUrl = status.DB_URL;
+const runtime = {};
+await check("the stack's database is loopback-only; which roles preload safeupdate is recorded", async () => {
+  const u = new URL(dbUrl);
+  if (!["127.0.0.1", "localhost"].includes(u.hostname)) return "DB_URL is not loopback";
+  const c = new pg.Client({ connectionString: dbUrl });
+  await c.connect();
+  try {
+    const r = await c.query("select current_user u, current_setting('server_version') v, (select coalesce(string_agg(rolname || ':' || array_to_string(rolconfig, ','), ' '), '') from pg_roles where array_to_string(rolconfig, ',') ilike '%safeupdate%') preload");
+    Object.assign(runtime, r.rows[0]);
+    log(`        runtime: user=${runtime.u} server=${runtime.v} safeupdate preloaded for: ${runtime.preload || "(no role)"}`);
+    return true;
+  } finally { await c.end(); }
+});
+await check("the redaction runs to completion with safeupdate ACTIVE: live plaintext removed, pending operation cleared, history byte-identical", async () => {
+  const c = new pg.Client({ connectionString: dbUrl });
+  await c.connect();
+  try {
+    await c.query("BEGIN");
+    const x = await replayRedaction(c, {
+      migrationSql: fs.readFileSync(path.join(REPO, "supabase/migrations/20261231300000_qbo_realm_protection_cutover_redaction.sql"), "utf8"),
+      protect: (realm) => RP.protectRealm(realm, "sandbox", A, { current: K3, all: [K3], index: IDX3 }),
+      sealToken: (realm) => TE.sealSecret("rt-" + crypto.randomBytes(16).toString("hex"), K3, TE.connectionBinding(A, realm, "sandbox")),
+      companyId: A, actorId: U.a.id, loadSafeupdate: true });
+    await c.query("ROLLBACK");
+    runtime.redaction = x.detail;
+    return x.ok || x.detail;
+  } catch (e) { await c.query("ROLLBACK").catch(() => undefined); throw e; } finally { await c.end(); }
+});
+await check("after the rollback the stack is exactly as before: the redaction's final rules are installed and no seeded row remains", async () => {
+  const c = new pg.Client({ connectionString: dbUrl });
+  await c.connect();
+  try {
+    const r = (await c.query("select (select count(*)::int from pg_constraint where conname in ('chk_qbo_connections_live_no_plaintext','chk_qbo_disconnect_operations_no_plaintext','chk_qbo_oauth_states_no_plaintext')) n, to_regclass('public.uq_qbo_connections_live') is null dropped, (select count(*)::int from public.qbo_connections where realm_id is not null and status <> 'disconnected') live_plain")).rows[0];
+    return r.n === 3 && r.dropped && r.live_plain === 0 || r;
+  } finally { await c.end(); }
+});
+
+fs.writeFileSync(path.join(OUT, "results.json"), JSON.stringify({ results, runtime, boundaries: {
+  real: ["PostgREST, its roles and grants, and safeupdate", "every migration installed by supabase start, the four cutover parts included", "the real orchestration and crypto modules",
+    "the committed redaction file executed in full under this PostgreSQL with safeupdate loaded (seeded rows, rolled back)"],
   operatorActionsByServiceRole: ["create Auth users", "grant the owners a plan", "create the companies", "store connections through qbo_store_connection", "admit the maintenance caller"],
-  notProven: ["the qbo-realm-protect Edge Function and its platform-owner check (database proof)", "Intuit", "the hosted database"] }, finishedAt: new Date().toISOString() }, null, 2));
+  notProven: ["the qbo-realm-protect Edge Function and its platform-owner check (database proof)", "Intuit", "the hosted database",
+    "the hosted migrator's own role and session settings (Lovable applies migrations outside PostgREST)"] }, finishedAt: new Date().toISOString() }, null, 2));
 const failed = results.filter((r) => !r.ok);
 log(`\nchecks: ${results.length}  passed: ${results.length - failed.length}  failed: ${failed.length}`);
 log(failed.length || !results.length ? "QBO_ROTATION_STACK_JOURNEY: FAILED" : "QBO_ROTATION_STACK_JOURNEY: ALL PASSED");
