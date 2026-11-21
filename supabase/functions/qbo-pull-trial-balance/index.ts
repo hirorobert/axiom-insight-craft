@@ -6,8 +6,8 @@
 // token, so each judges that person), and the existing processing and review gates then apply unchanged. The evidence (qbo_record_pull_intent) is written BEFORE
 // the file is stored and linked to the upload afterwards (qbo_complete_pull, idempotent and recoverable). The service-role
 // key, the tokens, the envelope key and the QuickBooks response never leave the function and are never logged. See _shared/qboPull.ts for the order and its reasons.
-// realmID protection (Intuit case 00232331): the browser names the connection by its id; the realm is read only by opening its envelope (a connection the
-// backfill has not reached is protected first, through the service-only qbo_protect_connection_realm). Without the realm index key: "not configured".
+// realmID protection (Intuit case 00232331; after the cutover): the browser names the connection by its id; the realm is read only by opening its envelope
+// and is never sent to the database (the evidence carries the connection's own protection). Without the realm index key: "not configured".
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/auth.ts";
@@ -84,20 +84,16 @@ Deno.serve(async (req) => {
     releaseRefreshLease: async (connectionId, leaseId) => { await service.rpc("qbo_release_refresh_lease", { p_connection_id: connectionId, p_lease_id: leaseId }); },
     completePending: async () => { await service.rpc("qbo_complete_pending_pulls"); },
     findConnection: async (companyId, connectionId, environment) => {
-      const { data, error } = await service.from("qbo_connections").select("id, company_id, environment, status, refresh_token_envelope, realm_id, realm_envelope, realm_index")
+      const { data, error } = await service.from("qbo_connections").select("id, company_id, environment, status, refresh_token_envelope, realm_envelope, realm_index")
         .eq("id", connectionId).eq("company_id", companyId).eq("environment", environment).neq("status", "disconnected").maybeSingle();
       if (error) throw error;
       return data ? {
         id: data.id as string, status: data.status as "active" | "reconnect_needed", envelope: (data.refresh_token_envelope as string | null) ?? null,
-        realm: { company_id: data.company_id as string, environment: data.environment as "production" | "sandbox", realm_id: (data.realm_id as string | null) ?? null,
+        realm: { company_id: data.company_id as string, environment: data.environment as "production" | "sandbox", realm_id: null,
           realm_envelope: (data.realm_envelope as string | null) ?? null, realm_index: (data.realm_index as string | null) ?? null },
       } : null;
     },
-    resolveRealm: (connection) => realmForOperation({ id: connection.id, ...connection.realm }, realmKeys, async (args) => {
-      const { data, error } = await service.rpc("qbo_protect_connection_realm", args);
-      if (error) throw error;
-      return String(data);
-    }),
+    resolveRealm: (connection) => realmForOperation({ id: connection.id, ...connection.realm }, realmKeys, null),
     openRefreshToken: async (envelope, binding) => { try { return await openSecret(envelope, keys.all, binding); } catch { return null; } },
     refresh: (_environment, refreshToken) => tokens.refresh(refreshToken),
     sealRefreshToken: (refreshToken, binding) => sealSecret(refreshToken, keys.current, binding),
@@ -136,7 +132,7 @@ Deno.serve(async (req) => {
     recordIntent: async (r) => {
       const { error } = await service.rpc("qbo_record_fiscal_pull_intent", {
         p_period_id: r.periodId, p_fiscal_basis: r.fiscalBasis,
-        p_reservation_id: r.reservationId, p_connection_id: r.connectionId, p_actor_user_id: r.actorUserId, p_realm_id: r.realmId, p_environment: r.environment,
+        p_reservation_id: r.reservationId, p_connection_id: r.connectionId, p_actor_user_id: r.actorUserId, p_realm_id: null, p_environment: r.environment,
         p_start_date: r.startDate, p_end_date: r.endDate, p_accounting_method: r.accountingMethod, p_minor_version: r.minorVersion, p_currency: r.currency,
         p_account_count: r.accountCount, p_raw_sha256: r.rawSha256, p_canonical_sha256: r.canonicalSha256, p_result_sha256: r.resultSha256,
       });

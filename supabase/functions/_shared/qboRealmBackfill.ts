@@ -42,9 +42,15 @@
  *            changed meanwhile answers 'stale'; nothing is overwritten; rows already on the current key are left alone, so it is safe to repeat.
  *            Historical rows (terminal connections, import intents and pulls, consumed OAuth states) keep their index: no comparison reads it.
  *
+ * AFTER THE CUTOVER (20261231100000-20261231300000) the database writers that compared a plaintext are gone: their functions are not supplied,
+ * "protect" only reports rows without protection, and "verify" opens every envelope and recomputes its index (a local check; nothing is written).
+ * "reseal" and "reindex" keep working WITHOUT a plaintext (Phase C v2): the realm is recovered transiently by opening the envelope, proven by
+ * recomputing the stored index with the index key it names, and never sent to the database (p_realm_id is null when the row holds no plaintext;
+ * it is never read back after the cutover).
+ *
  * The answer and every log line carry COUNTS only: never a realm, an envelope, an index, a key or a row id.
  */
-import { openRealm, protectExistingRealm, realmIndex, resolveStoredRealm, sealRealm, PROTECTED_OUTCOMES, type ProtectArgs, type RealmKeys, type StoredRealm } from "./qboRealmProtection.ts";
+import { isUpgrade, openRealm, protectExistingRealm, realmIndex, resolveStoredRealm, sealRealm, PROTECTED_OUTCOMES, type ProtectArgs, type RealmKeys, type StoredRealm } from "./qboRealmProtection.ts";
 import { connectionBinding, openSecret, sealSecret } from "./qboTokenEnvelope.ts";
 
 export type BackfillAction = "protect" | "verify";
@@ -62,10 +68,11 @@ export interface BackfillDeps {
   listConnections(): Promise<BackfillRow[]>;
   /** Every disconnect operation. */
   listOperations(): Promise<BackfillRow[]>;
-  protectConnection(args: ProtectArgs): Promise<string>;
-  protectOperation(args: ProtectArgs): Promise<string>;
-  verifyConnection(args: ProtectArgs): Promise<string>;
-  verifyOperation(args: ProtectArgs): Promise<string>;
+  /** The database writers that compare a plaintext; absent after the cutover. */
+  protectConnection?(args: ProtectArgs): Promise<string>;
+  protectOperation?(args: ProtectArgs): Promise<string>;
+  verifyConnection?(args: ProtectArgs): Promise<string>;
+  verifyOperation?(args: ProtectArgs): Promise<string>;
   /** qbo_realm_protection_status(): the database's own counts. */
   status(): Promise<Record<string, number>>;
   /** 20261230400000: compare-and-swap re-seals and the stored counts by key id (absent before that migration). */
@@ -78,8 +85,8 @@ export interface BackfillDeps {
   reindexOperation?(args: ReindexArgs): Promise<string>;
   indexCoverage?(): Promise<Record<string, number>>;
 }
-export interface ResealArgs { p_connection: string; p_realm_id: string; p_expected_envelope: string; p_new_envelope: string; p_realm_index: string }
-export interface ReindexArgs { p_connection: string; p_realm_id: string; p_realm_envelope: string; p_expected_index: string; p_new_index: string }
+export interface ResealArgs { p_connection: string; p_realm_id: string | null; p_expected_envelope: string; p_new_envelope: string; p_realm_index: string }
+export interface ReindexArgs { p_connection: string; p_realm_id: string | null; p_realm_envelope: string; p_expected_index: string; p_new_index: string }
 export type BackfillResult =
   | { status: 200 | 409; outcome: "complete" | "incomplete"; action: BackfillAction; connections: BackfillTally; operations: BackfillTally; database: Record<string, number> }
   | { status: 400 | 401 | 403 | 500 | 503; outcome: "invalid_request" | "unauthorized" | "forbidden" | "failed" | "unavailable" };
@@ -113,12 +120,12 @@ export async function decideMaintenanceAuthority(authHeader: string | null, deps
 
 const empty = (): BackfillTally => ({ total: 0, protected: 0, already: 0, verified: 0, unprotected: 0, mismatched: 0, refused: 0 });
 
-async function protectRows(rows: BackfillRow[], keys: RealmKeys, submit: (a: ProtectArgs) => Promise<string>): Promise<BackfillTally> {
+async function protectRows(rows: BackfillRow[], keys: RealmKeys, submit: ((a: ProtectArgs) => Promise<string>) | undefined): Promise<BackfillTally> {
   const t = empty();
   for (const row of rows) {
     t.total++;
     if (row.realm_envelope) { t.already++; continue; }
-    if (typeof row.realm_id !== "string") { t.unprotected++; continue; }
+    if (typeof row.realm_id !== "string" || !submit) { t.unprotected++; continue; }
     let outcome: string;
     try { outcome = await submit(await protectExistingRealm(row, keys)); } catch { t.refused++; continue; }
     if (outcome === "protected") t.protected++;
@@ -129,7 +136,7 @@ async function protectRows(rows: BackfillRow[], keys: RealmKeys, submit: (a: Pro
   return t;
 }
 
-async function verifyRows(rows: BackfillRow[], keys: RealmKeys, submit: (a: ProtectArgs) => Promise<string>): Promise<BackfillTally> {
+async function verifyRows(rows: BackfillRow[], keys: RealmKeys, submit: ((a: ProtectArgs) => Promise<string>) | undefined): Promise<BackfillTally> {
   const t = empty();
   for (const row of rows) {
     t.total++;
@@ -137,6 +144,7 @@ async function verifyRows(rows: BackfillRow[], keys: RealmKeys, submit: (a: Prot
     // Opened with the key ring for the row's own workspace and environment; equal to the plaintext where it exists; index recomputed.
     const r = await resolveStoredRealm(row, keys, { allowPlaintext: false });
     if (!r.ok) { t.mismatched++; continue; }
+    if (!submit) { t.verified++; continue; }   // after the cutover: opened and index recomputed; there is nothing to write
     let outcome: string;
     try { outcome = await submit({ p_connection: row.id, p_realm_id: r.realmId, p_realm_envelope: row.realm_envelope, p_realm_index: row.realm_index }); } catch { t.refused++; continue; }
     if (outcome === "verified" || outcome === "already_verified") t.verified++;
@@ -195,13 +203,17 @@ async function realmStep(row: BackfillRow, keys: RealmKeys, t: KeyTally, action:
   count(t, from);
   if (action === "keys") return r.realmId;
   if (from === keys.current.id) { t.already++; return r.realmId; }
-  if (!submit || typeof row.realm_id !== "string") { t.refused++; return r.realmId; }   // re-sealing compares with the plaintext the database holds
+  if (!submit) { t.refused++; return r.realmId; }
+  // Key versions only ever increase (k1 < k2 < k3 …): a row is never moved onto an older or unversioned key.
+  if (!isUpgrade(from, keys.current.id)) { t.refused++; return r.realmId; }
   let next: string;
   try {
     next = await sealRealm(r.realmId, row.environment, row.company_id, keys.current);
     if ((await openRealm(next, row.environment, row.company_id, [keys.current])) !== r.realmId) { t.refused++; return r.realmId; }
   } catch { t.refused++; return r.realmId; }
-  try { tallyOutcome(t, await submit({ p_connection: row.id, p_realm_id: r.realmId, p_expected_envelope: row.realm_envelope, p_new_envelope: next, p_realm_index: row.realm_index })); }
+  // The plaintext goes to the database only while the row still holds one (to be compared); after the cutover it never leaves this process.
+  const plain = typeof row.realm_id === "string" ? r.realmId : null;
+  try { tallyOutcome(t, await submit({ p_connection: row.id, p_realm_id: plain, p_expected_envelope: row.realm_envelope, p_new_envelope: next, p_realm_index: row.realm_index })); }
   catch { t.refused++; }
   return r.realmId;
 }
@@ -219,7 +231,7 @@ async function tokenStep(row: BackfillRow, realmId: string | null, keys: RealmKe
   count(t, from);
   if (action === "keys") return;
   if (from === keys.current.id) { t.already++; return; }
-  if (!deps.resealToken) { t.refused++; return; }
+  if (!deps.resealToken || !isUpgrade(from, keys.current.id)) { t.refused++; return; }
   let next: string;
   try {
     next = await sealSecret(token, keys.current, binding);
@@ -266,11 +278,13 @@ async function indexStep(row: BackfillRow, keys: RealmKeys, t: IndexTally, actio
   t.byKey[from] = (t.byKey[from] ?? 0) + 1;
   if (action === "index_keys") return;
   if (from === keys.index.id) { t.already++; return; }
-  if (!submit || typeof row.realm_id !== "string") { t.refused++; return; }   // re-indexing compares with the plaintext the database holds
+  if (!submit) { t.refused++; return; }
+  if (!isUpgrade(from, keys.index.id)) { t.refused++; return; }
   let next: string;
   try { next = await realmIndex(r.realmId, row.environment, keys.index); } catch { t.refused++; return; }
   let outcome: string;
-  try { outcome = await submit({ p_connection: row.id, p_realm_id: r.realmId, p_realm_envelope: row.realm_envelope, p_expected_index: row.realm_index, p_new_index: next }); }
+  const plain = typeof row.realm_id === "string" ? r.realmId : null;
+  try { outcome = await submit({ p_connection: row.id, p_realm_id: plain, p_realm_envelope: row.realm_envelope, p_expected_index: row.realm_index, p_new_index: next }); }
   catch { t.refused++; return; }
   if (outcome === "reindexed") t.reindexed++;
   else if (outcome === "already_reindexed") t.already++;

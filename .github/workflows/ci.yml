@@ -475,6 +475,10 @@ jobs:
         if: failure()
         run: docker ps --format '{{.Names}}' | grep edge_runtime | head -1 | xargs -r docker logs > real-app-evidence/source-download/edge-runtime.log 2>&1
 
+      - name: QuickBooks realm Phase C v2 rotation through PostgREST (the same stack, every migration installed by supabase start; token key k2 to k3 and index key idx2 to idx3 after the redaction through the real orchestration and real PostgREST with safeupdate; a downgrade refused; connect and disconnect refused while indexes are mixed and the shared realm found again after; anon refused)
+        if: always()
+        run: bun scripts/e2e/qboRotationStackJourney.mjs real-app-evidence/qbo-rotation
+
       - name: Online payment journey (the same stack; the payment functions served from this repository with generated test configuration; Polar and Snippe replaced by a loopback MOCK; admin opens sandbox payments and approves prices, card and mobile-money purchases, signed webhooks with replay, bad signature, stale timestamp, unknown checkout and 5 concurrent deliveries, expiry and a new attempt, refund review, manual activation and the paid-term guard, cross-account denial, 1280 and 375 px)
         if: always()
         run: node scripts/e2e/paymentJourney.mjs real-app-evidence/payments
@@ -762,7 +766,7 @@ jobs:
           createdb qbo_readiness
           bun scripts/db-proof/qboReadiness.mjs
 
-      - name: QuickBooks realmID protection proof (20261230100000-20261230300000 on the full chain - existing connections, operations, OAuth returns and import evidence byte-identical except the new columns; backfill through the real orchestration and module; shared realm shares one index; replay idempotent; wrong plaintext, conflicting index and malformed values refused; members cannot call the backfill; reconnect keeps the protection; no realm reaches a member; new writes carry the protection)
+      - name: QuickBooks realmID protection proof (20261230100000-20261230300000 and the four-part cutover 20261231100000-20261231300000 on the full chain after the reseal and index rotation - the cutover refused until every row is verified, then no plaintext in any live connection, operation or OAuth state, every rule on the index, terminal rows and historical evidence unchanged; existing connections, operations, OAuth returns and import evidence byte-identical except the new columns; backfill through the real orchestration and module; shared realm shares one index; replay idempotent; wrong plaintext, conflicting index and malformed values refused; members cannot call the backfill; reconnect keeps the protection; no realm reaches a member; new writes carry the protection)
         env:
           DB_PROOF_MODE: external
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/qbo_realm_protection
@@ -785,6 +789,14 @@ jobs:
         run: |
           createdb qbo_realm_index_rotation
           bun scripts/db-proof/qboRealmIndexRotation.mjs
+
+      - name: QuickBooks realm Phase C v2 adversarial proof (20261231100000-20261231300000 over the hosted chain - parts refused out of order or mistyped with nothing changed; after the redaction the token key k2 to k3 and the index key idx2 to idx3 rotate through the real orchestration, forwards only; interrupted runs retried; downgrades, stale and cross-tenant submissions, wrong keys and plaintext reintroduction refused; connect and disconnect refused while indexes are mixed, shared realms never revoked by mistake; uniqueness, pending revocations and terminal rows preserved; service-only; no bare UPDATE or DELETE)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/qbo_realm_cutover_rotation
+        run: |
+          createdb qbo_realm_cutover_rotation
+          bun scripts/db-proof/qboRealmCutoverRotation.mjs
 
       - name: Internal beta activation controls proof (20261203100000 — only an active commercial administrator reads the beta state or opens/closes reporting; opening is one transaction that makes the allowlist exactly the chosen companies and releases the master switch last, refusals change nothing; closing engages the master switch first; synthetic scope recorded from the database's own composition hash; open/close races never deadlock; full chain, real certification engine, on the same throwaway container)
         env:

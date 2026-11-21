@@ -308,7 +308,9 @@ describe("migration directory integrity", () => {
     //   applied with one transcribed line. Authored and not applied.
     // 226 -> 227: the realm index-key rotation (20261230500000): service-only re-index of live rows onto a new index key by
     //   compare-and-swap, one guarded re-index transition on both realm guards. Authored and not applied.
-    expect(files.length).toBe(227);
+    // 227 -> 231: realmID protection Phase C v2 (supersedes PR #282): 20261231100000 schema, 20261231200000 functions on the keyed index,
+    //   20261231250000 post-redaction token/index key rotation, 20261231300000 redaction (IRREVERSIBLE for the plaintext). Authored and not applied.
+    expect(files.length).toBe(231);
   });
 });
 

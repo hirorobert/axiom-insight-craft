@@ -94,6 +94,7 @@ export const QBO_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
   provenance_failed: "Nothing was imported, because the record of where these figures came from could not be saved. Please try again.",
   not_yours: "This QuickBooks connection was started by someone else, so it was not saved. Nothing was shared. To connect, use Connect QuickBooks yourself.",
   expired: "The QuickBooks connection took too long to finish, so it was not saved. Connect again to continue.",
+  rotation_in_progress: "QuickBooks connections are being updated. Nothing was saved. Wait a few minutes, then connect again.",
   invalid_request: GENERIC, reserve_failed: GENERIC, store_failed: GENERIC, register_failed: GENERIC, token_unreadable: GENERIC, pull_failed: GENERIC,
 });
 export const messageFor = (outcome: string | undefined): string => (outcome && QBO_MESSAGES[outcome]) || GENERIC;

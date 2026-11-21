@@ -559,6 +559,24 @@ export const SUBMISSION_FORMS = Object.freeze({
     identical: Object.freeze({ bytes: 18452, sha256: "9d44bf0c73989b4bf5487ed3c864f66190c962e969fadf657cbe09eb3a6d20bf" }),
     finalLfRemoved: Object.freeze({ bytes: 18451, sha256: "f75aea588ac1f0c243bdc87aeb63195bcb59a9a1c7bb37723bae5dc4bbb2af2b" }),
   }),
+  // realmID protection Phase C v2 (supersedes PR #282), four self-verifying parts: authored, NOT applied; reported PENDING. The redaction
+  // (20261231300000) is IRREVERSIBLE for the plaintext and needs its own explicit go. Digests computed from the committed LF blob (git show).
+  "20261231100000_qbo_realm_protection_cutover_schema.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 16936, sha256: "599c851f209d0e5a4bbf782320139823a371750b89898afb6488dd5af6108966" }),
+    finalLfRemoved: Object.freeze({ bytes: 16935, sha256: "7228d91cbfa3e15ed6584bfde5526e6263aa7871b7048a0f7f8ad48b2485d5a3" }),
+  }),
+  "20261231200000_qbo_realm_protection_cutover_functions.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 20450, sha256: "48295fcd5fae4ef3d368494a427d44f13ccd64157ce80f036732ca49e6fcf020" }),
+    finalLfRemoved: Object.freeze({ bytes: 20449, sha256: "4aaf390a506dc901293242239eaf3d84ce093dd6e7c69a4da534f92a5c215bc9" }),
+  }),
+  "20261231250000_qbo_realm_rotation_post_redaction.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 15045, sha256: "ae14667cb7163c23d7123cd76d2f06e3b22e19ccd6624a64d144ec023ce40b89" }),
+    finalLfRemoved: Object.freeze({ bytes: 15044, sha256: "c06fef91aa4a08cf89a130aa39efeca9ae3f0a122e1a50169801854378c8980f" }),
+  }),
+  "20261231300000_qbo_realm_protection_cutover_redaction.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 10742, sha256: "b671d00a042bd7132afaf7066791658482ddb32a8f0a8c51b1a854c2418967c0" }),
+    finalLfRemoved: Object.freeze({ bytes: 10741, sha256: "cb51832b574ad8171aaff4d6b6b9d52810c5d55c9237b5fa51604585ef735a70" }),
+  }),
   // QBO readiness r2: promoted atomic envelope, NOT applied; exact registered bytes only.
   "20261214100000_qbo_readiness_controls.sql": Object.freeze({
     identical: Object.freeze({ bytes: 20040, sha256: "6ac1c74c46171138915d936191beff45d26ca92abb6f7a820d0d73aadf0ddcd8" }),

@@ -10,8 +10,10 @@
 // sealing key (QBO_TOKEN_KEY_NEXT_*), by compare-and-swap (20261230400000). POST { "action": "index_keys" } (read only) counts every live
 // connection's and operation's stored index by index key id; POST { "action": "reindex" } moves every such index made by an older index key
 // onto the current one (QBO_REALM_INDEX_KEY_NEXT_*), by compare-and-swap (20261230500000). Repeating, running concurrently or resuming after an
-// interruption is safe (see _shared/qboRealmBackfill.ts). The answer and the log carry COUNTS only: never a realm, an envelope, an index, a
-// key or a row id.
+// interruption is safe (see _shared/qboRealmBackfill.ts). AFTER THE CUTOVER (20261231100000-20261231300000) the plaintext realm is never read
+// and the database writers that compared it are gone: "verify" opens every envelope and recomputes its index (nothing written), "protect" only
+// reports rows without protection, and "reseal"/"reindex" move keys without any plaintext. The answer and the log carry COUNTS only: never a
+// realm, an envelope, an index, a key or a row id.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, validateAuth } from "../_shared/auth.ts";
@@ -47,26 +49,22 @@ Deno.serve(async (req) => {
   const rows = (data: unknown[] | null, id: string): BackfillRow[] => (data ?? []).map((r) => {
     const x = r as Record<string, unknown>;
     return { id: x[id] as string, company_id: x.company_id as string, environment: x.environment as "production" | "sandbox",
-      realm_id: (x.realm_id as string | null) ?? null, realm_envelope: (x.realm_envelope as string | null) ?? null, realm_index: (x.realm_index as string | null) ?? null,
+      realm_id: null, realm_envelope: (x.realm_envelope as string | null) ?? null, realm_index: (x.realm_index as string | null) ?? null,
       refresh_token_envelope: (x.refresh_token_envelope as string | null) ?? null };
   });
 
   const result = await runRealmBackfill({
     authorize: async () => authority,
     listConnections: async () => {
-      const { data, error } = await service.from("qbo_connections").select("id, company_id, environment, realm_id, realm_envelope, realm_index, refresh_token_envelope").neq("status", "disconnected");
+      const { data, error } = await service.from("qbo_connections").select("id, company_id, environment, realm_envelope, realm_index, refresh_token_envelope").neq("status", "disconnected");
       if (error) throw error;
       return rows(data, "id");
     },
     listOperations: async () => {
-      const { data, error } = await service.from("qbo_disconnect_operations").select("connection_id, company_id, environment, realm_id, realm_envelope, realm_index");
+      const { data, error } = await service.from("qbo_disconnect_operations").select("connection_id, company_id, environment, realm_envelope, realm_index");
       if (error) throw error;
       return rows(data, "connection_id");
     },
-    protectConnection: (a) => rpc("qbo_protect_connection_realm", { ...a }),
-    protectOperation: (a) => rpc("qbo_protect_disconnect_realm", { ...a }),
-    verifyConnection: (a) => rpc("qbo_verify_connection_realm", { ...a }),
-    verifyOperation: (a) => rpc("qbo_verify_disconnect_realm", { ...a }),
     status: async () => {
       const { data, error } = await service.rpc("qbo_realm_protection_status");
       if (error) throw error;

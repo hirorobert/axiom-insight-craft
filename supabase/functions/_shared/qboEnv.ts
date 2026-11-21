@@ -18,11 +18,17 @@
  *                       set it computes every new index, and the configured index key stays only to RECOGNISE indexes it made, until
  *                       qbo-realm-protect "reindex" has moved every live row. A half-configured pair is refused (not configured), never
  *                       ignored. Its id and bytes must differ from the configured index key's and from every token key's.
+ *   QBO_REALM_INDEX_KEY_PREV_ID / QBO_REALM_INDEX_KEY_PREV_B64  an optional PREVIOUS index key (Phase C v2), kept only to recognise indexes it made
+ *                       while a later rotation moves them (e.g. idx2 here, idx3 as NEXT, idx1 still configured for historical rows).
+ *   KEY VERSIONS (Phase C v2): token key ids are "k<N>" and index key ids "idx<N>" (N = 1 … 999999999). The sealing key (NEXT, else the configured
+ *                       key) must carry the highest token version in the ring, and the index key making new indexes the highest index version;
+ *                       anything else (an unversioned id, a lower or equal NEXT) is refused as not configured, so a mis-entered secret can never
+ *                       make the functions seal or index with an older key.
  *   QBO_MINOR_VERSION   the API minor version to ask for (default 75, the one the recorded samples were requested with)
  */
 import { keyFromBase64, type EnvelopeKey } from "./qboTokenEnvelope.ts";
 import type { QboEnvironment } from "./qboReadOnlyGuard.ts";
-import type { RealmKeys } from "./qboRealmProtection.ts";
+import { keyVersion, type RealmKeys } from "./qboRealmProtection.ts";
 
 type Get = (name: string) => string | undefined;
 const present = (v: string | undefined): v is string => typeof v === "string" && v.trim() !== "";
@@ -70,6 +76,11 @@ export function readQboEnv(get: Get): QboEnvConfig {
       // Every key in the ring has its own name and its own bytes (a name chooses the key that opens an envelope).
       if (new Set(all.map((k) => k.id)).size !== all.length) return null;
       if (all.some((a, i) => all.some((b, j) => i < j && sameBytes(a.bytes, b.bytes)))) return null;
+      // Versioned ids only, and the sealing key is the newest: no downgrade by configuration.
+      const v = all.map((k) => keyVersion(k.id));
+      if (v.some((x) => x === null || x.kind !== "k")) return null;
+      const cv = keyVersion(current.id)!.version;
+      if (v.some((x) => x!.version > cv)) return null;
       return { current, all };
     } catch { return null; }
   };
@@ -83,10 +94,18 @@ export function readQboEnv(get: Get): QboEnvConfig {
       if (present(nid) !== present(nb64)) return null; // half an index key pair is a configuration error, never silently ignored
       const index = present(nid) && present(nb64) ? keyFromBase64(nid.trim(), nb64) : configured;
       const indexAll = index === configured ? [configured] : [index, configured];
+      const pid = get("QBO_REALM_INDEX_KEY_PREV_ID"), pb64 = get("QBO_REALM_INDEX_KEY_PREV_B64");
+      if (present(pid) !== present(pb64)) return null;
+      if (present(pid) && present(pb64)) indexAll.push(keyFromBase64(pid.trim(), pb64));
+      // Versioned ids only, and the key making new indexes is the newest.
+      const iv = indexAll.map((k) => keyVersion(k.id));
+      if (iv.some((x) => x === null || x.kind !== "idx")) return null;
+      if (iv.some((x) => x!.version > keyVersion(index.id)!.version)) return null;
       // Its own keys: never a token key's name or bytes (rotating the token key must never change equality, and one leaked key must not open
       // both), and the two index keys never share a name or bytes (a name chooses the key that recognises an index).
       if (indexAll.some((x) => ring.all.some((k) => k.id === x.id || sameBytes(k.bytes, x.bytes)))) return null;
-      if (indexAll.length === 2 && (indexAll[0].id === indexAll[1].id || sameBytes(indexAll[0].bytes, indexAll[1].bytes))) return null;
+      if (new Set(indexAll.map((k) => k.id)).size !== indexAll.length) return null;
+      if (indexAll.some((a, i) => indexAll.some((b, j) => i < j && sameBytes(a.bytes, b.bytes)))) return null;
       return { current: ring.current, all: ring.all, index, indexAll };
     } catch { return null; }
   };
