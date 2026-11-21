@@ -3,7 +3,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   REALM_ENVELOPE_SHAPE, REALM_INDEX_SHAPE, oauthRealmBinding, openParkedRealm, openRealm, protectExistingRealm, protectParkedRealm, protectRealm, realmBinding,
-  realmForOperation, realmIndex, resolveStoredRealm, sealRealm, type RealmKeys, type StoredRealm,
+  isUpgrade, keyVersion, realmForOperation, realmIndex, resolveStoredRealm, sealRealm, type RealmKeys, type StoredRealm,
 } from "../../../supabase/functions/_shared/qboRealmProtection";
 import { decideMaintenanceAuthority, parseBackfillRequest, runRealmBackfill, type BackfillDeps, type BackfillRow, type MaintenanceAuthority } from "../../../supabase/functions/_shared/qboRealmBackfill";
 import { readQboEnv } from "../../../supabase/functions/_shared/qboEnv";
@@ -44,6 +44,17 @@ describe("the realm envelope", () => {
     await expect(openRealm(p.envelope, "sandbox", "qbo-oauth-return", KEYS.all)).rejects.toThrow();
     expect([p.indexSandbox, p.indexProduction]).toEqual([await realmIndex(REALM, "sandbox", KEYS.index), await realmIndex(REALM, "production", KEYS.index)]);
     expect(() => oauthRealmBinding("not-a-hash")).toThrow();
+  });
+});
+
+describe("[Phase C v2] key versions: forwards only", () => {
+  it("reads k<N> and idx<N>, one spelling per version, nothing else", () => {
+    expect(keyVersion("k2")).toEqual({ kind: "k", version: 2 }); expect(keyVersion("idx12")).toEqual({ kind: "idx", version: 12 });
+    for (const bad of ["k0", "k02", "K2", "k", "idx", "k2 ", "x2", "k1234567890", "idx-1", ""]) expect(keyVersion(bad)).toBeNull();
+  });
+  it("an upgrade is the same kind and a strictly higher version", () => {
+    expect(isUpgrade("k1", "k2")).toBe(true); expect(isUpgrade("idx2", "idx10")).toBe(true);
+    for (const [a, b] of [["k2", "k2"], ["k3", "k2"], ["k1", "idx2"], ["idx1", "k2"], ["k1", "kx"], ["legacy", "k2"]]) expect(isUpgrade(a, b)).toBe(false);
   });
 });
 
@@ -234,6 +245,69 @@ describe("the one-off backfill (platform owner only)", () => {
     const wrongPlain = deps({ listConnections: async () => [{ ...(await rows())[1], realm_id: "1" }] });
     expect(await runRealmBackfill(wrongPlain, KEYS, { action: "verify" })).toMatchObject({ connections: { mismatched: 1, verified: 0 } });
     expect(wrongPlain.verifyConnection).not.toHaveBeenCalled();
+  });
+  it("after the cutover (no database writers): protect only reports unprotected rows; verify is a local open-and-index check", async () => {
+    const d = deps({ protectConnection: undefined, protectOperation: undefined, verifyConnection: undefined, verifyOperation: undefined });
+    expect(await runRealmBackfill(d, KEYS, { action: "protect" })).toMatchObject({ status: 409, connections: { unprotected: 1, already: 1, protected: 0 } });
+    const sealedOnly = deps({ verifyConnection: undefined, listConnections: async () => [{ ...(await rows())[1], realm_id: null }] });
+    expect(await runRealmBackfill(sealedOnly, KEYS, { action: "verify" })).toMatchObject({ status: 200, outcome: "complete", connections: { verified: 1 } });
+    const moved = deps({ verifyConnection: undefined, listConnections: async () => [{ ...(await rows())[1], realm_id: null, company_id: A }] });
+    expect(await runRealmBackfill(moved, KEYS, { action: "verify" })).toMatchObject({ status: 409, connections: { mismatched: 1 } });
+  });
+  describe("[Phase C v2] rotation after the plaintext is gone, forwards only", () => {
+    const K3 = key("k3", 3), IDX2 = key("idx2", 8);
+    const ROT: RealmKeys = { current: K3, all: [K3, ...KEYS.all], index: IDX2, indexAll: [IDX2, KEYS.index] };
+    const redacted = async (): Promise<BackfillRow> => ({ ...(await rows())[1], realm_id: null });
+    const rot = (over: Partial<BackfillDeps>) => deps({ protectConnection: undefined, protectOperation: undefined, verifyConnection: undefined, verifyOperation: undefined, ...over });
+    it("reseal: a redacted row is resealed onto the newer key with p_realm_id NULL; the realm never leaves the process", async () => {
+      const row = await redacted();
+      const submit = vi.fn(async () => "resealed");
+      const r = await runRealmBackfill(rot({ listConnections: async () => [row], resealConnection: submit, resealOperation: vi.fn(async () => "resealed"), resealToken: vi.fn(async () => "resealed") }), ROT, { action: "reseal" });
+      const a = (submit.mock.calls[0] as unknown[])[0] as Record<string, string | null>;
+      expect(a.p_realm_id).toBeNull(); expect(a.p_expected_envelope).toBe(row.realm_envelope); expect(a.p_realm_index).toBe(row.realm_index);
+      expect(a.p_new_envelope!.startsWith("v1.k3.")).toBe(true);
+      expect(await openRealm(a.p_new_envelope!, "production", B, [K3])).toBe("9130350000000002");
+      expect(r).toMatchObject({ connectionRealms: { resealed: 1 } });
+      expect(JSON.stringify(r)).not.toContain("9130350000000002");
+    });
+    it("reseal: while a row still holds its plaintext it is sent for comparison", async () => {
+      const submit = vi.fn(async () => "resealed");
+      await runRealmBackfill(rot({ listConnections: async () => [(await rows())[1]], resealConnection: submit, resealOperation: vi.fn(), resealToken: vi.fn(async () => "resealed") }), ROT, { action: "reseal" });
+      expect(((submit.mock.calls[0] as unknown[])[0] as Record<string, string>).p_realm_id).toBe("9130350000000002");
+    });
+    it("reindex: a redacted row is re-indexed under the newer index key with p_realm_id NULL and the envelope unchanged", async () => {
+      const row = await redacted();
+      const submit = vi.fn(async () => "reindexed");
+      const r = await runRealmBackfill(rot({ listConnections: async () => [row], reindexConnection: submit, reindexOperation: vi.fn(async () => "reindexed") }), ROT, { action: "reindex" });
+      const a = (submit.mock.calls[0] as unknown[])[0] as Record<string, string | null>;
+      expect(a.p_realm_id).toBeNull(); expect(a.p_realm_envelope).toBe(row.realm_envelope); expect(a.p_expected_index).toBe(row.realm_index);
+      expect(a.p_new_index).toBe(await realmIndex("9130350000000002", "production", IDX2));
+      expect(r).toMatchObject({ status: 200, connectionIndexes: { reindexed: 1 } });
+    });
+    it("a downgrade is never submitted: a row on a NEWER key than the configured one is refused, not moved back", async () => {
+      // The row was sealed under k3 and indexed under idx2; this process only has k2 sealing and idx1 indexing (a stale deployment).
+      const newer: RealmKeys = { current: KEYS.current, all: [...KEYS.all, K3], index: KEYS.index, indexAll: [KEYS.index, IDX2] };
+      const p = await protectRealm("9130350000000002", "production", B, ROT);
+      const row: BackfillRow = { id: B, company_id: B, environment: "production", realm_id: null, realm_envelope: p.envelope, realm_index: p.index };
+      const reseal = vi.fn(async () => "resealed"), reindex = vi.fn(async () => "reindexed");
+      const r1 = await runRealmBackfill(rot({ listConnections: async () => [row], resealConnection: reseal, resealOperation: vi.fn(), resealToken: vi.fn() }), newer, { action: "reseal" });
+      const r2 = await runRealmBackfill(rot({ listConnections: async () => [row], reindexConnection: reindex, reindexOperation: vi.fn() }), newer, { action: "reindex" });
+      expect(reseal).not.toHaveBeenCalled(); expect(reindex).not.toHaveBeenCalled();
+      expect(r1).toMatchObject({ status: 409, connectionRealms: { refused: 1 } }); expect(r2).toMatchObject({ status: 409, connectionIndexes: { refused: 1 } });
+    });
+    it("the database's own downgrade or mismatch answer is counted as incomplete, never as done", async () => {
+      const row = await redacted();
+      for (const answer of ["downgrade", "realm_mismatch", "stale", "invalid"]) {
+        const r = await runRealmBackfill(rot({ listConnections: async () => [row], reindexConnection: async () => answer, reindexOperation: vi.fn() }), ROT, { action: "reindex" });
+        expect(r).toMatchObject({ status: 409, outcome: "incomplete" });
+      }
+    });
+    it("a row whose stored index names no configured index key (or a forged one) is unreadable or mismatched, and nothing is submitted", async () => {
+      const row = { ...(await redacted()), realm_index: "h1.idx9." + "0".repeat(64) };
+      const submit = vi.fn(async () => "reindexed");
+      const r = await runRealmBackfill(rot({ listConnections: async () => [row], reindexConnection: submit, reindexOperation: vi.fn() }), ROT, { action: "reindex" });
+      expect(submit).not.toHaveBeenCalled(); expect(r).toMatchObject({ status: 409, outcome: "incomplete" });
+    });
   });
   it("a failure to list is a plain failure with nothing else said", async () => {
     expect(await runRealmBackfill(deps({ listConnections: async () => { throw new Error(REALM); } }), KEYS, { action: "verify" })).toEqual({ status: 500, outcome: "failed" });

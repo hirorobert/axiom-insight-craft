@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import crypto from "node:crypto";
-import { OAUTH_STATE_TTL_SECONDS, oauthReturnBinding, parseCallbackQuery, parseConnectStartRequest, parseFinishRequest, runQboCallback, runQboConnectStart, runQboFinish, type CallbackDeps, type ConnectStartDeps, type FinishDeps, type ReturnBack } from "../../../supabase/functions/_shared/qboConnect";
+import { OAUTH_STATE_TTL_SECONDS, oauthReturnBinding, parseCallbackQuery, parseConnectStartRequest, parseFinishRequest, runQboCallback, runQboConnectStart, runQboFinish, isRotationRefusal, QboRotationInProgress, type CallbackDeps, type ConnectStartDeps, type FinishDeps, type ReturnBack } from "../../../supabase/functions/_shared/qboConnect";
 import { connectionBinding, openSecret, sealSecret, type EnvelopeKey } from "../../../supabase/functions/_shared/qboTokenEnvelope";
 import type { TokenResult } from "../../../supabase/functions/_shared/qboTokenClient";
 import { openParkedRealm, openRealm, protectParkedRealm, protectRealm, realmIndex, type RealmKeys } from "../../../supabase/functions/_shared/qboRealmProtection";
@@ -116,9 +116,10 @@ describe("callback: the code is parked, never exchanged, and the browser carries
     expect(r).toEqual({ status: 302, outcome: "handed_back", location: `https://app.example.test/workspace/${COMPANY}/2026/trial-balance/review#qbo_handoff=${HANDOFF}` });
     const u = new URL((r as { location: string }).location);
     expect(u.search).toBe(""); expect(u.hash).toBe(`#qbo_handoff=${HANDOFF}`);   // a browser never sends the fragment to a server
-    const [stateHash, parked] = log.recorded[0] as [string, { realmId: string; codeEnvelope: string; handoffHash: string; realm: { envelope: string; indexSandbox: string; indexProduction: string } }];
+    const [stateHash, parked] = log.recorded[0] as [string, { codeEnvelope: string; handoffHash: string; realm: { envelope: string; indexSandbox: string; indexProduction: string } }];
     expect(stateHash).toBe(await sha(STATE));
-    expect(parked.realmId).toBe(QUERY.realmId); expect(parked.handoffHash).toBe(await sha(HANDOFF));
+    expect(parked.handoffHash).toBe(await sha(HANDOFF));
+    expect(JSON.stringify(log.recorded)).not.toContain(QUERY.realmId);   // after the cutover the database never receives the realm in clear
     expect(parked.codeEnvelope).not.toContain("code-not-real");
     expect(await openSecret(parked.codeEnvelope, [KEY], oauthReturnBinding(await sha(HANDOFF)))).toBe("code-not-real");
     await expect(openSecret(parked.codeEnvelope, [KEY], oauthReturnBinding(await sha("other")))).rejects.toThrow();   // it opens for no other handoff
@@ -184,7 +185,7 @@ async function finishDeps(over: Partial<FinishDeps> = {}, who: string = ACTOR, p
       if (h !== handoffHash || !parked.open) return { outcome: "unknown" };
       parked.open = false;
       return actor === parked.starter ? {
-        outcome: "taken", companyId: COMPANY, environment: "sandbox", realmId: park.realmId === undefined ? REALM : park.realmId, codeEnvelope: parked.envelope,
+        outcome: "taken", companyId: COMPANY, environment: "sandbox", realmId: park.realmId === undefined ? null : park.realmId, codeEnvelope: parked.envelope,
         realmEnvelope: sealedRealm?.envelope ?? null, realmIndex: sealedRealm ? park.index ?? sealedRealm.indexSandbox : null,
       } : { outcome: "not_yours" };
     },
@@ -213,24 +214,24 @@ describe("finish: only the signed-in person who started the attempt connects any
     expect(log.exchanged).toEqual([["sandbox", "code-not-real", CFG.redirectUri]]);
     const binding = connectionBinding(COMPANY, "9341458604136919", "sandbox");
     expect(log.sealed).toEqual([["refresh-not-real-0001", binding]]);
-    const [company, actor, realm, env, envelope, , , protection] = log.stored[0] as [string, string, string, string, string, string, string, { envelope: string; index: string }];
-    expect([company, actor, realm, env]).toEqual([COMPANY, ACTOR, "9341458604136919", "sandbox"]);
+    const [company, actor, env, envelope, , , protection] = log.stored[0] as [string, string, string, string, string, string, { envelope: string; index: string }];
+    expect([company, actor, env]).toEqual([COMPANY, ACTOR, "sandbox"]);
+    expect(JSON.stringify(log.stored)).not.toContain(REALM);   // stored only as its envelope and index
     expect(await openSecret(envelope, [KEY], binding)).toBe("refresh-not-real-0001");
     // the connection's realm is stored sealed to the workspace and environment, with its index
     expect(await openRealm(protection.envelope, "sandbox", COMPANY, [KEY])).toBe(REALM);
     await expect(openRealm(protection.envelope, "sandbox", OTHER, [KEY])).rejects.toThrow();
     expect(protection.index).toBe(await realmIndex(REALM, "sandbox", REALM_KEYS.index));
   });
-  it("the parked realm is read by OPENING its envelope: with the plaintext gone (after the cutover) the same connection is stored", async () => {
-    const { deps, log } = await finishDeps({}, ACTOR, { realmId: null });
+  it("a stray parked plaintext that agrees with the envelope changes nothing (the envelope decides)", async () => {
+    const { deps, log } = await finishDeps({}, ACTOR, { realmId: REALM });
     expect(await runQboFinish(deps, { handoff: HANDOFF })).toEqual({ status: 200, outcome: "connected" });
-    expect((log.stored[0] as string[])[2]).toBe(REALM);
+    expect(await openRealm(((log.stored[0] as unknown[])[6] as { envelope: string }).envelope, "sandbox", COMPANY, [KEY])).toBe(REALM);
   });
-  it("an attempt parked in clear before the protection release is finished once and stored protected", async () => {
-    const { deps, log } = await finishDeps({}, ACTOR, { protect: false });
-    expect(await runQboFinish(deps, { handoff: HANDOFF })).toEqual({ status: 200, outcome: "connected" });
-    const protection = (log.stored[0] as unknown[])[7] as { envelope: string; index: string };
-    expect(await openRealm(protection.envelope, "sandbox", COMPANY, [KEY])).toBe(REALM);
+  it("after the cutover there is no plaintext fallback: an attempt parked in clear is refused before Intuit is touched", async () => {
+    const { deps, log } = await finishDeps({}, ACTOR, { protect: false, realmId: REALM });
+    expect(await runQboFinish(deps, { handoff: HANDOFF })).toEqual({ status: 500, outcome: "failed" });
+    expect(log.exchanged).toHaveLength(0); expect(log.stored).toHaveLength(0);
   });
   it.each<[string, { realmId?: string | null; index?: string }]>([
     ["the parked plaintext disagrees with the envelope", { realmId: "1111" }],
@@ -252,6 +253,16 @@ describe("finish: only the signed-in person who started the attempt connects any
     const starter = await finishDeps();
     const shared = { ...starter.deps, takeReturn: deps.takeReturn };   // the same parked return, now tried by the starter
     expect(await runQboFinish(shared, { handoff: HANDOFF })).toEqual({ status: 410, outcome: "expired" });   // already ended: single use
+  });
+  it("[Phase C v2] mid index-key rotation the database refuses the store: answered 409 rotation_in_progress, retryable, nothing stored", async () => {
+    const { deps } = await finishDeps();
+    const refusing = { ...deps, storeConnection: async () => { throw new QboRotationInProgress(); } };
+    expect(await runQboFinish(refusing, { handoff: HANDOFF })).toEqual({ status: 409, outcome: "rotation_in_progress" });
+    const other = { ...(await finishDeps()).deps, storeConnection: async () => { throw new Error("db"); } };
+    await expect(runQboFinish(other, { handoff: HANDOFF })).rejects.toThrow("db");   // any other failure stays a failure (500 at the function)
+    expect(isRotationRefusal({ code: "PT409", message: "x" })).toBe(true);
+    expect(isRotationRefusal({ message: "QBO_INDEX_ROTATION_IN_PROGRESS: an index-key rotation is in progress" })).toBe(true);
+    for (const e of [null, undefined, {}, { code: "P0001", message: "QBO_REALM_CUTOVER_REFUSED" }, { message: "x QBO_INDEX_ROTATION_IN_PROGRESS" }]) expect(isRotationRefusal(e)).toBe(false);
   });
   it("single use: a second finish by the starter gets nothing", async () => {
     const { deps, log } = await finishDeps();

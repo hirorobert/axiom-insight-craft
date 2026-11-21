@@ -7,7 +7,7 @@
  * ORDER (each step refuses before the next begins):
  *   1 login  2 BOTH rights an import needs, before Intuit is touched: prepare_trial_balance (the connector's own) and manage_source_files (the upload
  *     steps', judged again for the person at reserve and register)  3 a live connection, named by its id (the browser never holds a realm)
- *   3b its realm, read by OPENING the realm envelope (qboRealmProtection.ts; a connection the backfill has not reached yet is protected first)
+ *   3b its realm, read ONLY by opening the realm envelope (qboRealmProtection.ts); the evidence carries the connection's protection, never the realm
  *   4 open the stored refresh token
  *   5 take the refresh LEASE (a second simultaneous import is told "busy" here and never reaches Intuit; only this import's own lease id gives it back)
  *   6 refresh (Intuit; abandoned after 30 s, well inside the bounded operation lease)
@@ -69,7 +69,7 @@ export function parsePullRequest(body: unknown): PullRequest | null {
 export interface StoredConnection { id: string; status: "active" | "reconnect_needed"; envelope: string | null; realm: StoredRealm }
 /** The facts recorded BEFORE the file is stored, keyed by the upload reservation (the workspace comes from the reservation, never from here). */
 export interface ProvenanceRecord {
-  reservationId: string; connectionId: string; actorUserId: string; realmId: string; environment: QboEnvironment; startDate: string; endDate: string;
+  reservationId: string; connectionId: string; actorUserId: string; environment: QboEnvironment; startDate: string; endDate: string;
   fiscalBasis: QboFiscalBasis & { operationLeaseId: string }; periodId: string; accountingMethod: string | null; minorVersion: number | null; currency: string; accountCount: number; rawSha256: string; canonicalSha256: string; resultSha256: string;
 }
 export type CompletePullResult = "completed" | "already" | "not_registered" | "no_intent" | "no_reservation";
@@ -216,7 +216,7 @@ export async function runQboPull(deps: PullDeps, req: PullRequest): Promise<Pull
     // EVIDENCE FIRST. Nothing is stored or registered unless the facts of this report are already on record. If they cannot be written, the import stops here
     // and says so: there is no upload, so there is nothing that lacks its evidence (the unused reservation expires and is swept by the existing sweeper).
     const intent = await attempt(() => deps.recordIntent({
-      reservationId: reserved.reservationId, connectionId: conn.id, actorUserId: userId, realmId, environment: req.environment,
+      reservationId: reserved.reservationId, connectionId: conn.id, actorUserId: userId, environment: req.environment,
       startDate: fiscalBasis.fiscalStart, endDate: fiscalBasis.asOf, fiscalBasis: { ...fiscalBasis, operationLeaseId: leaseId }, periodId: period.id,
       accountingMethod: fiscalBasis.accountingMethod, minorVersion: deps.minorVersion, currency: report.currency,
       accountCount: summary.accountCount, rawSha256, canonicalSha256, resultSha256: summary.resultSha256,
