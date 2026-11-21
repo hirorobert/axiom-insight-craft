@@ -13,10 +13,13 @@ if (referenced.length === 0) throw new Error("no script chunk referenced by dist
 // ISO-4217 currency names, e.g. "Tanzanian Shilling", is deliberately not covered).
 const STATUTORY = /\b(ITA|EFDMS|TAA)\b|Tanzania(?!n Shilling)|Finance Act|Cap\.\s?332|TRA Audit|TRA-/;
 
-// The provider's legal identity (commercial handoff Update 4, S1/S5; dossier 28.2 A2): the seller's country of registration, the
-// Privacy Policy's hosting disclosure and the Terms' governing-law clause name the country of the PROVIDER, not a customer's tax
-// regime. Exactly these sentences are removed from an entry chunk before the statutory test; anything else that names the country,
-// and every statutory token, still fails. Keep in step with src/lib/commercial/businessIdentity.ts, Terms.tsx and Privacy.tsx.
+// The provider's legal identity (commercial handoff Update 4, S1/S5; dossier 28.2 A2): the Privacy Policy's hosting disclosure and
+// the Terms' governing-law clause name a country for the PROVIDER's own reasons, not a customer's tax regime. Exactly these
+// sentences are removed from an entry chunk before the statutory test; anything else that names the country, and every statutory
+// token, still fails. Since the owner's correction of 2026-11-21 the live identity names London, United Kingdom and needs no
+// exemption; the Tanzania business-name phrases below now come only from the archived policy versions under docs/legal/** (the
+// bundle carries every version, so a customer can still read exactly the terms they accepted). Keep in step with
+// src/lib/commercial/businessIdentity.ts, Terms.tsx, Privacy.tsx and src/legal/archive/index.ts.
 const LEGAL_IDENTITY = [
   "registered in the United Republic of Tanzania under the Business Names Act",
   "Kati, Pangani, Tanzania",

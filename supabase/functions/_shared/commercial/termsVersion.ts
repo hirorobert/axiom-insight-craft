@@ -11,7 +11,7 @@
 //
 // Format of the version: <publication date>.<first 12 hex of SHA-256 over the canonical policy text>. Pure: no I/O, no Deno
 // APIs (imported by Vitest as well as by the Edge Functions).
-export const CURRENT_TERMS_VERSION = "2026-11-16.8c10d10a9deb";
+export const CURRENT_TERMS_VERSION = "2026-11-21.4086423bd9f5";
 
 export type AcknowledgementCheck =
   | { ok: true; termsVersion: string; immediateServiceConsent?: true }

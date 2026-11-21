@@ -31,13 +31,13 @@ export const JURISDICTION_MODULES = (files: readonly string[]): string[] => [...
 const CURRENCY_LIST_FILES = ["components/workspace/FirstRunEngagement.tsx", "components/CompanyManager.tsx"];
 
 /**
- * The provider's legal identity and the Privacy Policy's hosting disclosure (commercial handoff Update 4, S1 and S5): the seller's
- * country of registration ("registered in the United Republic of Tanzania", "Kati, Pangani, Tanzania", "outside Tanzania") is a
- * statutory disclosure about WHO provides the service, not jurisdiction-pack wording about the customer's tax regime; the Terms'
- * governing-law clause (dossier 28.2 A2) names the same country for the same reason. Only the country name is exempt on exactly
- * these files; TRA / TIN / EFDMS and statute names stay forbidden there too.
+ * The Privacy Policy's hosting disclosure and the Terms' governing-law clause (commercial handoff Update 4, S5; dossier 28.2 A2):
+ * "outside Tanzania" and "laws of the United Republic of Tanzania" name a country for a reason that is not a customer's tax regime -
+ * where the data is kept, and which law governs the contract. Only the country name is exempt on exactly these files;
+ * TRA / TIN / EFDMS and statute names stay forbidden there too. (The provider's own identity has named no country since the owner's
+ * correction of 2026-11-21, so src/lib/commercial/businessIdentity.ts needs no exemption and is not listed.)
  */
-const LEGAL_IDENTITY_FILES = ["lib/commercial/businessIdentity.ts", "pages/Privacy.tsx", "pages/Terms.tsx"];
+const LEGAL_IDENTITY_FILES = ["pages/Privacy.tsx", "pages/Terms.tsx"];
 const NON_COUNTRY = /\b(TRA|TIN|EFDMS|TAA|ITA|SDL|NSSF|WCF)\b|Finance Act|Cap\.\s?332/;
 /** Tested on the FULL string (findForbidden truncates for display): the country name alone, none of the statutory tokens. */
 const COUNTRY_ONLY = (full: string) => /Tanzania/.test(full) && !NON_COUNTRY.test(full);

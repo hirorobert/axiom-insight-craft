@@ -57,8 +57,9 @@ export const KNOWN_CLOSURES = Object.freeze({
   // checkout metadata (providers/polar.ts, shared by both functions). Neither function was pinned before; main 9a919c0's closures
   // are recorded as the known predecessors (whether they are what production runs is NOT verified from this repository).
   "commercial-create-checkout": Object.freeze({
-    required: { sha256: "dc99a2251b8ce6efbb2f5f290d37cc612a9a00ce08cc93d3459f4dd1c414e045", source: "PR #266 at TERMS_VERSION 2026-11-16.8c10d10a9deb (the owner's telephone in Terms section 1 moved CURRENT_TERMS_VERSION): refuses a checkout without the current Terms version before any write; records the server's version on the intent and in Polar metadata; needs 20261229100000 applied first" },
-    known: [{ sha256: "c579825ca48870ac3d59433ad224d1169aae818ef69f61df02cbd82445c3a0e9", source: "PR #266 through 4e81c60 (never deployed): the same function at TERMS_VERSION 2026-11-13.e9570ed37c46" },
+    required: { sha256: "927cdbb08ef4f0a22f5410d040d1564b3e731d66fe30d097846ee873f4388196", source: "the owner's identity correction of 2026-11-21 (CFOCLOSE based in London, United Kingdom; CURRENT_TERMS_VERSION 2026-11-21.4086423bd9f5): refuses a checkout without the current Terms version before any write; records the server's version on the intent and in Polar metadata; needs 20261229100000 applied first. NOT deployed as at 2026-11-21 — deploying it is the owner's own step" },
+    known: [{ sha256: "dc99a2251b8ce6efbb2f5f290d37cc612a9a00ce08cc93d3459f4dd1c414e045", source: "PR #266 at TERMS_VERSION 2026-11-16.8c10d10a9deb (the owner's telephone in Terms section 1 moved CURRENT_TERMS_VERSION): the closure deployed hosted; answers TERMS_VERSION_NOT_CURRENT for the 2026-11-21 version until it is redeployed" },
+      { sha256: "c579825ca48870ac3d59433ad224d1169aae818ef69f61df02cbd82445c3a0e9", source: "PR #266 through 4e81c60 (never deployed): the same function at TERMS_VERSION 2026-11-13.e9570ed37c46" },
       { sha256: "961818245916e93cbe7810ecbd4acc58eceb0f91ec96d8890c051ac5fbdbec42", source: "main 9a919c0 (consolidated release): no Terms version; 14-argument acquire_checkout_attempt call (still valid after 20261229100000)" }],
   }),
   "commercial-payment-status": Object.freeze({

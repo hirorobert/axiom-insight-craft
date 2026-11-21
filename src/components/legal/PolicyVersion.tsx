@@ -12,7 +12,7 @@ export function usePolicyVersion(): { requested: string | null; archived: Archiv
   const requested = params.get("v");
   if (!requested || requested === TERMS_VERSION) return { requested, archived: null, unknown: false };
   const entry = LEGAL_ARCHIVE[requested];
-  const archived = entry && entry.status === "published" ? entry : null; // a draft version is never served by link
+  const archived = entry && entry.status !== "draft" ? entry : null; // a draft version is never served by link; a superseded one is, as the history it was
   return { requested, archived, unknown: archived === null };
 }
 

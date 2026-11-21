@@ -192,10 +192,16 @@ describe("ARCHIVE · every published version is kept as rendered text and served
     expect(text(h)).toContain(`Read the current version (${TERMS_VERSION})`);
     expect(h).not.toContain("terms-archived-text");
   });
-  it("the current version is PUBLISHED (owner's final contractual approval, 2026-11-16) and is the only published one; the two 2026-11-13 drafts stay archived for their hashes and never served", () => {
+  it("the current version is PUBLISHED (the owner's identity correction of 2026-11-21) and is the only published one; 2026-11-16 stays SUPERSEDED and served exactly as it was accepted; the two 2026-11-13 drafts stay archived for their hashes and never served", () => {
     expect(Object.keys(LEGAL_ARCHIVE).every((v) => /^\d{4}-\d{2}-\d{2}\.[0-9a-f]{12}$/.test(v))).toBe(true);
-    expect(LEGAL_ARCHIVE[TERMS_VERSION].status).toBe("published"); // flipped by the owner's approval of exactly 2026-11-16.8c10d10a9deb, never before
+    expect(LEGAL_ARCHIVE[TERMS_VERSION].status).toBe("published"); // the owner's instruction of 2026-11-21 (London, United Kingdom), never before
     expect(publishedVersions()).toEqual([TERMS_VERSION]);
+    // A purchase that accepted 2026-11-16 must still be able to read exactly what it accepted: superseded, but served at its link.
+    expect(LEGAL_ARCHIVE["2026-11-16.8c10d10a9deb"].status).toBe("superseded");
+    const old = renderToStaticMarkup(createElement(MemoryRouter, { initialEntries: [`/terms?v=2026-11-16.8c10d10a9deb`] }, createElement(Terms)));
+    expect(old).toContain('data-testid="terms-archived-text"');
+    expect(text(old)).toContain("Kati, Pangani, Tanzania");
+    expect(text(old)).toContain("registration number 705538");
     for (const v of ["2026-11-13.c6ad0a9491d5", "2026-11-13.e9570ed37c46"]) { expect(LEGAL_ARCHIVE[v].status).toBe("draft"); expect(renderToStaticMarkup(createElement(MemoryRouter, { initialEntries: [`/terms?v=${v}`] }, createElement(Terms)))).toContain('data-testid="terms-version-unknown"'); }
     // The current text renders as the live page at ?v=<current> (it IS the current text) rather than as an archived copy.
     const h = renderToStaticMarkup(createElement(MemoryRouter, { initialEntries: [`/privacy?v=${TERMS_VERSION}`] }, createElement(Privacy)));
@@ -221,10 +227,14 @@ describe("UPDATE 4 · the settled commercial text is rendered from one identity 
     expect(privacy).not.toContain("Telephone");
     expect(text(html(Footer))).not.toContain("Telephone");
   });
-  it("S1 · the footer carries the identity line exactly once, from the same source", () => {
+  it("S1 · the footer carries the identity line exactly once, from the same source; the withdrawn Tanzania registration is gone from every live page", () => {
     const f = text(html(Footer));
     expect(f.split(BUSINESS_IDENTITY.footerLine).length - 1).toBe(1);
-    expect(BUSINESS_IDENTITY.footerLine).toContain("reg. 705538");
+    expect(BUSINESS_IDENTITY.footerLine).toContain("London, United Kingdom");
+    expect(BUSINESS_IDENTITY.footerLine).not.toMatch(/SAFF ERP|705538|Tanzania/);
+    for (const [where, t] of [["footer", f], ["terms", terms], ["privacy", privacy]] as const) {
+      expect(t, where).not.toMatch(/SAFF ERP|705538|Kati, Pangani/);
+    }
   });
   it("S2 · Terms section 2 names Polar Software, Inc. as reseller and merchant of record under the Polar Checkout Buyer Terms", () => {
     expect(terms).toContain("2. Who sells your plan Plans are sold by our reseller and merchant of record, Polar Software, Inc.");
