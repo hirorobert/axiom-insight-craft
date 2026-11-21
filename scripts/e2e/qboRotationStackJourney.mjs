@@ -183,8 +183,10 @@ await check("the stack's database is loopback-only; which roles preload safeupda
     return true;
   } finally { await c.end(); }
 });
-await check("the redaction runs to completion with safeupdate ACTIVE: live plaintext removed, pending operation cleared, history byte-identical", async () => {
-  const c = new pg.Client({ connectionString: dbUrl });
+await check("the redaction runs to completion as postgres with safeupdate ACTIVE: live plaintext removed, pending operation cleared, history byte-identical", async () => {
+  // The local stack's superuser (same loopback server and password as DB_URL) may LOAD safeupdate; the replay then runs as postgres.
+  const su = new URL(dbUrl); su.username = "supabase_admin";
+  const c = new pg.Client({ connectionString: su.toString() });
   await c.connect();
   try {
     await c.query("BEGIN");
@@ -192,10 +194,10 @@ await check("the redaction runs to completion with safeupdate ACTIVE: live plain
       migrationSql: fs.readFileSync(path.join(REPO, "supabase/migrations/20261231300000_qbo_realm_protection_cutover_redaction.sql"), "utf8"),
       protect: (realm) => RP.protectRealm(realm, "sandbox", A, { current: K3, all: [K3], index: IDX3 }),
       sealToken: (realm) => TE.sealSecret("rt-" + crypto.randomBytes(16).toString("hex"), K3, TE.connectionBinding(A, realm, "sandbox")),
-      companyId: A, actorId: U.a.id, loadSafeupdate: true });
+      companyId: A, actorId: U.a.id, loadSafeupdate: true, runAs: "postgres" });
     await c.query("ROLLBACK");
     runtime.redaction = x.detail;
-    return x.ok || x.detail;
+    return x.ok && x.detail.runAs === "postgres" || x.detail;
   } catch (e) { await c.query("ROLLBACK").catch(() => undefined); throw e; } finally { await c.end(); }
 });
 await check("after the rollback the stack is exactly as before: the redaction's final rules are installed and no seeded row remains", async () => {

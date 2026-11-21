@@ -10,10 +10,18 @@
 //
 // Returns { ok, detail }: ok only when the migration ran to completion, the live plaintext is gone, the history is byte-identical, and (when
 // asked) safeupdate was demonstrably active in the session.
-export async function replayRedaction(c, { migrationSql, protect, sealToken, companyId, actorId, loadSafeupdate = false }) {
+export async function replayRedaction(c, { migrationSql, protect, sealToken, companyId, actorId, loadSafeupdate = false, runAs = null }) {
   const detail = {};
+  // On Supabase only a superuser may LOAD the library (supautils refuses it to postgres), and only authenticator preloads it. So the caller connects
+  // as the local superuser, the library is loaded into THAT session, and everything below runs as `runAs` (postgres, the role that applies
+  // migrations): the safeupdate hook stays installed in the session whatever the current role.
+  if (loadSafeupdate) await c.query("LOAD 'safeupdate'");
+  if (runAs) {
+    if (!/^[a-z_][a-z0-9_]*$/.test(runAs)) throw new Error("runAs is not a role name");
+    await c.query(`SET LOCAL ROLE ${runAs}`);
+    detail.runAs = (await c.query("SELECT current_user u")).rows[0].u;
+  }
   if (loadSafeupdate) {
-    await c.query("LOAD 'safeupdate'");
     await c.query("SAVEPOINT safeupdate_probe");
     try { await c.query("DELETE FROM public.qbo_oauth_states"); detail.safeupdate = "an unqualified DELETE was NOT refused"; }
     catch (e) { detail.safeupdate = /WHERE/i.test(String(e.message)) ? "active" : `unexpected: ${String(e.message).slice(0, 120)}`; }
