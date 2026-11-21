@@ -111,7 +111,7 @@ describe("which compile-financial-report bundle is deployed", () => {
 
 describe("the two commercial functions that carry the Terms version (PR #266)", () => {
   it("are pinned to the current tree's closures, with main 9a919c0 as the known predecessor", () => {
-    expect(KNOWN_CLOSURES["commercial-create-checkout"].required.sha256).toBe("927cdbb08ef4f0a22f5410d040d1564b3e731d66fe30d097846ee873f4388196"); // 2026-11-21: the owner's identity correction (London, United Kingdom) moved CURRENT_TERMS_VERSION; dc99a225… (the deployed 2026-11-16 closure) is now a known predecessor
+    expect(KNOWN_CLOSURES["commercial-create-checkout"].required.sha256).toBe("cefff552a1f235539688c769bb686894666cfa792bd221939e8f556c911a2a0f"); // 2026-11-21: the owner's governing-law decision (England and Wales) moved CURRENT_TERMS_VERSION; 927cdbb0… (identity correction, never deployed) and dc99a225… (the deployed 2026-11-16 closure) are known predecessors
     expect(KNOWN_CLOSURES["commercial-create-checkout"].known.map((k: { sha256: string }) => k.sha256)).toContain("c579825ca48870ac3d59433ad224d1169aae818ef69f61df02cbd82445c3a0e9");
     expect(KNOWN_CLOSURES["commercial-create-checkout"].known.map((k: { sha256: string }) => k.sha256)).toContain("dc99a2251b8ce6efbb2f5f290d37cc612a9a00ce08cc93d3459f4dd1c414e045");
     expect(KNOWN_CLOSURES["commercial-payment-status"].required.sha256).toBe("9f9c8cf770739cd8d485f474394cae149bbf5bc15e8bbfa1eea150091c3614ce");

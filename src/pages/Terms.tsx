@@ -134,7 +134,7 @@ export default function Terms() {
           <div>
             <h2 className="text-lg font-semibold text-foreground mb-2">10. Governing law and disputes</h2>
             <p data-testid="terms-law">
-              These Terms are governed by the laws of the United Republic of Tanzania, and the courts of Tanzania have
+              These Terms are governed by the laws of England and Wales, and the courts of England and Wales have
               jurisdiction over disputes about the service. This does not affect your rights under mandatory consumer law, or
               the Polar Checkout Buyer Terms that govern your purchase contract with Polar.
             </p>

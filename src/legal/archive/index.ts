@@ -14,6 +14,9 @@ import refunds_2026_11_16_8c10d10a9deb from "../../../docs/legal/refunds/2026-11
 import terms_2026_11_21_4086423bd9f5 from "../../../docs/legal/terms/2026-11-21.4086423bd9f5.md?raw";
 import privacy_2026_11_21_4086423bd9f5 from "../../../docs/legal/privacy/2026-11-21.4086423bd9f5.md?raw";
 import refunds_2026_11_21_4086423bd9f5 from "../../../docs/legal/refunds/2026-11-21.4086423bd9f5.md?raw";
+import terms_2026_11_21_0df92e16c02c from "../../../docs/legal/terms/2026-11-21.0df92e16c02c.md?raw";
+import privacy_2026_11_21_0df92e16c02c from "../../../docs/legal/privacy/2026-11-21.0df92e16c02c.md?raw";
+import refunds_2026_11_21_0df92e16c02c from "../../../docs/legal/refunds/2026-11-21.0df92e16c02c.md?raw";
 
 export interface ArchivedPolicies {
   readonly terms: string; readonly privacy: string; readonly refunds: string;
@@ -34,7 +37,11 @@ export const LEGAL_ARCHIVE: Readonly<Record<string, ArchivedPolicies>> = Object.
   "2026-11-16.8c10d10a9deb": Object.freeze({ terms: terms_2026_11_16_8c10d10a9deb.trimEnd(), privacy: privacy_2026_11_16_8c10d10a9deb.trimEnd(), refunds: refunds_2026_11_16_8c10d10a9deb.trimEnd(), status: "superseded" }),
   // 2026-11-21: the owner's correction — CFOCLOSE is based in London, United Kingdom; the Tanzania business-name registration
   // (SAFF ERP, reg. 705538, Kati, Pangani) is withdrawn from every customer surface. PUBLISHED on the owner's instruction of 2026-11-21.
-  "2026-11-21.4086423bd9f5": Object.freeze({ terms: terms_2026_11_21_4086423bd9f5.trimEnd(), privacy: privacy_2026_11_21_4086423bd9f5.trimEnd(), refunds: refunds_2026_11_21_4086423bd9f5.trimEnd(), status: "published" }),
+  // SUPERSEDED the same day by the governing-law correction below: it stays archived and served at its permanent link, byte for byte.
+  "2026-11-21.4086423bd9f5": Object.freeze({ terms: terms_2026_11_21_4086423bd9f5.trimEnd(), privacy: privacy_2026_11_21_4086423bd9f5.trimEnd(), refunds: refunds_2026_11_21_4086423bd9f5.trimEnd(), status: "superseded" }),
+  // 2026-11-21: the owner's governing-law decision — Terms section 10 now names the laws and courts of England and Wales
+  // (the provider is based in London, United Kingdom); the only text change. PUBLISHED on the owner's instruction of 2026-11-21.
+  "2026-11-21.0df92e16c02c": Object.freeze({ terms: terms_2026_11_21_0df92e16c02c.trimEnd(), privacy: privacy_2026_11_21_0df92e16c02c.trimEnd(), refunds: refunds_2026_11_21_0df92e16c02c.trimEnd(), status: "published" }),
 });
 
 export const archivedVersions = (): readonly string[] => Object.keys(LEGAL_ARCHIVE).sort();

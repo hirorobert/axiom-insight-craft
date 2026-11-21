@@ -48,7 +48,7 @@ export const REFUNDS_AND_CANCELLATION = {
  * texts). The browser sends it with the checkout request; the server refuses any other value before writing anything and
  * records ITS constant on the intent. Format: <publication date>.<first 12 hex of the policy-text SHA-256>.
  */
-export const TERMS_VERSION = "2026-11-21.4086423bd9f5";
+export const TERMS_VERSION = "2026-11-21.0df92e16c02c";
 
 /**
  * The two acknowledgements required before "Continue to payment" (commercial package 12.7). Box 1 is the Terms acceptance (final,
