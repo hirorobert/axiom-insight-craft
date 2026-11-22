@@ -47,7 +47,7 @@ describe("realmID protection migrations: registered, then applied as hosted 114-
       expect(submittedForm(n, s, s.subarray(0, s.length - 1))).toBe("final_lf_removed");
       expect(submittedForm(n, s, Buffer.concat([s, Buffer.from("\n")]))).toBeNull();
     }
-    expect(Object.keys(RELEASE_JOURNAL).filter((k) => /realm/.test(k))).toEqual([...TAGS, RESEAL_TAG, "0118_qbo_realm_index_rotation", "0119_qbo_realm_protection_cutover_schema", "0120_qbo_realm_protection_cutover_functions", "0121_qbo_realm_rotation_post_redaction"]);   // + 2026-11-20: the index-key rotation (hosted 119)
+    expect(Object.keys(RELEASE_JOURNAL).filter((k) => /realm/.test(k))).toEqual([...TAGS, RESEAL_TAG, "0118_qbo_realm_index_rotation", "0119_qbo_realm_protection_cutover_schema", "0120_qbo_realm_protection_cutover_functions", "0121_qbo_realm_rotation_post_redaction", "0122_qbo_realm_protection_cutover_redaction"]);   // + 2026-11-20: the index-key rotation (hosted 119)
     // Hosted 114 and 115: the committed files byte for byte (journal hashes read in the hosted SQL editor).
     expect(sha(mirror(TAGS[0]))).toBe(sha(src(NAMES[0]))); expect(sha(mirror(TAGS[0]))).toBe("7b310469b5b5919786295f7709f8d9532e604abf2acaea7689df642037885598");
     expect(sha(mirror(TAGS[1]))).toBe(sha(src(NAMES[1]))); expect(sha(mirror(TAGS[1]))).toBe("578a4bafc9e38fe793c1c8f88628ac613300a5e13b7d648c4d209d18213e1f82");
@@ -156,7 +156,7 @@ describe("the token-key reseal: applied as hosted 117 with one transcribed line 
     expect(submittedForm(REPAIR, s, s.subarray(0, s.length - 1))).toBe("final_lf_removed");
     const r = checkMigrationAuthority(ROOT) as Result & { mirrored: { tag: string; source: string; how: string }[] };
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual(["20261231300000_qbo_realm_protection_cutover_redaction.sql"]); // 2026-11-22: Phase C v2 parts 1-3 applied as hosted 120-122 (mirrors 0119-0121, release_verbatim); only part 4 (the redaction) is pending. Before that: Phase C v2 (supersedes PR #282): the four cutover parts, authored, not applied; // 2026-11-20: the realm index-key rotation (20261230500000) applied byte for byte as hosted 119 (mirror 0118, release_verbatim); nothing is pending. 2026-11-20: the realm index-key rotation (20261230500000), authored, not applied
+    expect(r.pending).toEqual([]); // 2026-11-22: Phase C v2 part 4 (the redaction) applied as hosted 123 (mirror 0122, release_verbatim); nothing is pending. Before that: parts 1-3 applied as hosted 120-122 (mirrors 0119-0121, release_verbatim); only part 4 (the redaction) was pending. Before that: Phase C v2 (supersedes PR #282): the four cutover parts, authored, not applied; // 2026-11-20: the realm index-key rotation (20261230500000) applied byte for byte as hosted 119 (mirror 0118, release_verbatim); nothing is pending. 2026-11-20: the realm index-key rotation (20261230500000), authored, not applied
     expect(r.mirrored.filter((x) => x.source === REPAIR)).toEqual([{ tag: REPAIR_TAG, source: REPAIR, how: "release_verbatim" }]);
     const rm = mirror(REPAIR_TAG); expect([rm.length, sha(rm)]).toEqual([s.length, sha(s)]);   // hosted 118 = the committed file, final LF kept
     expect(J[REPAIR_TAG]).toEqual({ kind: "release_verbatim", source: REPAIR, bytes: 6185, digest: sha(s), sha256: sha(s) });
@@ -165,18 +165,20 @@ describe("the token-key reseal: applied as hosted 117 with one transcribed line 
     expect([rs.length, sha(rs)]).toEqual([18452, "9d44bf0c73989b4bf5487ed3c864f66190c962e969fadf657cbe09eb3a6d20bf"]); expect([rot.length, sha(rot)]).toEqual([rs.length, sha(rs)]);
     expect(r.mirrored.filter((x) => x.source === ROT)).toEqual([{ tag: ROT_TAG, source: ROT, how: "release_verbatim" }]);
     expect(J[ROT_TAG]).toEqual({ kind: "release_verbatim", source: ROT, bytes: 18452, digest: sha(rs), sha256: sha(rs) });
-    // Phase C v2 parts 1-3: hosted 120-122 = the committed files byte for byte, final LF kept (mirrors 0119-0121, 2026-11-22). Part 4 stays pending.
+    // Phase C v2 parts 1-4: hosted 120-123 = the committed files byte for byte, final LF kept (mirrors 0119-0122, 2026-11-22; part 4, the
+    // irreversible redaction, separately owner-approved).
     for (const [name, tag, bytes, digest] of [
       ["20261231100000_qbo_realm_protection_cutover_schema.sql", "0119_qbo_realm_protection_cutover_schema", 16936, "599c851f209d0e5a4bbf782320139823a371750b89898afb6488dd5af6108966"],
       ["20261231200000_qbo_realm_protection_cutover_functions.sql", "0120_qbo_realm_protection_cutover_functions", 20450, "48295fcd5fae4ef3d368494a427d44f13ccd64157ce80f036732ca49e6fcf020"],
       ["20261231250000_qbo_realm_rotation_post_redaction.sql", "0121_qbo_realm_rotation_post_redaction", 15045, "ae14667cb7163c23d7123cd76d2f06e3b22e19ccd6624a64d144ec023ce40b89"],
+      ["20261231300000_qbo_realm_protection_cutover_redaction.sql", "0122_qbo_realm_protection_cutover_redaction", 10742, "b671d00a042bd7132afaf7066791658482ddb32a8f0a8c51b1a854c2418967c0"],
     ] as const) {
       const cs = src(name), cm = mirror(tag);
       expect([cs.length, sha(cs)]).toEqual([bytes, digest]); expect([cm.length, sha(cm)]).toEqual([bytes, digest]);
       expect(r.mirrored.filter((x) => x.source === name)).toEqual([{ tag, source: name, how: "release_verbatim" }]);
       expect(J[tag]).toEqual({ kind: "release_verbatim", source: name, bytes, digest, sha256: digest });
     }
-    expect(r.pending).toEqual(["20261231300000_qbo_realm_protection_cutover_redaction.sql"]);   // the redaction: not applied, its own explicit go
+    expect(r.pending).toEqual([]);   // nothing of Phase C is pending
     expect(r.mirrored.filter((x) => x.source === RESEAL)).toEqual([{ tag: RESEAL_TAG, source: RESEAL, how: "release_transcription_variant_repaired" }]);
     expect(checkReleaseEntry(RESEAL_TAG, mirror(RESEAL_TAG).toString("utf8"), srcBytes).problems).toEqual([]);
   }, 120_000);

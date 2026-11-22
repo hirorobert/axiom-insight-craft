@@ -63,7 +63,7 @@ describe("checkout terms acceptance migration (PR #266): applied as hosted 113 t
   it("the repository is in parity: 0112 mirrors the source through its reviewed entry; only the registered realm protection sources are pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual(["20261231300000_qbo_realm_protection_cutover_redaction.sql"]); // 2026-11-22: Phase C v2 parts 1-3 applied as hosted 120-122 (mirrors 0119-0121, release_verbatim); only part 4 (the redaction) is pending. Before that: Phase C v2 (supersedes PR #282): the four cutover parts, authored, not applied; // 2026-11-20: the realm index-key rotation (20261230500000) applied byte for byte as hosted 119 (mirror 0118, release_verbatim); nothing is pending. 2026-11-20: the realm index-key rotation (20261230500000), authored, not applied; 2026-11-19: the operation-guard repair (20261230410000) applied byte for byte as hosted 118 (mirror 0117, release_verbatim); nothing is pending. the operation-guard repair (20261230410000): authored, not applied; 2026-11-19: the token-key reseal (20261230400000) applied as hosted 117 (mirror 0116, a reviewed transcription variant repaired by 20261230410000);   // QuickBooks realmID protection r1, authored and not applied
+    expect(r.pending).toEqual([]); // 2026-11-22: Phase C v2 part 4 (the redaction) applied as hosted 123 (mirror 0122, release_verbatim); nothing is pending. Before that: parts 1-3 applied as hosted 120-122 (mirrors 0119-0121, release_verbatim); only part 4 (the redaction) was pending. Before that: Phase C v2 (supersedes PR #282): the four cutover parts, authored, not applied; // 2026-11-20: the realm index-key rotation (20261230500000) applied byte for byte as hosted 119 (mirror 0118, release_verbatim); nothing is pending. 2026-11-20: the realm index-key rotation (20261230500000), authored, not applied; 2026-11-19: the operation-guard repair (20261230410000) applied byte for byte as hosted 118 (mirror 0117, release_verbatim); nothing is pending. the operation-guard repair (20261230410000): authored, not applied; 2026-11-19: the token-key reseal (20261230400000) applied as hosted 117 (mirror 0116, a reviewed transcription variant repaired by 20261230410000);   // QuickBooks realmID protection r1, authored and not applied
     expect(r.mirrored.find((x) => x.tag === TAG)).toMatchObject({ source: NAME, how: "release_verbatim_final_lf_removed" });
   }, 120_000);
 
@@ -82,7 +82,7 @@ describe("checkout terms acceptance migration (PR #266): applied as hosted 113 t
     expect(submittedForm(NAME, altered, altered)).toBeNull();
     const r = run((d) => fs.writeFileSync(path.join(d, "supabase/migrations/20270101100000_unregistered_commercial_change.sql"), altered));
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual(["20261231300000_qbo_realm_protection_cutover_redaction.sql", "20270101100000_unregistered_commercial_change.sql"]);
+    expect(r.pending).toEqual(["20270101100000_unregistered_commercial_change.sql"]);
     expect(Object.keys(SUBMISSION_FORMS)).not.toContain("20270101100000_unregistered_commercial_change.sql");
   }, 120_000);
 });
