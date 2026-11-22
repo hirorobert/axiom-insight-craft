@@ -395,10 +395,20 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # An exact CLI release, not "latest": resolving "latest" calls the GitHub releases API, which rate-limited this step twice
+      # (2026-11-21 main run 44919198343, 2026-11-22 PR #290 run 45004675637) and left every journey without a CLI. An exact
+      # version downloads straight from the release assets. 3.2.0 (2026-11-16) is the stable release every green run since then
+      # installed through "latest". Change it deliberately, in its own PR, after a green local-stack run on the new version.
       - name: Setup the Supabase CLI
         uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 3.2.0
+
+      - name: Record the Supabase CLI version (must be the pinned 3.2.0)
+        run: |
+          v="$(supabase --version)"
+          echo "Supabase CLI ${v}"
+          test "${v}" = "3.2.0" || { echo "expected the pinned Supabase CLI 3.2.0, got ${v}"; exit 1; }
 
       - name: Start the local Supabase stack (Docker on loopback; the CLI applies supabase/migrations to a throwaway database)
         id: stack_start

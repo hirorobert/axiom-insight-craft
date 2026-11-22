@@ -28,7 +28,7 @@ realmID. The reviewed design is `release/candidates/qbo-realm-protection-r0/DESI
 |---|---|---|---|
 | A — additive schema | `20261230100000_qbo_realm_protection_schema.sql` | yes | `realm_envelope` + `realm_index` on `qbo_connections`, `qbo_disconnect_operations`, `qbo_oauth_states`, `qbo_pull_intents`, `qbo_pulls`; `realm_verified_at` on connections and operations; shape checks; `uq_qbo_connections_live_protected`; write-once guards; service-only `qbo_protect_*_realm`, `qbo_verify_*_realm`, `qbo_realm_protection_status` |
 | B — dual write (PR 1) | `20261230200000_qbo_realm_protection_connect.sql`, `20261230300000_qbo_realm_protection_evidence.sql` | yes (plaintext still written) | callback, finish, store, disconnect, intent and provenance write the protection beside the plaintext; status read loses `realm_id` |
-| C — cutover (PR 2, separate) | `20261231100000_qbo_realm_protection_cutover_schema.sql`, `20261231200000_qbo_realm_protection_cutover_functions.sql`, `20261231300000_qbo_realm_protection_cutover_redaction.sql` | **no, for the plaintext** (part 3) | part 1: realm_id nullable, every row keeps plaintext or protection, guards allow only a verified row's redaction; part 2: uniqueness, per-realm lock, pending-revocation and shared-realm checks on the index, no function writes a plaintext, backfill writers dropped; part 3: plaintext of live connections, operations and OAuth states removed. Each part re-checks the 100 % gate |
+| C — cutover v2 (PR #289; supersedes #282) | `20261231100000_qbo_realm_protection_cutover_schema.sql`, `20261231200000_qbo_realm_protection_cutover_functions.sql`, `20261231250000_qbo_realm_rotation_post_redaction.sql`, `20261231300000_qbo_realm_protection_cutover_redaction.sql` | parts 1–3 change no row; **part 4 is not reversible for the plaintext** | part 1: realm_id nullable, every row keeps plaintext or protection, guards allow only a verified row's redaction plus forward-only reseal/reindex; part 2: uniqueness, per-realm lock, pending-revocation and shared-realm checks on the index, index-key homogeneity, no function writes a plaintext, backfill writers dropped; part 3: reseal and reindex that work once the plaintext is gone; part 4: plaintext of live connections, pending operations and OAuth states removed, history byte-identical. **Status: parts 1–3 applied as hosted 120–122 on 2026-11-22; part 4 NOT applied, pending its own explicit go** (see "Phase C v2" below) |
 
 Append-only evidence (`qbo_pull_intents`, `qbo_pulls`) follows option (a) of the design: historical rows keep their plaintext as provenance
 (their guards are unchanged); new rows carry the protection. Disconnected (terminal) connection rows cannot change and keep theirs.
@@ -150,7 +150,34 @@ Functions and the secrets (a Lovable or Supabase project administrator) can read
 Nothing here protects against that party, and no migration can. Key ids must be versioned (`k<N>`, `idx<N>`) and the sealing or indexing key
 must be the highest version in its ring: the functions refuse to start otherwise (`not_configured`), and never seal backwards.
 
-**Order.** Each step needs the owner's go; ★ needs its own separate, explicit GO. No hosted step is authorised by this PR.
+**Hosted record, Phase C v2 parts 1–3 (2026-11-22, owner-authorized).** Applied through Lovable's native migrator from main (unchanged
+since merge commit `babe6cd`), one prompt per part; mirrors committed by Lovable and registered as `release_verbatim` in PR #290.
+
+| Hosted id | Mirror | Source | Applied form |
+|---|---|---|---|
+| 120 | `0119_qbo_realm_protection_cutover_schema` | `20261231100000` | identical, `599c851f…` (16,936 B) |
+| 121 | `0120_qbo_realm_protection_cutover_functions` | `20261231200000` | identical, `48295fcd…` (20,450 B) |
+| 122 | `0121_qbo_realm_rotation_post_redaction` | `20261231250000` | identical, `ae14667c…` (15,045 B) |
+
+After each part a read-only stage check in the hosted SQL editor showed:
+- every body the part installs equal to its pin (part 1 4/4; part 2 5/5, with the backfill writers dropped; part 3 5/5);
+- part 4 absent;
+- every QuickBooks and commercial row fingerprint unchanged, since parts 1–3 change no row.
+
+Only the part 1 approval card was shown and hashed before Allow (the final-LF-removed form `7228d91c…`, which journal 120 records as the
+identical form). For parts 2 and 3 Lovable reused the session's approval and showed no card. Their identity rests on the journal hashes,
+each file's own self-verification and the stage check.
+
+The six QuickBooks functions were then deployed explicitly from main (bundles unchanged since `babe6cd`):
+- probes returned 401/400/405, with no 503;
+- on the new code, "Check keys" reported k2, "Check index key" idx2, and "Check encryption" `200 complete`;
+- a stage check afterwards was identical.
+
+Lovable records a "submitted source" fingerprint per function that cannot be reproduced from this repository; live-source attestation is not
+available. Part 4 (`20261231300000`) is **not** applied.
+
+**Order.** Each step needs the owner's go; ★ needs its own separate, explicit GO. Status as of 2026-11-22: steps 1–3 done (above); step 4 not
+authorised and not run.
 
 1. Read-only pre-checks on hosted:
    - a database backup taken after the idx2 move is listed;
