@@ -8533,7 +8533,7 @@ export type Database = {
           hard_expires_at: string | null
           id: string
           realm_envelope: string | null
-          realm_id: string
+          realm_id: string | null
           realm_index: string | null
           realm_verified_at: string | null
           refresh_expires_at: string | null
@@ -8553,7 +8553,7 @@ export type Database = {
           hard_expires_at?: string | null
           id?: string
           realm_envelope?: string | null
-          realm_id: string
+          realm_id?: string | null
           realm_index?: string | null
           realm_verified_at?: string | null
           refresh_expires_at?: string | null
@@ -8573,7 +8573,7 @@ export type Database = {
           hard_expires_at?: string | null
           id?: string
           realm_envelope?: string | null
-          realm_id?: string
+          realm_id?: string | null
           realm_index?: string | null
           realm_verified_at?: string | null
           refresh_expires_at?: string | null
@@ -8604,7 +8604,7 @@ export type Database = {
           outcome: string
           pending_envelope: string | null
           realm_envelope: string | null
-          realm_id: string
+          realm_id: string | null
           realm_index: string | null
           realm_verified_at: string | null
           request_id: string
@@ -8621,7 +8621,7 @@ export type Database = {
           outcome: string
           pending_envelope?: string | null
           realm_envelope?: string | null
-          realm_id: string
+          realm_id?: string | null
           realm_index?: string | null
           realm_verified_at?: string | null
           request_id: string
@@ -8638,7 +8638,7 @@ export type Database = {
           outcome?: string
           pending_envelope?: string | null
           realm_envelope?: string | null
-          realm_id?: string
+          realm_id?: string | null
           realm_index?: string | null
           realm_verified_at?: string | null
           request_id?: string
@@ -8752,7 +8752,7 @@ export type Database = {
           prepare_basis: string
           raw_sha256: string
           realm_envelope: string | null
-          realm_id: string
+          realm_id: string | null
           realm_index: string | null
           recorded_at: string
           report: string
@@ -8776,7 +8776,7 @@ export type Database = {
           prepare_basis: string
           raw_sha256: string
           realm_envelope?: string | null
-          realm_id: string
+          realm_id?: string | null
           realm_index?: string | null
           recorded_at?: string
           report: string
@@ -8800,7 +8800,7 @@ export type Database = {
           prepare_basis?: string
           raw_sha256?: string
           realm_envelope?: string | null
-          realm_id?: string
+          realm_id?: string | null
           realm_index?: string | null
           recorded_at?: string
           report?: string
@@ -8828,7 +8828,7 @@ export type Database = {
           pulled_at: string
           raw_sha256: string
           realm_envelope: string | null
-          realm_id: string
+          realm_id: string | null
           realm_index: string | null
           report: string
           result_sha256: string
@@ -8852,7 +8852,7 @@ export type Database = {
           pulled_at?: string
           raw_sha256: string
           realm_envelope?: string | null
-          realm_id: string
+          realm_id?: string | null
           realm_index?: string | null
           report: string
           result_sha256: string
@@ -8876,7 +8876,7 @@ export type Database = {
           pulled_at?: string
           raw_sha256?: string
           realm_envelope?: string | null
-          realm_id?: string
+          realm_id?: string | null
           realm_index?: string | null
           report?: string
           result_sha256?: string
@@ -15797,6 +15797,11 @@ export type Database = {
           connections_expired: number
           states_removed: number
         }[]
+      }
+      qbo_index_key_mixed: { Args: { p_key_id: string }; Returns: boolean }
+      qbo_key_version: {
+        Args: { p_key_id: string; p_kind: string }
+        Returns: number
       }
       qbo_mark_reconnect_needed: {
         Args: { p_connection_id: string; p_refused_envelope: string }

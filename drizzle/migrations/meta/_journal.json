@@ -834,6 +834,13 @@
       "when": 1795195004109,
       "tag": "0118_qbo_realm_index_rotation",
       "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1795333470870,
+      "tag": "0119_qbo_realm_protection_cutover_schema",
+      "breakpoints": true
     }
   ]
 }
