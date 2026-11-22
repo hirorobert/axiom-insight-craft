@@ -498,6 +498,23 @@ export const RELEASE_JOURNAL = {
     source: "20261230500000_qbo_realm_index_rotation.sql", bytes: 18452,
     digest: "9d44bf0c73989b4bf5487ed3c864f66190c962e969fadf657cbe09eb3a6d20bf",
     sha256: "9d44bf0c73989b4bf5487ed3c864f66190c962e969fadf657cbe09eb3a6d20bf" },
+  // realmID protection Phase C v2, parts 1-3 (PR #289, merged in main babe6cd), applied 2026-11-22 by Lovable's native migrator as hosted
+  // 120-122, owner-authorized, one prompt each, each byte for byte INCLUDING the final LF (mirror commits 74a09ee, 9bd1f41, d693c15). Confirmed
+  // read-only on hosted after each part with the stage check (6122dd0b…): journal 120/121/122 = the identical forms below, every pinned body
+  // exact (part 1: 4/4, part 2: 5/5 with the backfill writers dropped, part 3: 5/5), part 4 absent, every QuickBooks and commercial row
+  // fingerprint unchanged. Part 4 (20261231300000, the redaction, IRREVERSIBLE for the plaintext) is NOT applied and stays pending.
+  "0119_qbo_realm_protection_cutover_schema": { kind: "release_verbatim",
+    source: "20261231100000_qbo_realm_protection_cutover_schema.sql", bytes: 16936,
+    digest: "599c851f209d0e5a4bbf782320139823a371750b89898afb6488dd5af6108966",
+    sha256: "599c851f209d0e5a4bbf782320139823a371750b89898afb6488dd5af6108966" },
+  "0120_qbo_realm_protection_cutover_functions": { kind: "release_verbatim",
+    source: "20261231200000_qbo_realm_protection_cutover_functions.sql", bytes: 20450,
+    digest: "48295fcd5fae4ef3d368494a427d44f13ccd64157ce80f036732ca49e6fcf020",
+    sha256: "48295fcd5fae4ef3d368494a427d44f13ccd64157ce80f036732ca49e6fcf020" },
+  "0121_qbo_realm_rotation_post_redaction": { kind: "release_verbatim",
+    source: "20261231250000_qbo_realm_rotation_post_redaction.sql", bytes: 15045,
+    digest: "ae14667cb7163c23d7123cd76d2f06e3b22e19ccd6624a64d144ec023ce40b89",
+    sha256: "ae14667cb7163c23d7123cd76d2f06e3b22e19ccd6624a64d144ec023ce40b89" },
 };
 
 /**
@@ -559,8 +576,9 @@ export const SUBMISSION_FORMS = Object.freeze({
     identical: Object.freeze({ bytes: 18452, sha256: "9d44bf0c73989b4bf5487ed3c864f66190c962e969fadf657cbe09eb3a6d20bf" }),
     finalLfRemoved: Object.freeze({ bytes: 18451, sha256: "f75aea588ac1f0c243bdc87aeb63195bcb59a9a1c7bb37723bae5dc4bbb2af2b" }),
   }),
-  // realmID protection Phase C v2 (supersedes PR #282), four self-verifying parts: authored, NOT applied; reported PENDING. The redaction
-  // (20261231300000) is IRREVERSIBLE for the plaintext and needs its own explicit go. Digests computed from the committed LF blob (git show).
+  // realmID protection Phase C v2 (supersedes PR #282), four self-verifying parts, registered before application. Parts 1-3 applied 2026-11-22 as
+  // hosted 120-122 byte for byte (mirrors 0119-0121, see RELEASE_JOURNAL). The redaction (20261231300000) is NOT applied and reported PENDING: it is
+  // IRREVERSIBLE for the plaintext and needs its own explicit go. Digests computed from the committed LF blob (git show).
   "20261231100000_qbo_realm_protection_cutover_schema.sql": Object.freeze({
     identical: Object.freeze({ bytes: 16936, sha256: "599c851f209d0e5a4bbf782320139823a371750b89898afb6488dd5af6108966" }),
     finalLfRemoved: Object.freeze({ bytes: 16935, sha256: "7228d91cbfa3e15ed6584bfde5526e6263aa7871b7048a0f7f8ad48b2485d5a3" }),
