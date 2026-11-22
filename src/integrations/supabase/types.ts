@@ -15808,24 +15808,6 @@ export type Database = {
         Returns: boolean
       }
       qbo_pending_disconnect: { Args: { p_company: string }; Returns: Json }
-      qbo_protect_connection_realm: {
-        Args: {
-          p_connection: string
-          p_realm_envelope: string
-          p_realm_id: string
-          p_realm_index: string
-        }
-        Returns: string
-      }
-      qbo_protect_disconnect_realm: {
-        Args: {
-          p_connection: string
-          p_realm_envelope: string
-          p_realm_id: string
-          p_realm_index: string
-        }
-        Returns: string
-      }
       qbo_provenance_past_retention: {
         Args: { p_retention: string }
         Returns: {
@@ -16013,24 +15995,6 @@ export type Database = {
           realm_id: string
           realm_index: string
         }[]
-      }
-      qbo_verify_connection_realm: {
-        Args: {
-          p_connection: string
-          p_realm_envelope: string
-          p_realm_id: string
-          p_realm_index: string
-        }
-        Returns: string
-      }
-      qbo_verify_disconnect_realm: {
-        Args: {
-          p_connection: string
-          p_realm_envelope: string
-          p_realm_id: string
-          p_realm_index: string
-        }
-        Returns: string
       }
       reconcile_all_named_user_allowances: { Args: never; Returns: number }
       reconcile_named_user_allowance: {

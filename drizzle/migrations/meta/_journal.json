@@ -841,6 +841,13 @@
       "when": 1795333470870,
       "tag": "0119_qbo_realm_protection_cutover_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1795333646199,
+      "tag": "0120_qbo_realm_protection_cutover_functions",
+      "breakpoints": true
     }
   ]
 }
