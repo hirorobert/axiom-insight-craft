@@ -515,6 +515,15 @@ export const RELEASE_JOURNAL = {
     source: "20261231250000_qbo_realm_rotation_post_redaction.sql", bytes: 15045,
     digest: "ae14667cb7163c23d7123cd76d2f06e3b22e19ccd6624a64d144ec023ce40b89",
     sha256: "ae14667cb7163c23d7123cd76d2f06e3b22e19ccd6624a64d144ec023ce40b89" },
+  // Phase C v2 part 4, the redaction (20261231300000; IRREVERSIBLE for the plaintext), applied 2026-11-22 at ~14:52 UTC as hosted 123 by Lovable's
+  // native migrator, owner-approved with the residual risks accepted, byte for byte INCLUDING the final LF (10,742 bytes; mirror commit a1d17bd).
+  // Confirmed read-only on hosted right after: journal 123 = b671d00a…; parts 1-3 still exact; 0 live plaintext; only qbo_connections and
+  // qbo_oauth_states fingerprints changed; the history digest 20b0011e… identical (terminal connections, finished operations, intents and
+  // provenance keep their plaintext by design); Check keys k2 / Check index key idx2 / Check encryption 200 on the redacted rows.
+  "0122_qbo_realm_protection_cutover_redaction": { kind: "release_verbatim",
+    source: "20261231300000_qbo_realm_protection_cutover_redaction.sql", bytes: 10742,
+    digest: "b671d00a042bd7132afaf7066791658482ddb32a8f0a8c51b1a854c2418967c0",
+    sha256: "b671d00a042bd7132afaf7066791658482ddb32a8f0a8c51b1a854c2418967c0" },
 };
 
 /**
@@ -577,8 +586,8 @@ export const SUBMISSION_FORMS = Object.freeze({
     finalLfRemoved: Object.freeze({ bytes: 18451, sha256: "f75aea588ac1f0c243bdc87aeb63195bcb59a9a1c7bb37723bae5dc4bbb2af2b" }),
   }),
   // realmID protection Phase C v2 (supersedes PR #282), four self-verifying parts, registered before application. Parts 1-3 applied 2026-11-22 as
-  // hosted 120-122 byte for byte (mirrors 0119-0121, see RELEASE_JOURNAL). The redaction (20261231300000) is NOT applied and reported PENDING: it is
-  // IRREVERSIBLE for the plaintext and needs its own explicit go. Digests computed from the committed LF blob (git show).
+  // hosted 120-122 and the redaction (20261231300000, IRREVERSIBLE for the plaintext, separately owner-approved) as hosted 123, each byte for byte
+  // (mirrors 0119-0122, see RELEASE_JOURNAL). Nothing of Phase C is pending. Digests computed from the committed LF blob (git show).
   "20261231100000_qbo_realm_protection_cutover_schema.sql": Object.freeze({
     identical: Object.freeze({ bytes: 16936, sha256: "599c851f209d0e5a4bbf782320139823a371750b89898afb6488dd5af6108966" }),
     finalLfRemoved: Object.freeze({ bytes: 16935, sha256: "7228d91cbfa3e15ed6584bfde5526e6263aa7871b7048a0f7f8ad48b2485d5a3" }),
