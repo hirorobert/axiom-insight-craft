@@ -18,7 +18,8 @@ export const OLD_DIGEST = "3782a5b866900544e5d680125d5a775573bb1861a57d4d8c43955
 const bar = "-- " + "═".repeat(137);
 const once = (s, a, b) => { if (s.split(a).length !== 2) throw new Error(`expected exactly one: ${a.slice(0, 80)}`); return s.replace(a, b); };
 
-export function generate() {
+/** The reviewed part 2 definition of qbo_begin_disconnect: its CREATE OR REPLACE header and its pinned body. */
+function partTwo() {
   const src = fs.readFileSync(path.join(REPO, "supabase/migrations", SOURCE), "utf8");
   const start = src.indexOf("  CREATE OR REPLACE FUNCTION public.qbo_begin_disconnect(p_connection uuid,p_actor uuid,p_request uuid)");
   if (start < 0) throw new Error("qbo_begin_disconnect not found in part 2");
@@ -27,6 +28,13 @@ export function generate() {
   const header = block.slice(0, block.indexOf("$f$") + 3);
   const oldBody = block.slice(block.indexOf("$f$") + 3, block.lastIndexOf("$f$"));
   if (sha(oldBody) !== OLD_DIGEST) throw new Error(`part 2 body digest ${sha(oldBody)} is not the pinned ${OLD_DIGEST}`);
+  return { header, oldBody };
+}
+/** SQL that reinstalls the reviewed part 2 body (for a rolled-back replay of the Phase C redaction, whose preflight pins it). */
+export const partTwoDefinition = () => { const { header, oldBody } = partTwo(); return `${header}${oldBody}$f$;`; };
+
+export function generate() {
+  const { header, oldBody } = partTwo();
 
   let body = oldBody;
   body = once(body, "DECLARE c public.qbo_connections; o public.qbo_disconnect_operations; ticket uuid;",

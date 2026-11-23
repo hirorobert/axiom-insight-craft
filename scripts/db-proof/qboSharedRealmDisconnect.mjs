@@ -17,6 +17,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { openDatabase, applyChainBefore, makeWorld, migrationText, reporter } from "./lib/reportingKit.mjs";
+import { replayRedaction } from "./lib/qboRedactionReplay.mjs";
 
 const RP = await import("../../supabase/functions/_shared/qboRealmProtection.ts");
 const TE = await import("../../supabase/functions/_shared/qboTokenEnvelope.ts");
@@ -110,6 +111,18 @@ async function main() {
       return await digest() === generate().newDigest && f.prosecdef && same(f.proconfig, ["search_path=pg_catalog, public"]) && !g.a && !g.n && g.s && same(await snap(), rows0) || { f, g };
     });
     await r.check("a replay is a no-op", async () => (await errOf(text)) === "" && await digest() === generate().newDigest && same(await snap(), rows0));
+    await r.check("the Phase C redaction still replays in full afterwards (rolled back; the part 2 body reinstated in that transaction only), and Phase D's body is back", async () => {
+      const c = await db.pool.connect();
+      try {
+        await c.query("BEGIN");
+        const x = await replayRedaction(c, { migrationSql: migrationText("20261231300000_qbo_realm_protection_cutover_redaction.sql"),
+          protect: (realm) => RP.protectRealm(realm, "sandbox", w.A, KEYS),
+          sealToken: (realm) => TE.sealSecret("rt-" + crypto.randomBytes(16).toString("hex"), KEYS.current, TE.connectionBinding(w.A, realm, "sandbox")),
+          companyId: w.A, actorId: w.U.owner });
+        await c.query("ROLLBACK");
+        return x.ok && x.detail.partTwoBodyReinstated === true && await digest() === generate().newDigest && same(await snap(), rows0) || x.detail;
+      } catch (e) { await c.query("ROLLBACK").catch(() => undefined); throw e; } finally { c.release(); }
+    });
     await r.refused("an authenticated user still cannot call it directly", "42501",
       () => db.asUser(w.U.owner, "select public.qbo_begin_disconnect($1,$2,$3)", [SA, w.U.owner, crypto.randomUUID()]));
 

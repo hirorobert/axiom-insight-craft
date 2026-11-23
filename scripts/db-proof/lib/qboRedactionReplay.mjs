@@ -10,6 +10,8 @@
 //
 // Returns { ok, detail }: ok only when the migration ran to completion, the live plaintext is gone, the history is byte-identical, and (when
 // asked) safeupdate was demonstrably active in the session.
+import { generate, OLD_DIGEST, partTwoDefinition } from "../../release/genQboSharedRealmDisconnect.mjs";
+
 export async function replayRedaction(c, { migrationSql, protect, sealToken, companyId, actorId, loadSafeupdate = false, runAs = null }) {
   const detail = {};
   // On Supabase only a superuser may LOAD the library (supautils refuses it to postgres), and only authenticator preloads it. So the caller connects
@@ -31,6 +33,14 @@ export async function replayRedaction(c, { migrationSql, protect, sealToken, com
   for (const [t, k] of [["qbo_connections", "chk_qbo_connections_live_no_plaintext"], ["qbo_disconnect_operations", "chk_qbo_disconnect_operations_no_plaintext"],
     ["qbo_oauth_states", "chk_qbo_oauth_states_no_plaintext"]]) await c.query(`ALTER TABLE public.${t} DROP CONSTRAINT ${k}`);
   await c.query("CREATE UNIQUE INDEX uq_qbo_connections_live ON public.qbo_connections (company_id, realm_id, environment) WHERE status <> 'disconnected'");
+  // The redaction's preflight pins every part 2 body. Phase D (20261231400000) later replaced qbo_begin_disconnect; on a database where it is
+  // installed, the reviewed part 2 body is reinstated IN THIS TRANSACTION ONLY (exactly that one body, and only when the installed one is Phase D's
+  // pinned body: any other difference still makes the redaction refuse, as it must).
+  const installed = (await c.query("SELECT encode(sha256(convert_to(prosrc, 'UTF8')), 'hex') d FROM pg_proc WHERE oid = to_regprocedure('public.qbo_begin_disconnect(uuid,uuid,uuid)')")).rows[0]?.d;
+  if (installed === generate().newDigest) {
+    await c.query(partTwoDefinition());
+    detail.partTwoBodyReinstated = (await c.query("SELECT encode(sha256(convert_to(prosrc, 'UTF8')), 'hex') d FROM pg_proc WHERE oid = to_regprocedure('public.qbo_begin_disconnect(uuid,uuid,uuid)')")).rows[0]?.d === OLD_DIGEST;
+  }
 
   const LIVE = "9130354000000041", TERM = "9130354000000042";
   const pl = await protect(LIVE), pt = await protect(TERM);
