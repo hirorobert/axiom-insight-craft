@@ -102,6 +102,7 @@ describe("migration hygiene", () => {
       "20261231200000_qbo_realm_protection_cutover_functions.sql",
       "20261231250000_qbo_realm_rotation_post_redaction.sql",
       "20261231300000_qbo_realm_protection_cutover_redaction.sql",
+      "20261231400000_qbo_shared_realm_local_disconnect.sql",
     ]);
     expect(RAW.includes("\u0000")).toBe(false);
     expect(RAW).not.toMatch(/^(<{7}|={7}|>{7})/m);

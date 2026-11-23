@@ -808,6 +808,14 @@ jobs:
           createdb qbo_realm_cutover_rotation
           bun scripts/db-proof/qboRealmCutoverRotation.mjs
 
+      - name: QuickBooks shared-realm local disconnect proof (20261231400000 over the full chain - the shared_connection deadlock reproduced on the current body, then every sharer disconnects locally with its token destroyed and nothing sent to Intuit, only the last active connection revokes and exactly once, simultaneous sharers serialise, replays idempotent, tenant-neutral answer, no plaintext, mistyped body or incomplete Phase C refused, replay a no-op, service-only)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/qbo_shared_realm_disconnect
+        run: |
+          createdb qbo_shared_realm_disconnect
+          bun scripts/db-proof/qboSharedRealmDisconnect.mjs
+
       - name: Internal beta activation controls proof (20261203100000 — only an active commercial administrator reads the beta state or opens/closes reporting; opening is one transaction that makes the allowlist exactly the chosen companies and releases the master switch last, refusals change nothing; closing engages the master switch first; synthetic scope recorded from the database's own composition hash; open/close races never deadlock; full chain, real certification engine, on the same throwaway container)
         env:
           DB_PROOF_MODE: external

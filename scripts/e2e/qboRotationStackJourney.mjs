@@ -146,11 +146,13 @@ await check("the other sharer's disconnect is refused as rotation_in_progress, n
   const b = await rpc("qbo_begin_disconnect", { p_connection: SB, p_actor: U.b.id, p_request: crypto.randomUUID() });
   return b?.outcome === "rotation_in_progress" && (await conn(SB)).status !== "disconnected" || b;
 });
-await check("the retry completes; the sharers' indexes are equal again; the disconnect now finds the sharer (shared_connection)", async () => {
+await check("the retry completes; the sharers' indexes are equal again; the disconnect now finds the sharer and stays local (20261231400000: no revocation, the other sharer still active)", async () => {
   const x = await runRealmBackfill(deps(), INDEX_ROT, { action: "reindex" });
   const a = await conn(SA), b = await conn(SB);
   const d = await rpc("qbo_begin_disconnect", { p_connection: SB, p_actor: U.b.id, p_request: crypto.randomUUID() });
-  return x.status === 200 && a.realm_index === b.realm_index && kid(a.realm_index) === "idx3" && d?.outcome === "shared_connection" || { status: x.status, d };
+  const b2 = await conn(SB), a2 = await conn(SA);
+  return x.status === 200 && a.realm_index === b.realm_index && kid(a.realm_index) === "idx3" && d?.outcome === "local_only" && !d?.envelope
+    && b2.status === "disconnected" && b2.refresh_token_envelope === null && a2.status === "active" || { status: x.status, d, b2: b2?.status, a2: a2?.status };
 });
 await check("a connect after the rotation is stored under k3 and idx3", async () => {
   const s = await store(B, U.b.id, LATE, { current: K3, all: [K3], index: IDX3 });

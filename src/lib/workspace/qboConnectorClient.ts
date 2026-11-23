@@ -161,6 +161,15 @@ export async function pullFromQuickBooks(client: FnClient, a: PullInput): Promis
   }
 }
 
+/**
+ * Said after a disconnect that ended this workspace's QuickBooks access without a revocation at Intuit: the connection held no token, or another
+ * connection still relies on the same QuickBooks authorisation (20261231400000). The wording is the same in both cases, so it never tells one
+ * workspace that another uses the same QuickBooks company.
+ */
+export const QBO_LOCAL_DISCONNECT_NOTE = "QuickBooks is disconnected from this workspace and new imports are stopped. QuickBooks may still list CFOClose as a connected app; to remove all CFOClose access, disconnect it in QuickBooks.";
+/** For a database that still refuses a shared company (before 20261231400000 is applied); tenant-neutral. */
+export const QBO_DISCONNECT_DEFERRED_NOTE = "This QuickBooks connection could not be disconnected yet. Nothing was changed. Try again later.";
+
 export async function disconnectQuickBooks(client: FnClient, connectionId: string, requestId: string): Promise<{ outcome: string; confirmed: boolean }> {
   try {
     const b = await readAnswer(await client.functions.invoke("qbo-disconnect", { body: { connectionId, requestId } }));

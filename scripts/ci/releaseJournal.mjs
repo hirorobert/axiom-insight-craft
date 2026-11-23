@@ -604,6 +604,12 @@ export const SUBMISSION_FORMS = Object.freeze({
     identical: Object.freeze({ bytes: 10742, sha256: "b671d00a042bd7132afaf7066791658482ddb32a8f0a8c51b1a854c2418967c0" }),
     finalLfRemoved: Object.freeze({ bytes: 10741, sha256: "cb51832b574ad8171aaff4d6b6b9d52810c5d55c9237b5fa51604585ef735a70" }),
   }),
+  // Phase D: a shared QuickBooks company no longer blocks a disconnect (launch blocker B1, sandbox acceptance 2026-11-23). Self-verifying,
+  // registered before application; AUTHORED, NOT APPLIED. Digests computed from the LF file the generator writes.
+  "20261231400000_qbo_shared_realm_local_disconnect.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 9817, sha256: "932d30b3b11f60e5dda9894a310bcf4e689ead664735406cf67e02482b7c52c8" }),
+    finalLfRemoved: Object.freeze({ bytes: 9816, sha256: "27144ca18bc68d6b0339c4a9f8132e227c1c34068a46ba37d68fd5ff59838624" }),
+  }),
   // QBO readiness r2: promoted atomic envelope, NOT applied; exact registered bytes only.
   "20261214100000_qbo_readiness_controls.sql": Object.freeze({
     identical: Object.freeze({ bytes: 20040, sha256: "6ac1c74c46171138915d936191beff45d26ca92abb6f7a820d0d73aadf0ddcd8" }),

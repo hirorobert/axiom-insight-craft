@@ -156,7 +156,7 @@ describe("the token-key reseal: applied as hosted 117 with one transcribed line 
     expect(submittedForm(REPAIR, s, s.subarray(0, s.length - 1))).toBe("final_lf_removed");
     const r = checkMigrationAuthority(ROOT) as Result & { mirrored: { tag: string; source: string; how: string }[] };
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual([]); // 2026-11-22: Phase C v2 part 4 (the redaction) applied as hosted 123 (mirror 0122, release_verbatim); nothing is pending. Before that: parts 1-3 applied as hosted 120-122 (mirrors 0119-0121, release_verbatim); only part 4 (the redaction) was pending. Before that: Phase C v2 (supersedes PR #282): the four cutover parts, authored, not applied; // 2026-11-20: the realm index-key rotation (20261230500000) applied byte for byte as hosted 119 (mirror 0118, release_verbatim); nothing is pending. 2026-11-20: the realm index-key rotation (20261230500000), authored, not applied
+    expect(r.pending).toEqual(["20261231400000_qbo_shared_realm_local_disconnect.sql"]); // Phase D (20261231400000, shared-realm local disconnect): authored, not applied; 2026-11-22: Phase C v2 part 4 (the redaction) applied as hosted 123 (mirror 0122, release_verbatim); nothing is pending. Before that: parts 1-3 applied as hosted 120-122 (mirrors 0119-0121, release_verbatim); only part 4 (the redaction) was pending. Before that: Phase C v2 (supersedes PR #282): the four cutover parts, authored, not applied; // 2026-11-20: the realm index-key rotation (20261230500000) applied byte for byte as hosted 119 (mirror 0118, release_verbatim); nothing is pending. 2026-11-20: the realm index-key rotation (20261230500000), authored, not applied
     expect(r.mirrored.filter((x) => x.source === REPAIR)).toEqual([{ tag: REPAIR_TAG, source: REPAIR, how: "release_verbatim" }]);
     const rm = mirror(REPAIR_TAG); expect([rm.length, sha(rm)]).toEqual([s.length, sha(s)]);   // hosted 118 = the committed file, final LF kept
     expect(J[REPAIR_TAG]).toEqual({ kind: "release_verbatim", source: REPAIR, bytes: 6185, digest: sha(s), sha256: sha(s) });
@@ -178,7 +178,7 @@ describe("the token-key reseal: applied as hosted 117 with one transcribed line 
       expect(r.mirrored.filter((x) => x.source === name)).toEqual([{ tag, source: name, how: "release_verbatim" }]);
       expect(J[tag]).toEqual({ kind: "release_verbatim", source: name, bytes, digest, sha256: digest });
     }
-    expect(r.pending).toEqual([]);   // nothing of Phase C is pending
+    expect(r.pending).toEqual(["20261231400000_qbo_shared_realm_local_disconnect.sql"]);   // nothing of Phase C is pending; Phase D is authored, not applied
     expect(r.mirrored.filter((x) => x.source === RESEAL)).toEqual([{ tag: RESEAL_TAG, source: RESEAL, how: "release_transcription_variant_repaired" }]);
     expect(checkReleaseEntry(RESEAL_TAG, mirror(RESEAL_TAG).toString("utf8"), srcBytes).problems).toEqual([]);
   }, 120_000);

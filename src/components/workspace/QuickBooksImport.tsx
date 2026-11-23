@@ -14,7 +14,7 @@ import { useQboSandboxAccess } from "@/hooks/useQboSandboxAccess";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
 import { invokeProcessing, type FunctionsClient } from "@/lib/workspace/processingInvoke";
 import {
-  QBO_CONNECTOR_ENABLED, QBO_ENVIRONMENT, disconnectQuickBooks, RECORD_PENDING_NOTE, connectionState, fetchConnections, finishConnect, pullFromQuickBooks, readHandoff, startConnect,
+  QBO_CONNECTOR_ENABLED, QBO_ENVIRONMENT, QBO_LOCAL_DISCONNECT_NOTE, disconnectQuickBooks, RECORD_PENDING_NOTE, connectionState, fetchConnections, finishConnect, pullFromQuickBooks, readHandoff, startConnect,
   type QboConnectionState,
 } from "@/lib/workspace/qboConnectorClient";
 
@@ -221,12 +221,12 @@ function QuickBooksImportSession({ companyId, periodYear, periodId, engagementId
   const disconnect = async () => {
     const connectionId = pendingDisconnect?.connectionId ?? (state !== "checking" && state.kind === "connected" ? state.connectionId : null);
     if (working.current || !connectionId) return;
-    if (!disconnectRequest.current && !window.confirm("Disconnect QuickBooks? Saved imports remain unchanged. New imports stop and QuickBooks access will be revoked.")) return;
+    if (!disconnectRequest.current && !window.confirm("Disconnect QuickBooks? Saved imports remain unchanged. New imports stop and this workspace's QuickBooks access ends.")) return;
     const request = disconnectRequest.current ?? crypto.randomUUID(); disconnectRequest.current = request;
     working.current = true; setBusy("disconnect");
     try {
       const answer = await disconnectQuickBooks(supabase as never, connectionId, request);
-      setResult({ ok: answer.confirmed, text: answer.confirmed ? "QuickBooks disconnected. Saved imports are unchanged." : answer.outcome === "revocation_busy" ? "A disconnect is already running. Wait a minute, then retry the same request." : answer.outcome === "busy" ? "An import is running. Wait until it finishes before disconnecting." : answer.outcome === "local_only" ? "New imports are stopped. Remove CFOClose access in QuickBooks; upstream revocation could not be verified." : answer.outcome === "revocation_pending" ? "New imports are stopped. QuickBooks revocation is not confirmed; retry this same disconnect request." : "Disconnect could not be confirmed. Refresh the connection before retrying." });
+      setResult({ ok: answer.confirmed, text: answer.confirmed ? "QuickBooks disconnected. Saved imports are unchanged." : answer.outcome === "revocation_busy" ? "A disconnect is already running. Wait a minute, then retry the same request." : answer.outcome === "busy" ? "An import is running. Wait until it finishes before disconnecting." : answer.outcome === "local_only" ? QBO_LOCAL_DISCONNECT_NOTE : answer.outcome === "revocation_pending" ? "New imports are stopped. QuickBooks revocation is not confirmed; retry this same disconnect request." : "Disconnect could not be confirmed. Refresh the connection before retrying." });
       if (answer.outcome !== "busy" && !answer.confirmed) setPendingDisconnect({ connectionId, requestId: request });
       if (answer.confirmed) { setPendingDisconnect(null); disconnectRequest.current = null; setState(connectionState(await fetchConnections(supabase as never, companyId), QBO_ENVIRONMENT)); }
     } finally { working.current = false; setBusy(null); }
