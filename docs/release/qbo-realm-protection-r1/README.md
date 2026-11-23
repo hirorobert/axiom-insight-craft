@@ -279,9 +279,10 @@ judged unnecessary for the fix.
 
 After step 2, disconnecting any of the three US 9355 sandbox connections will be local until only one remains, and that last one revokes.
 
-**Proof.** `scripts/db-proof/qboSharedRealmDisconnect.mjs` (CI: Disposable-DB job), 22 assertions:
+**Proof.** `scripts/db-proof/qboSharedRealmDisconnect.mjs` (CI: Disposable-DB job), 23 assertions:
 - the deadlock reproduced on the current body;
 - self-verification (mistyped body, incomplete Phase C, replay);
+- the Phase C redaction still replays in full afterwards (rolled back);
 - three sharers disconnect, with exactly one Intuit revocation using that connection's own token;
 - replays and conflicting requests; a cross-workspace refusal; the solo path unchanged;
 - a token-less sharer not counted, and a tenant-neutral answer;
