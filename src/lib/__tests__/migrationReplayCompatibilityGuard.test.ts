@@ -310,7 +310,8 @@ describe("migration directory integrity", () => {
     //   compare-and-swap, one guarded re-index transition on both realm guards. Authored and not applied.
     // 227 -> 231: realmID protection Phase C v2 (supersedes PR #282): 20261231100000 schema, 20261231200000 functions on the keyed index,
     //   20261231250000 post-redaction token/index key rotation, 20261231300000 redaction (IRREVERSIBLE for the plaintext). Authored and not applied.
-    expect(files.length).toBe(231);
+    // 231 -> 232: Phase D, 20261231400000 shared-realm local disconnect (one self-verifying function body; authored, not applied).
+    expect(files.length).toBe(232);
   });
 });
 

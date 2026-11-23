@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import {
   disconnectQuickBooks,
   fetchConnections,
+  QBO_DISCONNECT_DEFERRED_NOTE,
+  QBO_LOCAL_DISCONNECT_NOTE,
 } from "@/lib/workspace/qboConnectorClient";
 interface Connection {
   id: string;
@@ -143,9 +145,9 @@ export default function QuickBooksDisconnect() {
         : result.outcome === "busy"
           ? "An import is running. Wait for it to finish, then retry disconnect."
           : result.outcome === "shared_connection"
-            ? "Another workspace uses this QuickBooks company. An administrator must reconcile those connections before revoking shared access."
+            ? QBO_DISCONNECT_DEFERRED_NOTE
             : result.outcome === "local_only"
-              ? "Imports are stopped. Remove CFOClose access in QuickBooks; upstream revocation is unverified."
+              ? QBO_LOCAL_DISCONNECT_NOTE
               : "Removal of access is not confirmed. Retry the same disconnect request after a minute.",
     );
     setBusy(null);

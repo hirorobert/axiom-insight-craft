@@ -15,7 +15,7 @@ const ROOT = path.resolve(__dirname, "../../..");
 const read = (f: string) => fs.readFileSync(path.join(ROOT, f), "utf8");
 const MIGRATION = "supabase/migrations/20261215100000_api_cache_control_headers.sql";
 const REALM_MIGRATIONS = ["20261230100000_qbo_realm_protection_schema.sql", "20261230200000_qbo_realm_protection_connect.sql", "20261230300000_qbo_realm_protection_evidence.sql",
-  "20261230400000_qbo_realm_key_reseal.sql", "20261230500000_qbo_realm_index_rotation.sql", "20261231100000_qbo_realm_protection_cutover_schema.sql", "20261231200000_qbo_realm_protection_cutover_functions.sql", "20261231250000_qbo_realm_rotation_post_redaction.sql", "20261231300000_qbo_realm_protection_cutover_redaction.sql"];
+  "20261230400000_qbo_realm_key_reseal.sql", "20261230500000_qbo_realm_index_rotation.sql", "20261231100000_qbo_realm_protection_cutover_schema.sql", "20261231200000_qbo_realm_protection_cutover_functions.sql", "20261231250000_qbo_realm_rotation_post_redaction.sql", "20261231300000_qbo_realm_protection_cutover_redaction.sql", "20261231400000_qbo_shared_realm_local_disconnect.sql"];
 const NO_CACHE_FUNCTIONS = ["qbo-connect-start", "qbo-disconnect", "qbo-finish-connection", "qbo-oauth-callback", "qbo-pull-trial-balance",
   "trial-balance-draft", "trial-balance-source-download", "trial-balance-source-signer"];
 /** Functions that still send no-store only (not QuickBooks and not serving workspace data to a browser): listed in the record, changed deliberately. */

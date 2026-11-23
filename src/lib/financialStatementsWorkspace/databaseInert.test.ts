@@ -720,6 +720,10 @@ describe("database inertness — schema and functions", () => {
     // plaintext). QuickBooks tables only; not financial-statement data. AUTHORED, NOT APPLIED. The edge edits are to files reviewed above as modified.
     for (const f of ["20261231100000_qbo_realm_protection_cutover_schema.sql", "20261231200000_qbo_realm_protection_cutover_functions.sql",
       "20261231250000_qbo_realm_rotation_post_redaction.sql", "20261231300000_qbo_realm_protection_cutover_redaction.sql"]) added.add(`supabase/migrations/${f}`);
+    // ...and Phase D (20261231400000): one self-verifying migration replacing the qbo_begin_disconnect body so that a QuickBooks company shared by
+    // another active connection no longer blocks a disconnect (local disconnect, no revocation; the last connection revokes). Changes no row;
+    // QuickBooks tables only; not financial-statement data. AUTHORED, NOT APPLIED. No Edge Function changes.
+    added.add("supabase/migrations/20261231400000_qbo_shared_realm_local_disconnect.sql");
     expect(unreviewedChanges(changed, { added, modified, removed })).toEqual([]);
   });
 
@@ -1058,6 +1062,9 @@ describe("database inertness — schema and functions", () => {
     for (const file of ["scripts/db-proof/qboRealmCutoverRotation.mjs", "scripts/db-proof/qboRealmProtectionCutover.mjs", "scripts/e2e/qboRotationStackJourney.mjs",
       "scripts/release/genQboCutoverV2.mjs", "scripts/db-proof/checkoutTermsAcceptance.mjs",
       "scripts/db-proof/lib/qboRedactionReplay.mjs"]) allowed.add(file);   // the shared, rolled-back redaction replay both of them run
+    // ...and Phase D: its loopback-only disposable-database proof and the generator that writes 20261231400000 from part 2's reviewed text
+    // (reads the committed file, writes one file; no deploy, no hosted access).
+    for (const file of ["scripts/db-proof/qboSharedRealmDisconnect.mjs", "scripts/release/genQboSharedRealmDisconnect.mjs"]) allowed.add(file);
     // SheetJS 0.20.3 vendored (vendor/sheetjs/PROVENANCE.md): the offline CI guard that pins the vendored files and refuses any
     // externally hosted spreadsheet code (reads files only), and the manual re-verification script (never run by CI; downloads
     // the publisher's tarball and tagged files into memory and compares hashes). Neither deploys, applies or touches a database.
