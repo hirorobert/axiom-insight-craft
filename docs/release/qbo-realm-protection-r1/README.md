@@ -29,7 +29,7 @@ realmID. The reviewed design is `release/candidates/qbo-realm-protection-r0/DESI
 | A — additive schema | `20261230100000_qbo_realm_protection_schema.sql` | yes | `realm_envelope` + `realm_index` on `qbo_connections`, `qbo_disconnect_operations`, `qbo_oauth_states`, `qbo_pull_intents`, `qbo_pulls`; `realm_verified_at` on connections and operations; shape checks; `uq_qbo_connections_live_protected`; write-once guards; service-only `qbo_protect_*_realm`, `qbo_verify_*_realm`, `qbo_realm_protection_status` |
 | B — dual write (PR 1) | `20261230200000_qbo_realm_protection_connect.sql`, `20261230300000_qbo_realm_protection_evidence.sql` | yes (plaintext still written) | callback, finish, store, disconnect, intent and provenance write the protection beside the plaintext; status read loses `realm_id` |
 | C — cutover v2 (PR #289; supersedes #282) | `20261231100000_qbo_realm_protection_cutover_schema.sql`, `20261231200000_qbo_realm_protection_cutover_functions.sql`, `20261231250000_qbo_realm_rotation_post_redaction.sql`, `20261231300000_qbo_realm_protection_cutover_redaction.sql` | parts 1–3 change no row; **part 4 is not reversible for the plaintext** | part 1: realm_id nullable, every row keeps plaintext or protection, guards allow only a verified row's redaction plus forward-only reseal/reindex; part 2: uniqueness, per-realm lock, pending-revocation and shared-realm checks on the index, index-key homogeneity, no function writes a plaintext, backfill writers dropped; part 3: reseal and reindex that work once the plaintext is gone; part 4: plaintext of live connections, pending operations and OAuth states removed, history byte-identical. **Status: all four parts applied on 2026-11-22: parts 1–3 as hosted 120–122, part 4 (separately approved) as hosted 123** (see "Phase C v2" below) |
-| D — shared-realm local disconnect | `20261231400000_qbo_shared_realm_local_disconnect.sql` | yes (one function body; no row changed) | `qbo_begin_disconnect`: while another **active** connection holds the same QuickBooks company, a disconnect is local (connection disconnected, token destroyed, operation `local_only`, nothing sent to Intuit); the last active connection revokes as before; the answer never reveals that another workspace shares the company. Ends the `shared_connection` deadlock (launch blocker B1, sandbox acceptance 2026-11-23). **Status: authored, not applied** (see "Phase D" below) |
+| D — shared-realm local disconnect | `20261231400000_qbo_shared_realm_local_disconnect.sql` | yes (one function body; no row changed) | `qbo_begin_disconnect`: while another **active** connection holds the same QuickBooks company, a disconnect is local (connection disconnected, token destroyed, operation `local_only`, nothing sent to Intuit); the last active connection revokes as before; the answer never reveals that another workspace shares the company. Ends the `shared_connection` deadlock (launch blocker B1, sandbox acceptance 2026-11-23). **Status: applied 2026-11-24 as hosted 124** (identical form; mirror 0123; see "Phase D" below) |
 
 Append-only evidence (`qbo_pull_intents`, `qbo_pulls`) follows option (a) of the design: historical rows keep their plaintext as provenance
 (their guards are unchanged); new rows carry the protection. Disconnected (terminal) connection rows cannot change and keep theirs.
@@ -267,6 +267,18 @@ frontend only updates the wording.
 
 **Audit note.** A shared-realm local disconnect and a token-less one are both `local_only`; the table does not record which. A schema change was
 judged unnecessary for the fix.
+
+**Hosted record (2026-11-24, owner-approved "Apply now").**
+- **How it was applied:** one database-only Lovable prompt in a fresh session. No approval card was shown, as on 2026-11-22.
+- **Lovable's report:** "Applied once without error; byte-identical, 9,817 bytes, 932d30b3…".
+- **Read-only post-check** (`QBO_PHASE_D_APPLY_CHECK`, hashed in the editor):
+  - state APPLIED (exact): journal 124 = `932d30b3…` (identical form);
+  - `qbo_begin_disconnect` body `864d8cb7…`, SECURITY DEFINER, fixed `search_path`, service role only;
+  - 0 live and 0 pending plaintext;
+  - all 13 QuickBooks, upload, commercial and payment row fingerprints byte-identical to the pre-check (no row changed).
+- **Edge functions:** all 54 unchanged, none redeployed.
+- **Mirror:** commit `162bf1f` added `0123_qbo_shared_realm_local_disconnect.sql`, byte-identical; registered as `release_verbatim`.
+- **Not done, each needs its own go:** a frontend publish (wording only); a sandbox disconnect test on the three US 9355 connections, which writes data.
 
 **Release order (each step needs the owner's go):**
 1. Merge.
