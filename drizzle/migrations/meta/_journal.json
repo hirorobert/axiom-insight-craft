@@ -862,6 +862,13 @@
       "when": 1795359149269,
       "tag": "0122_qbo_realm_protection_cutover_redaction",
       "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1795494365673,
+      "tag": "0123_qbo_shared_realm_local_disconnect",
+      "breakpoints": true
     }
   ]
 }
