@@ -524,6 +524,15 @@ export const RELEASE_JOURNAL = {
     source: "20261231300000_qbo_realm_protection_cutover_redaction.sql", bytes: 10742,
     digest: "b671d00a042bd7132afaf7066791658482ddb32a8f0a8c51b1a854c2418967c0",
     sha256: "b671d00a042bd7132afaf7066791658482ddb32a8f0a8c51b1a854c2418967c0" },
+  // Phase D, a shared QuickBooks company no longer blocks a disconnect (20261231400000; launch blocker B1, PR #293 merged b2ee944), applied
+  // 2026-11-24 at ~04:26 UTC as hosted 124 by Lovable's native migrator, owner-approved, byte for byte INCLUDING the final LF (9,817 bytes; mirror
+  // commit 162bf1f). Confirmed read-only on hosted right after: journal 124 = 932d30b3…; qbo_begin_disconnect body 864d8cb7…, SECURITY DEFINER,
+  // fixed search_path, service role only; all 13 QuickBooks, upload, commercial and payment row fingerprints identical (no row changed); no
+  // Edge Function redeployed.
+  "0123_qbo_shared_realm_local_disconnect": { kind: "release_verbatim",
+    source: "20261231400000_qbo_shared_realm_local_disconnect.sql", bytes: 9817,
+    digest: "932d30b3b11f60e5dda9894a310bcf4e689ead664735406cf67e02482b7c52c8",
+    sha256: "932d30b3b11f60e5dda9894a310bcf4e689ead664735406cf67e02482b7c52c8" },
 };
 
 /**
@@ -605,7 +614,7 @@ export const SUBMISSION_FORMS = Object.freeze({
     finalLfRemoved: Object.freeze({ bytes: 10741, sha256: "cb51832b574ad8171aaff4d6b6b9d52810c5d55c9237b5fa51604585ef735a70" }),
   }),
   // Phase D: a shared QuickBooks company no longer blocks a disconnect (launch blocker B1, sandbox acceptance 2026-11-23). Self-verifying,
-  // registered before application; AUTHORED, NOT APPLIED. Digests computed from the LF file the generator writes.
+  // registered before application; applied 2026-11-24 as hosted 124 in the identical form (mirror 0123, see RELEASE_JOURNAL). Nothing is pending.
   "20261231400000_qbo_shared_realm_local_disconnect.sql": Object.freeze({
     identical: Object.freeze({ bytes: 9817, sha256: "932d30b3b11f60e5dda9894a310bcf4e689ead664735406cf67e02482b7c52c8" }),
     finalLfRemoved: Object.freeze({ bytes: 9816, sha256: "27144ca18bc68d6b0339c4a9f8132e227c1c34068a46ba37d68fd5ff59838624" }),
