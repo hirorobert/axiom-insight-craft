@@ -511,7 +511,7 @@ export function AccountReviewPanel({
         // just turned false because reprocessing succeeded).
         if (isMountedRef.current) setReprocessing(false);
         if (data.status === "complete") {
-          toast.success("Reprocessing complete!");
+          toast.success("Reprocessing complete.");
         } else if (data.status === "needs_review") {
           toast.warning("Some accounts still need review.");
         } else {
