@@ -53,7 +53,7 @@ function PlanCard({ plan, prices, source, contactAvailable }: { plan: CatalogueP
   return (
     <li data-testid={`plan-${plan.code}`} data-mode={view.mode} data-recommended={recommended ? "true" : undefined}
       className={`relative flex min-w-0 flex-col rounded-xl border bg-card p-6 sm:p-8 ${recommended ? "border-primary shadow-md ring-1 ring-primary/30" : "border-border"}`}>
-      {recommended && <span className="absolute right-6 top-6 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary" data-testid={`plan-badge-${plan.code}`}>Most popular</span>}
+      {recommended && <span className="absolute right-6 top-6 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary" data-testid={`plan-badge-${plan.code}`}>Recommended</span>}
       <h2 className="text-xl font-semibold tracking-tight">{plan.name}</h2>
       <p className="mt-1 text-sm text-muted-foreground">{plan.tagline}</p>
       {pending ? (

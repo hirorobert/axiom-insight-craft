@@ -15,7 +15,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -33,6 +32,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAuditLog } from "@/hooks/useAuditLog";
+import { computedConfidence, confidenceLabel, formatBalance, needsReview } from "@/lib/accountMappingDisplay";
 
 interface Account {
   accountCode?: string;
@@ -158,19 +158,6 @@ function flattenAccounts(mapping: AccountMappingModalProps["mapping"]) {
   return accounts;
 }
 
-function getConfidenceColor(confidence: number) {
-  if (confidence >= 90) return "text-accent";
-  if (confidence >= 70) return "text-primary";
-  if (confidence >= 50) return "text-yellow-500";
-  return "text-destructive";
-}
-
-function getConfidenceBadge(confidence: number) {
-  if (confidence >= 90) return { variant: "default" as const, label: "High" };
-  if (confidence >= 70) return { variant: "secondary" as const, label: "Medium" };
-  if (confidence >= 50) return { variant: "outline" as const, label: "Low" };
-  return { variant: "destructive" as const, label: "Review" };
-}
 
 export function AccountMappingModal({
   open,
@@ -228,7 +215,7 @@ export function AccountMappingModal({
       account.accountCode?.toLowerCase().includes(searchQuery.toLowerCase());
 
     if (filter === "lowConfidence") {
-      return matchesSearch && (account.confidence || 0) < 70;
+      return matchesSearch && needsReview(account);
     }
     if (filter === "corrected") {
       return matchesSearch && corrections[account.accountCode || ""];
@@ -301,7 +288,7 @@ export function AccountMappingModal({
     }
   };
 
-  const lowConfidenceCount = accounts.filter((a) => (a.confidence || 0) < 70).length;
+  const lowConfidenceCount = accounts.filter(needsReview).length;
   const correctedCount = Object.keys(corrections).length;
 
   return (
@@ -366,8 +353,7 @@ export function AccountMappingModal({
                 const key = account.accountCode || `account-${index}`;
                 const isEditing = editingAccount === key;
                 const correction = corrections[key];
-                const confidence = account.confidence || 85;
-                const badge = getConfidenceBadge(confidence);
+                const confidence = computedConfidence(account);
 
                 return (
                   <div
@@ -388,9 +374,6 @@ export function AccountMappingModal({
                               {account.accountCode}
                             </span>
                           )}
-                          <Badge variant={badge.variant} className="text-xs">
-                            {badge.label}
-                          </Badge>
                           {correction && (
                             <Badge variant="outline" className="text-xs text-accent border-accent/30">
                               Corrected
@@ -418,22 +401,19 @@ export function AccountMappingModal({
                             </span>
                           </div>
                         </div>
-                        {account.balance !== undefined && (
+                        {typeof account.balance === "number" && Number.isFinite(account.balance) && (
                           <p className="text-sm text-muted-foreground mt-1">
-                            Balance: ${account.balance.toLocaleString()}
+                            Balance: {formatBalance(account.balance)}
                           </p>
                         )}
                       </div>
 
                       <div className="flex items-center gap-3">
-                        {/* Confidence Score */}
-                        <div className="text-right">
-                          <div className="flex items-center gap-2">
-                            <Progress value={confidence} className="w-16 h-2" />
-                            <span className={`text-sm font-medium ${getConfidenceColor(confidence)}`}>
-                              {confidence}%
-                            </span>
-                          </div>
+                        {/* Mapping confidence: the engine's figure, or "Not scored" when it computed none */}
+                        <div className="text-right" data-testid="mapping-confidence">
+                          <p className="text-sm font-medium tabular-nums text-foreground">
+                            {confidenceLabel(confidence)}
+                          </p>
                           <p className="text-xs text-muted-foreground">confidence</p>
                         </div>
 

@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 /**
  * The plans page (owner decision 2026-10-20): two tabs ("Small practices", "Firms"), two cards each, Practice marked
- * "Most popular"; every purchase opens the CFOClose checkout page, which states the term, the merchant of record and the
+ * "Recommended" (R1, 2026-11-26: never an adoption claim such as "Most popular", which no sales evidence supports); every
+ * purchase opens the CFOClose checkout page, which states the term, the merchant of record and the
  * refund terms before anything leaves for the payment page (S2-C02); before the prices are read, no card states a price.
  */
 import fs from "node:fs";
@@ -38,12 +39,13 @@ beforeEach(() => {
 afterEach(() => { m?.unmount(); m = null; });
 
 describe("plan groups", () => {
-  it("Small practices first (Solo, Practice); Firms on its tab (Firm, Enterprise); Practice is marked Most popular", async () => {
+  it("Small practices first (Solo, Practice); Firms on its tab (Firm, Enterprise); Practice is marked Recommended, never Most popular", async () => {
     m = mount(at("/plans", { prices: OPEN }));
     expect(byTestId(m, "plan-tab-small")!.getAttribute("aria-selected")).toBe("true");
     expect(visible(m, "plan-SOLO") && visible(m, "plan-PRACTICE")).toBe(true);
     expect(visible(m, "plan-FIRM") || visible(m, "plan-ENTERPRISE")).toBe(false);
-    expect(byTestId(m, "plan-badge-PRACTICE")!.textContent).toBe("Most popular");
+    expect(byTestId(m, "plan-badge-PRACTICE")!.textContent).toBe("Recommended");
+    expect(m.container.textContent).not.toMatch(/most popular/i);
     expect(m.container.querySelectorAll("[data-testid^='plan-badge-']").length).toBe(1);
     click(byTestId(m, "plan-tab-firms")!);
     expect(visible(m, "plan-FIRM") && visible(m, "plan-ENTERPRISE")).toBe(true);

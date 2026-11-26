@@ -120,7 +120,7 @@ export default function Auth() {
       if (error) {
         toast.error(error.message);
       } else {
-        toast.success("Password reset email sent! Check your inbox.");
+        toast.success("Password reset email sent. Check your inbox.");
         setMode("login");
       }
     } catch (error) {
@@ -142,7 +142,7 @@ export default function Auth() {
       if (error) {
         toast.error(error.message);
       } else {
-        toast.success("Password updated successfully!");
+        toast.success("Password updated.");
         navigate("/");
       }
     } catch (error) {
@@ -197,7 +197,7 @@ export default function Auth() {
           }
         } else {
           recordSuccessfulLogin();
-          toast.success("Welcome back!");
+          toast.success("Signed in.");
           navigate("/");
         }
       } else {
@@ -208,7 +208,7 @@ export default function Auth() {
         } else {
           setSignupEmail(email);
           setMode("verify-email");
-          toast.success("Account created! Please check your email.");
+          toast.success("Account created. Check your email to confirm your address.");
         }
       }
     } catch (error) {
@@ -344,7 +344,7 @@ export default function Auth() {
                           // PPG-1 Finding 2 (confirmed residual gap): resend previously showed the raw provider error verbatim, including on a rate-limited resend.
                           toast.error(translateAuthError(error).message);
                         } else {
-                          toast.success("Verification email resent!");
+                          toast.success("Verification email resent.");
                         }
                       } catch {
                         toast.error("Failed to resend email. Please try again.");
@@ -374,7 +374,9 @@ export default function Auth() {
                     <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                     <Input
                       id="displayName"
+                      name="name"
                       type="text"
+                      autoComplete="name"
                       placeholder="Your name"
                       value={displayName}
                       onChange={(e) => setDisplayName(e.target.value)}
@@ -393,7 +395,12 @@ export default function Auth() {
                     <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                     <Input
                       id="email"
+                      name="email"
                       type="email"
+                      autoComplete="email"
+                      inputMode="email"
+                      aria-invalid={errors.email ? true : undefined}
+                      aria-describedby={errors.email ? "email-error" : undefined}
                       placeholder="you@company.com"
                       value={email}
                       onChange={(e) => {
@@ -406,7 +413,7 @@ export default function Auth() {
                     />
                   </div>
                   {errors.email && (
-                    <p className="text-sm text-destructive">{errors.email}</p>
+                    <p id="email-error" className="text-sm text-destructive">{errors.email}</p>
                   )}
                 </div>
               )}
@@ -420,7 +427,11 @@ export default function Auth() {
                     <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                     <Input
                       id="password"
+                      name="password"
                       type={showPassword ? "text" : "password"}
+                      autoComplete={mode === "login" ? "current-password" : "new-password"}
+                      aria-invalid={errors.password ? true : undefined}
+                      aria-describedby={errors.password ? "password-error" : undefined}
                       placeholder="••••••••"
                       value={password}
                       onChange={(e) => {
@@ -442,7 +453,7 @@ export default function Auth() {
                     </button>
                   </div>
                   {errors.password && (
-                    <p className="text-sm text-destructive">{errors.password}</p>
+                    <p id="password-error" className="text-sm text-destructive">{errors.password}</p>
                   )}
                 </div>
               )}
@@ -456,7 +467,11 @@ export default function Auth() {
                     <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                     <Input
                       id="confirmPassword"
+                      name="confirmPassword"
                       type={showPassword ? "text" : "password"}
+                      autoComplete="new-password"
+                      aria-invalid={errors.confirmPassword ? true : undefined}
+                      aria-describedby={errors.confirmPassword ? "confirmPassword-error" : undefined}
                       placeholder="••••••••"
                       value={confirmPassword}
                       onChange={(e) => {
@@ -469,7 +484,7 @@ export default function Auth() {
                     />
                   </div>
                   {errors.confirmPassword && (
-                    <p className="text-sm text-destructive">{errors.confirmPassword}</p>
+                    <p id="confirmPassword-error" className="text-sm text-destructive">{errors.confirmPassword}</p>
                   )}
                 </div>
               )}
