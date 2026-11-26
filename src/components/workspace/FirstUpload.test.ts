@@ -12,12 +12,12 @@ const html = renderToStaticMarkup(createElement(FirstUpload, { onChoosePlan: () 
 describe("FirstUpload: the first visit (Phase 2 P2-3)", () => {
   it("one clear upload action, with the supported formats and the enforced size limit visible", () => {
     expect(text(html)).toContain(FIRST_UPLOAD_COPY.heading);
-    expect(text(html)).toContain("CSV or Excel (.csv, .xlsx, .xls), up to 10 MB.");
+    expect(text(html)).toContain("CSV, Excel or Tally XML (.csv, .xlsx, .xls, .xml), up to 10 MB.");
     expect((html.match(/<button/g) ?? []).length).toBe(1);
     expect(html).toContain('data-testid="first-upload-choose"');
   });
   it("the file input accepts exactly the supported types and has an accessible name (keyboard reaches the visible button)", () => {
-    expect(html).toMatch(/accept="\.csv,\.xlsx,\.xls"/);
+    expect(html).toMatch(/accept="\.csv,\.xlsx,\.xls,\.xml"/);
     expect(html).toMatch(/aria-label="Choose a trial balance file"/);
     expect(html).toMatch(/tabindex="-1"/i);
   });

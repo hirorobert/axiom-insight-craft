@@ -15,8 +15,9 @@
 // so a highly compressed .xlsx is refused before the spreadsheet library ever sees it.
 
 export const TB_UPLOAD_POLICY = Object.freeze({
-  version: "tb-upload-policy-3",
-  extensions: Object.freeze([".csv", ".xlsx", ".xls"] as const),
+  version: "tb-upload-policy-4",
+  /** .xml is accepted for exactly one shape: TallyPrime's Trial Balance export (tbSource.ts → tallyXmlExport.ts). */
+  extensions: Object.freeze([".csv", ".xlsx", ".xls", ".xml"] as const),
   /** Bytes of the file as uploaded and stored (raw upload/storage limit). */
   maxFileBytes: 10_485_760,
   /** .xlsx/.xlsm: the ACTUAL inflated size of every entry together (declared sizes are only a first filter). */

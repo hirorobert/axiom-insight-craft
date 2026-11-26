@@ -290,7 +290,7 @@ export const TrialBalanceUpload = ({
         >
           <Upload className="mx-auto mb-3 h-7 w-7 text-muted-foreground" aria-hidden="true" />
           <p className="text-[15px] font-semibold text-foreground">{isDragging ? "Drop the file to choose it" : "Upload the trial balance for this period"}</p>
-          <p className="mt-1 text-[13px] text-muted-foreground">One file · .xlsx, .xls or .csv · or drag it here</p>
+          <p className="mt-1 text-[13px] text-muted-foreground">One file · .xlsx, .xls, .csv or a Tally .xml export · or drag it here</p>
         </div>
       )}
 

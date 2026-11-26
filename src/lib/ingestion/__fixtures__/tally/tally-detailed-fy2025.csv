@@ -1,0 +1,31 @@
+"Mfano Traders Limited",,
+"Trial Balance",,
+"1-Jan-2025 to 31-Dec-2025",,
+,,
+"Particulars","Debit","Credit"
+"Capital Account",,"50,00,000.00"
+"  Share Capital",,"50,00,000.00"
+"Current Liabilities",,"12,50,000.00"
+"  Duties & Taxes",,"2,50,000.00"
+"    VAT Payable",,"2,50,000.00"
+"  Sundry Creditors",,"10,00,000.00"
+"    Kariakoo Suppliers Ltd",,"7,00,000.00"
+"    Mlimani Wholesalers",,"3,00,000.00"
+"Current Assets","48,00,000.00",
+"  Bank Accounts","30,00,000.00",
+"    CRDB Bank - Current A/c","30,00,000.00",
+"  Cash-in-hand","1,00,000.00",
+"    Cash","1,00,000.00",
+"  Sundry Debtors","17,00,000.00",
+"    Azania Retail","12,00,000.00",
+"    Kigamboni Stores","5,00,000.00",
+"Fixed Assets","20,00,000.00",
+"  Office Equipment","20,00,000.00",
+"Sales Accounts",,"85,00,000.00"
+"  Sales - Local",,"85,00,000.00"
+"Purchase Accounts","60,00,000.00",
+"  Purchases - Local","60,00,000.00",
+"Indirect Expenses","19,50,000.00",
+"  Rent","12,00,000.00",
+"  Salaries","7,50,000.00",
+"Grand Total","1,47,50,000.00","1,47,50,000.00"
