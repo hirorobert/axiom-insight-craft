@@ -1,0 +1,86 @@
+# Consolidated payment acceptance matrix: Polar card and Snippe mobile money
+
+- **Scope:** both intended launch routes. Public payments stay `PAYMENTS_DISABLED` until every row marked *launch-blocking* passes.
+- **Baseline (updated 2026-10-15):**
+  - **Payment release:** `945af25` (PR #127; CI run 38574920648 green). The staging acceptance below ran on it, and the payment functions on main are unchanged since.
+  - **Current main:** `2229997` (PR #130 plus Lovable's `/plans` change, `74db76d`).
+    - #130 adds migration `20261104100000` (**pending hosted application**) and the `reauthenticate` function.
+    - Its documented deploy order is the migration, then `reauthenticate`, then Publish. Because Lovable's Publish publishes the latest main, the production release now follows that order.
+  - **Production:** last published `ce41133` (Lovable-reported). Nothing from `945af25` or later is deployed to production yet.
+- **Integration owner:** the "POLAR AND SNIPPE" Claude Code session. Hosted configuration goes through Lovable; shared payment screens through the MEGA REDESIGN workstream.
+
+**Every test is PENDING** until its own evidence (environment, date, commit and records) is added to this table. CI coverage and earlier hosted deployments are supporting evidence, not acceptance. The dated history of earlier hosted deployments is in `PAYMENT_LAUNCH_HANDOFF.md`, and it does not prove current launch readiness.
+
+Evidence kinds:
+- **CI** means the mock-provider journey and the real-PostgreSQL proofs run on every commit.
+- **Staging** means `hplriydtdelehepgttul` with provider test facilities.
+- **Live** means production, `LIVE_ACCEPTANCE`, the designated tester only, and a separately authorised real charge.
+
+## Provider test facilities (checked 2026-10-14)
+
+| Provider | Test facility | Consequence |
+|---|---|---|
+| Polar | A separate sandbox (`sandbox.polar.sh`, `sandbox-api.polar.sh`), test cards, and refunds from the sandbox dashboard | Purchase and refund are tested on staging with no real money |
+| Snippe | **None documented.** The [authentication](https://docs.snippe.sh/docs/2026-01-25/authentication) and [payments](https://docs.snippe.sh/docs/2026-01-25/payments) pages give no sandbox host, test key prefix, test phone numbers or test marker on a payment, and **no refund or reversal API**. The networks listed are M-Pesa, Airtel Money, Mixx by Yas and Halotel. | Every Snippe provider row is a **real charge** in production. Refund is **unconfirmed**: it is possible only if Snippe confirms a refund procedure in writing, and it is recorded with `admin_record_provider_refund`. |
+
+## Prices
+
+| Plan | Polar (GLOBAL, USD, exponent 2) | Snippe (TZ, TZS, exponent 0, whole shillings) |
+|---|---|---|
+| Solo | USD 490 (`49000`) | TZS 1,290,000 (`1290000`) |
+| Practice | USD 990 (`99000`) | TZS 2,590,000 (`2590000`) |
+| Firm | USD 2,990 (`299000`) | TZS 7,790,000 (`7790000`) |
+
+- **TZS prices:** the owner approved them on 2026-10-14. Each buys 12 months, with no automatic renewal. They are not derived from USD.
+- **Canonical recording:** `/commercial/admin` → Prices → *Add or correct an annual price*, with market `TZ`. The form sets TZS and exponent 0, and `admin_upsert_commercial_offer` records codes `CFOCLOSE_<PLAN>_TZ_TZS_ANNUAL` as **not purchasable**. Approving an offer (making it purchasable) is a separate, audited step.
+- **Unit check (code):** the Snippe adapter refuses anything other than TZS with exponent 0, or less than TZS 500. It sends the integer amount unchanged.
+- **Before any TZS offer is made purchasable, these conditions are still open:**
+  1. **Tax treatment:** is VAT (18%) included in these prices? What are the EFD/EFDMS receipting duties for each sale? CFOClose's own entity is the seller (`SNIPPE_TZ_READINESS.md` §4 #7).
+  2. **Provider fees:** Snippe's fee per network, and who bears it. The only figure documented is an example (TZS 9 on TZS 500).
+  3. **Transaction limits:** Snippe documents only "the maximum varies by account", and gives no per-network or wallet limit. **Whether TZS 7,790,000 (Firm), or even TZS 1,290,000, can be paid in one mobile-money transaction is unconfirmed.** It needs Snippe's written account maximum and each network's per-transaction wallet limit.
+  4. **Release gate:** `docs/release/commercial-p4/purchasing_gate.sql` refuses any purchasable TZS/TZ offer. A reviewed update to that gate is needed in the release that approves these offers.
+- **No-renewal check:** both routes sell a one-time 12-month term. There is no subscription or automatic charge (Polar one-time products; a single Snippe collection).
+
+## Matrix
+
+| # | Case | Route | Environment | Expected result (verified in the database and on the customer pages) | Existing evidence | Acceptance |
+|---|---|---|---|---|---|---|
+| P1 | Card purchase | Polar | Staging sandbox | The checkout carries the server's USD offer. Polar's hosted page is paid with a test card. The signed `order.paid` webhook is read back from Polar. One `PAYMENT_CONFIRMED` event. Licence status `SANDBOX`; the account still has **no plan**. The status page says "Test payment received". | CI journey (mock Polar) | **PASS (2026-10-15, staging `hplriydtdelehepgttul`, `SANDBOX_ONLY`)**: order `SAFF-1792042064731-2AB7F7BC` (Polar order `a6e3a337…`), Solo `49000` USD, sandbox. Intent created 05:27:44 UTC, `SUCCEEDED` 05:34:07. Exactly one `PAYMENT_CONFIRMED` (`PROVIDER_API_VERIFY`, Polar status `paid`, same account and plan). Committed by the signed webhook path 1.1 s after a delivery; the recovery path never ran. Functions: `945af25`, except `commercial-create-checkout` at `6f758e5` (#129, failure logging only). |
+| P2 | Card refund | Polar | Staging sandbox | The refund is issued in Polar's sandbox dashboard. The `refund.*` or `order.refunded` webhook records one `REFUND` event. The reversal appears in `/commercial/admin` for a single audited decision. The Orders page shows "Refunded". | CI (mock), `paymentReversalAuthority.mjs` | **PASS (2026-10-15, staging)**: Polar sandbox refund of the P1 order, USD 490, shown as Succeeded in Polar. Exactly one `REFUND` event (`REFUNDED`, `49000` USD, 06:11:12 UTC); the original `PAYMENT_CONFIRMED` is unchanged. One audited decision, `REVERSAL_REVIEWED` = `LICENCE_KEPT` at 07:36:55 UTC (owner, `/commercial/admin`). The licence stays `SANDBOX`. |
+| P3 | Duplicate and forged notifications | Polar | Staging sandbox | Resending the same webhook, a bad signature and a stale timestamp each change nothing: still one event and one licence. | CI journey (5 concurrent deliveries, replay, bad signature, stale) | **PASS (2026-10-15, staging + CI)**: the owner redelivered Polar `order.paid` delivery `15bdc2f2-5382-4440-a565-6d79cd31650f` (first received 05:34:08, again 05:57:37 UTC). Payment events stayed at 1, licences at 1 (`SANDBOX`), and the intent stayed `SUCCEEDED`. An unsigned request is refused with `INVALID_SIGNATURE` (HTTP 401). Bad-signature, stale and concurrent cases are covered by the CI journey at main `945af25`, run 38574920648. |
+| P4 | Verified production payment grants access automatically | Polar | Live | `LIVE_ACCEPTANCE` is set and the tester is allow-listed. **One real Solo purchase at USD 490.** One ACTIVE licence, `POLAR_VERIFIED_PAYMENT`, 12-month term. The account gets Solo access. Any other account is refused. | `paymentProviders.mjs` (LIVE_ACCEPTANCE rule) | **PENDING**: **Requires the owner to authorise that specific charge** |
+| P5 | Production refund | Polar | Live | P4's order is refunded in Polar production. One `REFUND` event. The administrator ends access or keeps it, recorded once. | `paymentReversalAuthority.mjs` | **PENDING**: Requires the owner to authorise it |
+| S1 | Mobile-money purchase | Snippe | Live (no sandbox exists) | A USSD push for **exactly TZS 1,290,000** (the approved Solo price; no USD conversion). Confirmed on the handset. The signed `payment.completed` webhook is read back from Snippe. One ACTIVE licence, `SNIPPE_VERIFIED_PAYMENT`, 12-month term. | `snippeLedger.mjs` 30/30; CI journey (mock Snippe) | **PENDING**: **Blocked**: code gate, TZS prices, merchant activation and credentials; real-charge authorisation |
+| S2 | Pending payment | Snippe | Live | The push is not answered. The status page keeps polling and shows pending, with no licence. After Snippe's expiry (1 h or 4 h, unconfirmed) the order shows `expired`, with no licence. | `snippeLedger.mjs` (pending and expired grant nothing) | **PENDING**: Blocked, as for S1. **No charge if it is left unanswered.** |
+| S3 | Failed payment | Snippe | Live | The push is declined on the handset (or the balance is too low). The order is `failed`, with no licence, and the customer can start again. | `snippeLedger.mjs` | **PENDING**: Blocked, as for S1. **No charge.** |
+| S4 | Reversal or refund | Snippe | Live | **Only if Snippe confirms a refund procedure in writing.** The refund is completed outside CFOClose, then an administrator records it with `admin_record_provider_refund` and makes the licence decision, audited. | `paymentReversalAuthority.mjs` (recording only) | **PENDING**: **Blocked**: Snippe documents no refund (readiness §4 #5) |
+| S5 | Duplicate and forged notifications | Snippe | CI; repeated on live S1 | A replay, a forged signature, a stale capture, an unknown reference and 5 concurrent deliveries each change nothing. | CI journey (5 Snippe abuse checks) | **PENDING**: Covered in CI |
+| X1 | Sandbox never grants production access | Both | Staging, CI | A sandbox payment produces `SANDBOX`, never ACTIVE, and never places a term. A sandbox adapter never settles a production order. **For Snippe the "sandbox" label is CFOClose configuration only; it is not provider isolation.** | `sandboxLicenceIsolation.mjs` 45/45 | **Polar: PASS (2026-10-15, staging)**: the P1 sandbox payment produced exactly one licence, status `SANDBOX`, provenance `SANDBOX_PAYMENT`, placement `SANDBOX_RECORD`. No ACTIVE or GRACE licence exists for the account at any point (after the payment, the replay, the refund and the decision), and the status page says "No plan was activated". **Snippe: PENDING** (on hold; no provider sandbox). |
+| X2 | Correct prices and currencies | Both | Staging, Live | Polar charges the approved USD amount (490, 990 or 2,990) and Polar's order net equals the offer. Snippe charges the approved TZS amount exactly. No USD-to-TZS conversion. A mismatched amount or currency is refused and nothing is written. | `paymentProviders.mjs`, `snippeLedger.mjs` | **PENDING**: TZS prices not approved |
+| X3 | Account isolation | Both | CI, Staging | Another account's order is "not found". `create_entity` without a plan, another account's company and the administrator screen are all refused by the server. | CI journey (cross-account denial) | **PENDING**: Covered in CI; repeat on staging |
+| X4 | Seat and entity limits | Both | CI, Staging | Each plan's advertised named users and entities are enforced. Upgrading over the extra users goes to review (`BLOCKED_SEATS`). Paid terms and paid extra users are preserved. | `entitlements.mjs`, `paidTermPreservation.mjs`, `planCapabilities.mjs` | **PENDING**: Covered in CI; repeat on staging |
+| X5 | One attempt at a time; terms never overlap | Both | CI | One payment attempt at a time per account across Polar and Snippe. A Polar term followed by a Snippe term never overlaps. | `snippeLedger.mjs` | **PENDING**: Covered in CI |
+| X6 | Payment and outcome screens | Both | Staging, Live | Checkout, pending, confirmation, failure, refunded and "not found" states, at 1280 and 375 px. | `paymentScreens.test.ts`; CI journey | **PENDING**: Shared with MEGA REDESIGN; re-run after any screen change |
+
+## Launch rule
+
+`CUSTOMER_PAYMENTS_ENABLED` uses the audited platform transition. It is applied only after P1–P5 pass, and either:
+- S1–S5 pass, or
+- the owner removes Snippe from this launch in writing.
+
+**Owner decision, 2026-10-14:** Polar-only production launch. Snippe is **on hold** and does not block Polar. S1–S5 stay PENDING, and Snippe stays switched off in code (`SNIPPE_CUSTOMER_CHECKOUT_ENABLED = false`, `LAUNCHED_MARKETS = ["GLOBAL"]`). Launch therefore requires P1–P5 and X1–X6 (Polar side) to pass. P4 is a real USD 490 charge, which needs the owner's separate authorisation.
+
+## Staging run log (2026-10-14/15, `hplriydtdelehepgttul`)
+
+- **Setup:**
+  - the full tracked schema applied at `945af25` (40 migrations), after the owner's single-use `FREE_PLAN_RETIREMENT` approval for the 92 open Free test licences;
+  - one owner commercial administrator;
+  - six Polar sandbox settings;
+  - USD prices 490 / 990 / 2,990 approved on staging only.
+- **Three failed attempts before P1** (all `FAILED`; nothing created or charged):
+  - two `POLAR_HTTP_403` (14 Oct 17:39 UTC), from before Polar's refusal reason was recorded;
+  - one `POLAR_HTTP_403:insufficient_scope` (15 Oct 05:03 UTC), captured by #129.
+
+  The next attempt, at 05:27 UTC, succeeded. The 403s came from the staging token configuration, not from CFOClose code.
+- **State gate:** staging was briefly `LIVE_ACCEPTANCE`, which correctly refuses a sandbox route. It was corrected to `SANDBOX_ONLY` before P1.
+- **Production was not touched by this run.**
